@@ -6,9 +6,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pypomes_db"
-version = "0.1.1"
+version = "0.1.2"
 authors = [
-  { name="GT Nunes", email="wisecoder01@gmail.com" },
+  { name="GT Nunes", email="wisecoder01@gmail.com" }
 ]
 description = "A collection of Python pomes, pennyeach (DB modules)"
 readme = "README.md"
@@ -16,7 +16,7 @@ requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
+    "Operating System :: OS Independent"
 ]
 dependencies = [
     "pip>=23.1.2",
