@@ -1,5 +1,5 @@
 # noinspection PyProtectedMember
-from pyodbc import connect, Connection, Row
+from pyodbc import connect, Connection
 from typing import Final
 from pypomes_core.env_pomes import APP_PREFIX, env_get_int, env_get_str
 
@@ -93,27 +93,28 @@ def db_select_one(errors: list[str], sel_stmt: str,
     return result
 
 
-def db_exec_stored_procedure(errors: list[str], nm_proced: str, param_vals: tuple) -> list[Row]:
+def db_exec_stored_procedure(errors: list[str], nm_procedure: str, proc_vals: tuple) -> list[tuple]:
     """
     Executa o stored procedure no banco de dados com os parâmetros informados e retorna os erros que ocorrerem
 
     :param errors: lista a ser apensada com mensagem apropriada, em caso de erro
-    :param nm_proced: nome do stored procedure
-    :param param_vals: lista de valores dos parâmetros
+    :param nm_procedure: nome do stored procedure
+    :param proc_vals: lista de valores para a sotred procedure
     :return: lista de tuplas contendo o resultado da busca, ou [] se a busca resultar vazia
     """
     # inicializa a variável de retorno
-    result: list[Row] = []
+    result: list[tuple] = []
 
     try:
         with connect(__CONNECTION_KWARGS) as conn:
             # obtém o cursor e executa a operação
             with conn.cursor() as cursor:
-                sql = f"SET NOCOUNT ON; EXEC {nm_proced} {','.join(('?',) * len(param_vals))}"
-                cursor.execute(sql, param_vals)
+                stmt = f"SET NOCOUNT ON; EXEC {nm_procedure} {','.join(('?',) * len(proc_vals))}"
+                cursor.execute(stmt, proc_vals)
                 # obtem as tuplas retornadas
                 for record in cursor:
-                    result.append(record)
+                    values: list = [rec[0] for rec in record]
+                    result.append(tuple(values))
 
     except Exception as e:
         errors.append(__db_except_msg(e))
@@ -122,7 +123,7 @@ def db_exec_stored_procedure(errors: list[str], nm_proced: str, param_vals: tupl
 
 
 def db_select_all(errors: list[str], sel_stmt: str,
-                  where_vals: tuple, required: bool = False) -> list[Row]:
+                  where_vals: tuple, required: bool = False) -> list[tuple]:
     """
     Busca no banco de dados e retorna todas as tuplas que satisfaçam o comando de busca *sele_stmt*.
     O comando pode opcionalmente conter critérios de busca, com valores respectivos fornecidos
@@ -136,7 +137,7 @@ def db_select_all(errors: list[str], sel_stmt: str,
     :return: lista de tuplas contendo o resultado da busca, ou [] se a busca resultar vazia
     """
     # inicializa a variável de retorno
-    result: list[Row] = []
+    result: list[tuple] = []
 
     exc: bool = False
     try:
@@ -146,7 +147,8 @@ def db_select_all(errors: list[str], sel_stmt: str,
                 cursor.execute(sel_stmt, where_vals)
                 # obtem as tuplas retornadas
                 for record in cursor:
-                    result.append(record)
+                    values: list = [rec[0] for rec in record]
+                    result.append(tuple(values))
     except Exception as e:
         exc = True
         errors.append(__db_except_msg(e))
@@ -211,16 +213,6 @@ def db_delete(errors: list[str], delete_stmt: str, where_vals: tuple) -> int:
     :return: o número de tuplas excluídas
     """
     return __db_modify(errors, delete_stmt, where_vals)
-
-
-def db_row_to_dict(row):
-    """
-    Converts a pyodbc.Row object to a dictionary.
-
-    :param row: A pyodbc.Row object.
-    :return: A dictionary where keys are column names and values are the corresponding values in the row.
-    """
-    return {description[0]: row[i] for i, description in enumerate(row.cursor_description)}
 
 
 def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple) -> int:
