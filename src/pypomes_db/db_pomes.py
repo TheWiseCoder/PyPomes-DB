@@ -36,7 +36,7 @@ def db_connect(errors: list[str]) -> Connection:
 
 def db_exists(errors: list[str], table: str, where_attrs: list[str], where_vals: tuple) -> bool:
     """
-    Determines whether the *table* table in the database contains at least one tuple where *where_attrs* equals
+    Determines whether the table *table* in the database contains at least one tuple where *where_attrs* equals
     *where_values*, respectively. If more than one, the attributes are concatenated by the *AND* logical connector.
     Returns *None* if there was an error in querying the database.
 
@@ -44,7 +44,7 @@ def db_exists(errors: list[str], table: str, where_attrs: list[str], where_vals:
     :param table: the table to be searched
     :param where_attrs: the search attributes
     :param where_vals: the values for the search attributes
-    :return: True if at least one tuple exists
+    :return: True if at least one tuple was found
     """
     sel_stmt: str = f"SELECT * FROM {table}"  # noqa
     if len(where_attrs) > 0:
@@ -65,7 +65,7 @@ def db_select_one(errors: list[str], sel_stmt: str,
 
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
-    :param where_vals: list of values to be associated with the search criteria
+    :param where_vals: values to be associated with the search criteria
     :param required: defines whether an empty search should be considered an error
     :return: tuple containing the search result, or None if there was an error, or if the search was empty
     """
@@ -102,9 +102,9 @@ def db_select_all(errors: list[str], sel_stmt: str,
     in a specific tuple. If the search is empty, an empty list is returned.
 
     :param errors: incidental error messages
-    :param sel_stmt: SELECT command for thew search
+    :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the search criteria
-    :param required: defines whether empty search should be considered an error
+    :param required: defines whether an empty search should be considered an error
     :return: list of tuples containing the search result, or [] if the search is empty
     """
     # inicialize the return variable
@@ -156,7 +156,7 @@ def db_update(errors: list[str], update_stmt: str,
     :param update_stmt: the UPDATE command
     :param update_vals: the values for the update operation
     :param where_vals: the values to be associated with the search criteria
-    :return: the number of updated tuples
+    :return: the number of updated tuples, or None if an error occurred
     """
     values: tuple = update_vals + where_vals
     return __db_modify(errors, update_stmt, values)
@@ -170,7 +170,7 @@ def db_delete(errors: list[str], delete_stmt: str, where_vals: tuple) -> int:
     :param errors: incidental error messages
     :param delete_stmt: the DELETE command
     :param where_vals: the values to be associated with the search criteria
-    :return: the number of deleted tuples
+    :return: the number of deleted tuples, or None if an error occurred
     """
     return __db_modify(errors, delete_stmt, where_vals)
 
@@ -266,7 +266,7 @@ def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple) -> int:
 def __db_except_msg(exception: Exception) -> str:
     """
     Formats and returns the error message corresponding to the exception raised
-    on accessing to the database.
+    while accessing to the database.
 
     :param exception: the exception raised
     :return:the formatted error message
@@ -286,7 +286,7 @@ def __db_required_msg(sel_stmt: str, where_vals: tuple) -> str:
     Formats and returns the message indicative of empty search.
 
     :param sel_stmt: the search command
-    :param where_vals: values associatred with the search criteria
+    :param where_vals: values associated with the search criteria
     :return: message indicative of empty search
     """
     stmt: str = sel_stmt.replace('"', "'") \
