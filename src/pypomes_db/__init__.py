@@ -11,5 +11,5 @@ __all__ = [
     db_update, db_delete, db_insert, db_bulk_insert, db_exec_stored_procedure
 ]
 
-__version__ = "0.1.4"
-__version_info__ = (0, 1, 4)
+__version__ = "0.1.5"
+__version_info__ = (0, 1, 5)

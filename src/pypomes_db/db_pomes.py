@@ -69,18 +69,20 @@ def db_select_one(errors: list[str], sel_stmt: str,
     :param required: defines whether an empty search should be considered an error
     :return: tuple containing the search result, or None if there was an error, or if the search was empty
     """
-    # inicializa a variável de retorno
+    # inicialize the return variable
     result: tuple | None = None
 
     exc: bool = False
     try:
         with connect(__CONNECTION_KWARGS) as conn:
-            # obtem o cursor e executa a operação
+            # obtain the cursor and execute the operation
             with conn.cursor() as cursor:
-                sel_stmt = sel_stmt.replace("SELECT", "SELECT TOP 1")
+                sel_stmt = sel_stmt.replace("SELECT", "SELECT TOP 1", 1)
                 cursor.execute(sel_stmt, where_vals)
-                # obtem a primeira tupla retornada pelo SELECT (None se nenhuma foi retornada)
-                result = cursor.fetchone()
+                # obtain the first tuple returned (None se no tuple was returned)
+                rec: Row = cursor.fetchone()
+                if rec is not None:
+                    result = tuple(rec)
     except Exception as e:
         exc = True
         errors.append(__db_except_msg(e))
@@ -266,7 +268,7 @@ def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple) -> int:
 def __db_except_msg(exception: Exception) -> str:
     """
     Formats and returns the error message corresponding to the exception raised
-    while accessing to the database.
+    while accessing the database.
 
     :param exception: the exception raised
     :return:the formatted error message
@@ -283,7 +285,7 @@ def __db_except_msg(exception: Exception) -> str:
 
 def __db_required_msg(sel_stmt: str, where_vals: tuple) -> str:
     """
-    Formats and returns the message indicative of empty search.
+    Formats and returns the message indicative of an empty search.
 
     :param sel_stmt: the search command
     :param where_vals: values associated with the search criteria
