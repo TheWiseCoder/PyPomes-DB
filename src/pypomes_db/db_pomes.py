@@ -1,7 +1,7 @@
 # noinspection PyProtectedMember
-from pyodbc import connect, Connection
+from pyodbc import connect, Connection, Cursor, Row
 from typing import Final
-from pypomes_core.env_pomes import APP_PREFIX, env_get_int, env_get_str
+from pypomes_core import APP_PREFIX, env_get_int, env_get_str
 
 # dados para acesso ao BD
 DB_DRIVER: Final[str] = env_get_str(f"{APP_PREFIX}_DB_DRIVER")
@@ -17,10 +17,10 @@ __CONNECTION_KWARGS: Final[str] = f"DRIVER={{{DB_DRIVER}}};SERVER={DB_HOST},{DB_
 
 def db_connect(errors: list[str]) -> Connection:
     """
-    Obtém e retorna uma conexão ao banco de dados, ou *None* se a conexão não pode ser obtida.
+    Obtains and returns a connection to the database, or *None* if the connection cannot be obtained.
 
-    :param errors: lista a ser apensada com mensagem apropriada, em caso de erro
-    :return: a conexão ao banco de dados
+    :param errors: incidental error messages
+    :return: the connection to the database
     """
     # inicializa a variável de retorno
     result: Connection | None = None
@@ -36,15 +36,15 @@ def db_connect(errors: list[str]) -> Connection:
 
 def db_exists(errors: list[str], table: str, where_attrs: list[str], where_vals: tuple) -> bool:
     """
-    Determina se a tabela *table* no banco de dados contem pelo menos uma tupla onde *attrs* são iguais a
-    *values*, respectivamente. Se mais de um, os atributos são concatenados pelo conector lógico *AND*.
-    Retorna *None* se houver erro na consulta ao banco de dados.
+    Determines whether the *table* table in the database contains at least one tuple where *where_attrs* equals
+    *where_values*, respectively. If more than one, the attributes are concatenated by the *AND* logical connector.
+    Returns *None* if there was an error in querying the database.
 
-    :param errors: lista a ser apensada com mensagem apropriada, em caso de erro
-    :param table: a tabela a ser pesquisada
-    :param where_attrs: os atributos para a busca
-    :param where_vals: lista de valores a serem atribuídos aos atributos
-    :return: True se não houve erro, e se pelo menos uma tupla existir
+    :param errors: incidental error messages
+    :param table: the table to be searched
+    :param where_attrs: the search attributes
+    :param where_vals: the values for the search attributes
+    :return: True if at least one tuple exists
     """
     sel_stmt: str = f"SELECT * FROM {table}"  # noqa
     if len(where_attrs) > 0:
@@ -58,16 +58,16 @@ def db_exists(errors: list[str], table: str, where_attrs: list[str], where_vals:
 def db_select_one(errors: list[str], sel_stmt: str,
                   where_vals: tuple, required: bool = False) -> tuple:
     """
-    Busca no banco de dados e retorna a primeira tupla que satisfaça o comando de busca *sel_stmt*.
-    O comando pode opcionalmente conter critérios de busca, com valores respectivos fornecidos
-    em *where_vals*. A lista de valores para um atributo com a cláusula *IN* deve estar contida
-    em tupla específica. Na hipótese de erro, ou se a busca resultar vazia, *None* é retornado.
+    Searches the database and returns the first tuple that satisfies the *sel_stmt* search command.
+    The command can optionally contain search criteria, with respective values given
+    in *where_vals*. The list of values for an attribute with the *IN* clause must be contained
+    in a specific tuple. In case of error, or if the search is empty, *None* is returned.
 
-    :param errors: lista a ser apensada com mensagem apropriada, em caso de erro
-    :param sel_stmt: comando SELECT para a busca
-    :param where_vals: lista de valores a serem associados aos critérios de busca
-    :param required: define se busca vazia deve ser considerada erro
-    :return: tupla contendo o resultado da busca, ou None se houve erro ou se a busca resultar vazia
+    :param errors: incidental error messages
+    :param sel_stmt: SELECT command for the search
+    :param where_vals: list of values to be associated with the search criteria
+    :param required: defines whether an empty search should be considered an error
+    :return: tuple containing the search result, or None if there was an error, or if the search was empty
     """
     # inicializa a variável de retorno
     result: tuple | None = None
@@ -93,69 +93,41 @@ def db_select_one(errors: list[str], sel_stmt: str,
     return result
 
 
-def db_exec_stored_procedure(errors: list[str], nm_procedure: str, proc_vals: tuple) -> list[tuple]:
-    """
-    Executa o stored procedure no banco de dados com os parâmetros informados e retorna os erros que ocorrerem
-
-    :param errors: lista a ser apensada com mensagem apropriada, em caso de erro
-    :param nm_procedure: nome do stored procedure
-    :param proc_vals: lista de valores para a sotred procedure
-    :return: lista de tuplas contendo o resultado da busca, ou [] se a busca resultar vazia
-    """
-    # inicializa a variável de retorno
-    result: list[tuple] = []
-
-    try:
-        with connect(__CONNECTION_KWARGS) as conn:
-            # obtém o cursor e executa a operação
-            with conn.cursor() as cursor:
-                stmt = f"SET NOCOUNT ON; EXEC {nm_procedure} {','.join(('?',) * len(proc_vals))}"
-                cursor.execute(stmt, proc_vals)
-                # obtem as tuplas retornadas
-                for record in cursor:
-                    values: list = [rec[0] for rec in record]
-                    result.append(tuple(values))
-
-    except Exception as e:
-        errors.append(__db_except_msg(e))
-
-    return result
-
-
 def db_select_all(errors: list[str], sel_stmt: str,
                   where_vals: tuple, required: bool = False) -> list[tuple]:
     """
-    Busca no banco de dados e retorna todas as tuplas que satisfaçam o comando de busca *sele_stmt*.
-    O comando pode opcionalmente conter critérios de busca, com valores respectivos fornecidos
-    em *where_vals*. A lista de valores para um atributo com a cláusula *IN* deve estar contida
-    em tupla específica. Se a busca resultar vazia, uma lista vazia é retornado.
+    Searches the database and returns all tuples that satisfy the *sel_stmt* search command.
+    The command can optionally contain search criteria, with respective values given
+    in *where_vals*. The list of values for an attribute with the *IN* clause must be contained
+    in a specific tuple. If the search is empty, an empty list is returned.
 
-    :param errors: lista a ser apensada com mensagem apropriada, em caso de erro
-    :param sel_stmt: comando SELECT para a busca
-    :param where_vals: lista de valores a serem associados aos critérios de busca
-    :param required: define se busca vazia deve ser considerada erro
-    :return: lista de tuplas contendo o resultado da busca, ou [] se a busca resultar vazia
+    :param errors: incidental error messages
+    :param sel_stmt: SELECT command for thew search
+    :param where_vals: the values to be associated with the search criteria
+    :param required: defines whether empty search should be considered an error
+    :return: list of tuples containing the search result, or [] if the search is empty
     """
-    # inicializa a variável de retorno
+    # inicialize the return variable
     result: list[tuple] = []
 
     exc: bool = False
     try:
         with connect(__CONNECTION_KWARGS) as conn:
-            # obtem o cursor e executa a operação
+            # obtain the cursor and execute the operation
             with conn.cursor() as cursor:
                 cursor.execute(sel_stmt, where_vals)
-                # obtem as tuplas retornadas
-                for record in cursor:
-                    values: list = [rec[0] for rec in record]
+                # obtain the returned tuples
+                rows: list[Row] = cursor.fetchall()
+                for row in rows:
+                    values: list = [item for item in row]
                     result.append(tuple(values))
     except Exception as e:
         exc = True
         errors.append(__db_except_msg(e))
 
-    # o parâmetro 'required' foi definido, não houve erros, e nenhum registro foi obtido ?
+    # no errors, the 'required' parameter has been defined, and the search is empty ?
     if required and not exc and len(result) == 0:
-        # sim, reporte o erro
+        # yes, report the error
         errors.append(__db_required_msg(sel_stmt, where_vals))
 
     return result
@@ -163,40 +135,28 @@ def db_select_all(errors: list[str], sel_stmt: str,
 
 def db_insert(errors: list[str], insert_stmt: str, insert_vals: tuple) -> int:
     """
-    Insere no banco de dados uma tupla com valores definidos em *insert_vals*.
-    Retorna o id da tupla inserida.
+    Inserts a tuple, with values defined in *insert_vals*, into the database.
 
-    :param errors: lista a ser apensada com mensagem apropriada, em caso de erro
-    :param insert_stmt: comando INSERT
-    :param insert_vals: lista de valores a serem inseridos
-    :return: o id da tupla inserida, ou None em caso de erro
+    :param errors: incidental error messages
+    :param insert_stmt: the INSERT command
+    :param insert_vals: the values to be inserted
+    :return: the number of inserted tuples (0 ou 1), or None if an error occurred
     """
-    result: int | None = None
-    try:
-        with connect(__CONNECTION_KWARGS) as conn:
-            with conn.cursor() as cursor:
-                insert_stmt = insert_stmt.replace("VALUES", "OUTPUT INSERTED.id VALUES")
-                cursor.execute(insert_stmt, insert_vals)
-                result = cursor.fetchone()[0]
-    except Exception as e:
-        errors.append(str(e))
-
-    return result
+    return __db_modify(errors, insert_stmt, insert_vals)
 
 
 def db_update(errors: list[str], update_stmt: str,
               update_vals: tuple, where_vals: tuple) -> int:
     """
-    Atualiza uma ou mais tuplas no banco de dados, segundo as definições do comando
-    *update_stmt*. Os valores para essa atualização estão em *update_vals*.
-    Os valores para a seleção das tuplas a serem atualizadas estão em *where_vals*.
-    Retorna o número de tuplas modificadas.
+    Updates one or more tuples in the database, as defined by the command
+    *update_stmt*. The values for this update are in *update_vals*.
+    The values for selecting the tuples to be updated are in *where_vals*.
 
-    :param errors: lista a ser apensada com mensagem apropriada, em caso de erro
-    :param update_stmt: comando UPDATE
-    :param update_vals: lista de valores para a atualização
-    :param where_vals: lista de valores para os critérios de seleção de tuplas
-    :return: o número de tuplas atualizadas
+    :param errors: incidental error messages
+    :param update_stmt: the UPDATE command
+    :param update_vals: the values for the update operation
+    :param where_vals: the values to be associated with the search criteria
+    :return: the number of updated tuples
     """
     values: tuple = update_vals + where_vals
     return __db_modify(errors, update_stmt, values)
@@ -204,33 +164,95 @@ def db_update(errors: list[str], update_stmt: str,
 
 def db_delete(errors: list[str], delete_stmt: str, where_vals: tuple) -> int:
     """
-    Exclui uma ou mais tuplas no banco de dados, segundo as definições do comando *delete_stmt*.
-    Os valores para a seleção das tuplas a serem excluídas estão em *where_vals*.
+    Deletes one or more tuples in the database, as defined by the *delete_stmt* command.
+    The values for selecting the tuples to be deleted are in *where_vals*.
 
-    :param errors: lista a ser apensada com mensagem apropriada, em caso de erro
-    :param delete_stmt: comando DELETE
-    :param where_vals: lista de valores para os critérios de seleção de tuplas
-    :return: o número de tuplas excluídas
+    :param errors: incidental error messages
+    :param delete_stmt: the DELETE command
+    :param where_vals: the values to be associated with the search criteria
+    :return: the number of deleted tuples
     """
     return __db_modify(errors, delete_stmt, where_vals)
 
 
-def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple) -> int:
+def db_bulk_insert(errors: list[str], insert_stmt: str, insert_vals: list[tuple]) -> int:
     """
-    Modifica o banco de dados, inserindo, atualizando ou excluindo tuplas, segundo as
-    definições do comando *modify_stmt*. Os valores para essa modificação, seguidos dos
-    valores para a seleção das tuplas, estão em *bind_vals*.
+    Inserts the tuples, with values defined in *insert_vals*, into the database.
 
-    :param errors: lista a ser apensada com mensagem apropriada, em caso de erro
-    :param modify_stmt: comando INSERT, UPDATE ou DELETE
-    :param bind_vals: lista de valores para modificação e seleção de tuplas
-    :return: o número de tuplas inseridas, atualizadas ou excluídas, ou None em caso de erro
+    :param errors: incidental error messages
+    :param insert_stmt: the INSERT command
+    :param insert_vals: the list of values to be inserted
+    :return: the number of inserted tuples, or None if an error occurred
     """
+    # inicialize the return variable
     result: int | None = None
 
     try:
         with connect(__CONNECTION_KWARGS) as conn:
-            # obtem o cursor e executa a operação
+            # make sure the connection is not in autocommit mode
+            conn.autocommit = False
+            # obtain the cursor and execute the operation
+            cursor: Cursor = conn.cursor()
+            cursor.fast_executemany = True
+            try:
+                cursor.executemany(insert_stmt, insert_vals)
+                result = len(insert_vals)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+    except Exception as e:
+        errors.append(__db_except_msg(e))
+
+    return result
+
+
+def db_exec_stored_procedure(errors: list[str], proc_name: str, proc_vals: tuple) -> list[tuple]:
+    """
+    Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
+
+    :param errors: incidental error messages
+    :param proc_name: name of the stored procedure
+    :param proc_vals: parameters for the stored procedure
+    :return: list of tuples containing the search result, or [] if the search is empty
+    """
+    # inicialize the return variable
+    result: list[tuple] = []
+
+    try:
+        with connect(__CONNECTION_KWARGS) as conn:
+            # obtain the cursor and execute the operation
+            with conn.cursor() as cursor:
+                stmt = f"SET NOCOUNT ON; EXEC {proc_name} {','.join(('?',) * len(proc_vals))}"
+                cursor.execute(stmt, proc_vals)
+                # obtain the tuples returned
+                rows: list[Row] = cursor.fetchall()
+                for row in rows:
+                    values: list = [item for item in row]
+                    result.append(tuple(values))
+    except Exception as e:
+        errors.append(__db_except_msg(e))
+
+    return result
+
+
+def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple) -> int:
+    """
+    Modifies the database, inserting, updating or deleting tuples, according to the
+    *modify_stmt* command definitions. The values for this modification, followed by the
+    values for selecting tuples are in *bind_vals*.
+
+    :param errors: incidental error messages
+    :param modify_stmt: INSERT, UPDATE, or DELETE command
+    :param bind_vals: values for database modification, and for tuples selection
+    :return: the number of inserted, modified, or deleted tuples, ou None if an error occurred
+    """
+    # inicialize the return variable
+    result: int | None = None
+
+    try:
+        with connect(__CONNECTION_KWARGS) as conn:
+            # obtain the cursor and execute the operation
             with conn.cursor() as cursor:
                 cursor.execute(modify_stmt, bind_vals)
                 result = cursor.rowcount
@@ -241,14 +263,13 @@ def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple) -> int:
     return result
 
 
-# TODO
 def __db_except_msg(exception: Exception) -> str:
     """
-    Formata e retorna a mensagem de erro correspondente à exceção levantada no acesso
-    ao banco de dados.
+    Formats and returns the error message corresponding to the exception raised
+    on accessing to the database.
 
-    :param exception: A exceção levantada
-    :return: A mensagem de erro formatada
+    :param exception: the exception raised
+    :return:the formatted error message
     """
     exc_msg: str = f"{exception}"
     exc_msg = exc_msg.replace('"', "'") \
@@ -262,11 +283,11 @@ def __db_except_msg(exception: Exception) -> str:
 
 def __db_required_msg(sel_stmt: str, where_vals: tuple) -> str:
     """
-    Formata e retorna a mensagem indicativa de busca vazia.
+    Formats and returns the message indicative of empty search.
 
-    :param sel_stmt: O comando de busca utilizado
-    :param where_vals: a lista de valores constituindo os critérios de busca
-    :return: mensagem indicativa de busca vazia
+    :param sel_stmt: the search command
+    :param where_vals: values associatred with the search criteria
+    :return: message indicative of empty search
     """
     stmt: str = sel_stmt.replace('"', "'") \
                         .replace('\n', " ") \
