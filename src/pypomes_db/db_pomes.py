@@ -3,7 +3,6 @@ from pyodbc import connect, Connection, Cursor, Row
 from typing import Final
 from pypomes_core import APP_PREFIX, env_get_int, env_get_str
 
-# dados para acesso ao BD
 DB_DRIVER: Final[str] = env_get_str(f"{APP_PREFIX}_DB_DRIVER")
 DB_NAME: Final[str] = env_get_str(f"{APP_PREFIX}_DB_NAME")
 DB_HOST: Final[str] = env_get_str(f"{APP_PREFIX}_DB_HOST")
@@ -55,8 +54,8 @@ def db_exists(errors: list[str], table: str, where_attrs: list[str], where_vals:
     return result
 
 
-def db_select_one(errors: list[str], sel_stmt: str,
-                  where_vals: tuple, required: bool = False) -> tuple:
+def db_select_one(errors: list[str], sel_stmt: str, where_vals: tuple,
+                  require_nonempty: bool = False, require_singleton: bool = False) -> tuple:
     """
     Searches the database and returns the first tuple that satisfies the *sel_stmt* search command.
     The command can optionally contain search criteria, with respective values given
@@ -66,37 +65,45 @@ def db_select_one(errors: list[str], sel_stmt: str,
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: values to be associated with the search criteria
-    :param required: defines whether an empty search should be considered an error
+    :param require_nonempty: defines whether an empty search should be considered an error
+    :param require_singleton: defines whether a non-singleton search should be considered an error
     :return: tuple containing the search result, or None if there was an error, or if the search was empty
     """
-    # inicialize the return variable
+    # initialize the return variable
     result: tuple | None = None
 
-    exc: bool = False
     try:
         with connect(__CONNECTION_KWARGS) as conn:
             # obtain the cursor and execute the operation
             with conn.cursor() as cursor:
                 sel_stmt = sel_stmt.replace("SELECT", "SELECT TOP 1", 1)
                 cursor.execute(sel_stmt, where_vals)
-                # obtain the first tuple returned (None se no tuple was returned)
-                rec: Row = cursor.fetchone()
-                if rec is not None:
-                    result = tuple(rec)
-    except Exception as e:
-        exc = True
-        errors.append(__db_except_msg(e))
 
-    # o parâmetro 'required' foi definido e nenhum registro foi obtido?
-    if required and not exc and result is None:
-        # sim, reporte o erro
-        errors.append(__db_required_msg(sel_stmt, where_vals))
+                # 'require_nonempty' has been defined, and the search is empty ?
+                if require_nonempty and cursor.rowcount == 0:
+                    # yes, report the error
+                    errors.append(f"No tuple returned in '{DB_NAME}' at '{DB_HOST}', "
+                                  f"for {__db_build_query_msg(sel_stmt, where_vals)}")
+
+                # 'require_singleton' has been defined, and more the one tuple was found ?
+                elif require_singleton and cursor.rowcount > 0:
+                    # yes, report the error
+                    errors.append(f"Singleton expected, but {cursor.rowcount} tuples returned "
+                                  f"('{DB_NAME}' at '{DB_HOST}', for '{__db_msg_clean(sel_stmt)}')")
+
+                else:
+                    # obtain the first tuple returned (None if no tuple was returned)
+                    rec: Row = cursor.fetchone()
+                    if rec is not None:
+                        result = tuple(rec)
+    except Exception as e:
+        errors.append(__db_except_msg(e))
 
     return result
 
 
 def db_select_all(errors: list[str], sel_stmt: str,
-                  where_vals: tuple, required: bool = False) -> list[tuple]:
+                  where_vals: tuple, require_nonempty: bool = False) -> list[tuple]:
     """
     Searches the database and returns all tuples that satisfy the *sel_stmt* search command.
     The command can optionally contain search criteria, with respective values given
@@ -106,30 +113,30 @@ def db_select_all(errors: list[str], sel_stmt: str,
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the search criteria
-    :param required: defines whether an empty search should be considered an error
+    :param require_nonempty: defines whether an empty search should be considered an error
     :return: list of tuples containing the search result, or [] if the search is empty
     """
-    # inicialize the return variable
+    # initialize the return variable
     result: list[tuple] = []
 
-    exc: bool = False
     try:
         with connect(__CONNECTION_KWARGS) as conn:
             # obtain the cursor and execute the operation
             with conn.cursor() as cursor:
                 cursor.execute(sel_stmt, where_vals)
-                # obtain the returned tuples
-                rows: list[Row] = cursor.fetchall()
-                for row in rows:
-                    result.append(tuple(row))
-    except Exception as e:
-        exc = True
-        errors.append(__db_except_msg(e))
 
-    # no errors, the 'required' parameter has been defined, and the search is empty ?
-    if required and not exc and len(result) == 0:
-        # yes, report the error
-        errors.append(__db_required_msg(sel_stmt, where_vals))
+                # 'require_nonempty' has been defined, and the search is empty ?
+                if require_nonempty and cursor.rowcount == 0:
+                    # yes, report the error
+                    errors.append( f"No tuple returned in '{DB_NAME}' at '{DB_HOST}', "
+                                   f"for '{__db_build_query_msg(sel_stmt, where_vals)}'")
+                else:
+                    # no, obtain the returned tuples
+                    rows: list[Row] = cursor.fetchall()
+                    for row in rows:
+                        result.append(tuple(row))
+    except Exception as e:
+        errors.append(__db_except_msg(e))
 
     return result
 
@@ -185,7 +192,7 @@ def db_bulk_insert(errors: list[str], insert_stmt: str, insert_vals: list[tuple]
     :param insert_vals: the list of values to be inserted
     :return: the number of inserted tuples, or None if an error occurred
     """
-    # inicialize the return variable
+    # initialize the return variable
     result: int | None = None
 
     try:
@@ -198,26 +205,32 @@ def db_bulk_insert(errors: list[str], insert_stmt: str, insert_vals: list[tuple]
             try:
                 cursor.executemany(insert_stmt, insert_vals)
                 result = len(insert_vals)
+                # use either the connection or the cursor to commit
                 conn.commit()
             except Exception:
+                # use the connection to rollback, not the cursor
                 conn.rollback()
                 raise
+            finally:
+                cursor.close()
     except Exception as e:
         errors.append(__db_except_msg(e))
 
     return result
 
 
-def db_exec_stored_procedure(errors: list[str], proc_name: str, proc_vals: tuple) -> list[tuple]:
+def db_exec_stored_procedure(errors: list[str], proc_name: str,
+                             proc_vals: tuple, require_nonempty: bool = False) -> list[tuple]:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 
     :param errors: incidental error messages
     :param proc_name: name of the stored procedure
     :param proc_vals: parameters for the stored procedure
+    :param require_nonempty: defines whether an empty search should be considered an error
     :return: list of tuples containing the search result, or [] if the search is empty
     """
-    # inicialize the return variable
+    # initialize the return variable
     result: list[tuple] = []
 
     try:
@@ -226,11 +239,18 @@ def db_exec_stored_procedure(errors: list[str], proc_name: str, proc_vals: tuple
             with conn.cursor() as cursor:
                 stmt = f"SET NOCOUNT ON; EXEC {proc_name} {','.join(('?',) * len(proc_vals))}"
                 cursor.execute(stmt, proc_vals)
-                # obtain the tuples returned
-                rows: list[Row] = cursor.fetchall()
-                for row in rows:
-                    values: list = [item for item in row]
-                    result.append(tuple(values))
+
+                # 'require_nonempty' has been defined, and the search is empty ?
+                if require_nonempty and cursor.rowcount == 0:
+                    # yes, report the error
+                    errors.append(f"No tuple returned in '{DB_NAME}' at '{DB_HOST}', "
+                                  f"for executing stored procedure '{proc_name}', with values '{proc_vals}'")
+                else:
+                    # no, obtain the returned tuples
+                    rows: list[Row] = cursor.fetchall()
+                    for row in rows:
+                        values: list = [item for item in row]
+                        result.append(tuple(values))
     except Exception as e:
         errors.append(__db_except_msg(e))
 
@@ -248,7 +268,7 @@ def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple) -> int:
     :param bind_vals: values for database modification, and for tuples selection
     :return: the number of inserted, modified, or deleted tuples, ou None if an error occurred
     """
-    # inicialize the return variable
+    # initialize the return variable
     result: int | None = None
 
     try:
@@ -264,6 +284,20 @@ def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple) -> int:
     return result
 
 
+def __db_msg_clean(msg: str) -> str:
+    """
+    Clean the given *msg* string, by replacing double quotes with single quotes,
+    and newlines and tabs with whitespace, and by removing backslashes.
+
+    :param msg: the string to be cleaned
+    :return: the cleaned string
+    """
+    return msg.replace('"', "'") \
+              .replace("\n", " ") \
+              .replace("\t", " ") \
+              .replace("\\", "")
+
+
 def __db_except_msg(exception: Exception) -> str:
     """
     Formats and returns the error message corresponding to the exception raised
@@ -272,17 +306,12 @@ def __db_except_msg(exception: Exception) -> str:
     :param exception: the exception raised
     :return:the formatted error message
     """
-    exc_msg: str = f"{exception}"
-    exc_msg = exc_msg.replace('"', "'") \
-                     .replace('\n', " ") \
-                     .replace('\t', " ") \
-                     .replace("\\", "")
-    result = f"Error accessing {DB_NAME} at {DB_HOST}: {exc_msg}"
+    result = f"Error accessing {DB_NAME} at {DB_HOST}: {__db_msg_clean(f'{exception}')}"
 
     return result
 
 
-def __db_required_msg(sel_stmt: str, where_vals: tuple) -> str:
+def __db_build_query_msg(sel_stmt: str, where_vals: tuple) -> str:
     """
     Formats and returns the message indicative of an empty search.
 
@@ -290,17 +319,13 @@ def __db_required_msg(sel_stmt: str, where_vals: tuple) -> str:
     :param where_vals: values associated with the search criteria
     :return: message indicative of empty search
     """
-    stmt: str = sel_stmt.replace('"', "'") \
-                        .replace('\n', " ") \
-                        .replace('\t', " ") \
-                        .replace("\\", "")
-    result: str = f"No record found in {DB_NAME} at {DB_HOST}, for {stmt}"
+    result: str = __db_msg_clean(sel_stmt)
 
     for val in where_vals:
         if isinstance(val, str):
             val = f"'{val}'"
         else:
             val = str(val)
-        result = result.replace("%s", val, 1)
+        result = result.replace("?", val, 1)
 
     return result
