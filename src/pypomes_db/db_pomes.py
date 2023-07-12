@@ -121,8 +121,7 @@ def db_select_all(errors: list[str], sel_stmt: str,
                 # obtain the returned tuples
                 rows: list[Row] = cursor.fetchall()
                 for row in rows:
-                    values: list = [item for item in row]
-                    result.append(tuple(values))
+                    result.append(tuple(row))
     except Exception as e:
         exc = True
         errors.append(__db_except_msg(e))
