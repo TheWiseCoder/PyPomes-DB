@@ -74,18 +74,20 @@ def db_select_one(errors: list[str], sel_stmt: str, where_vals: tuple,
 
     try:
         with connect(__CONNECTION_KWARGS) as conn:
+            # make sure the connection is not in autocommit mode
+            conn.autocommit = False
             # obtain the cursor and execute the operation
             with conn.cursor() as cursor:
                 sel_stmt = sel_stmt.replace("SELECT", "SELECT TOP 1", 1)
                 cursor.execute(sel_stmt, where_vals)
 
-                # 'require_nonempty' has been defined, and the search is empty ?
+                # has 'require_nonempty' been defined, and the search is empty ?
                 if require_nonempty and cursor.rowcount == 0:
                     # yes, report the error
                     errors.append(f"No tuple returned in '{DB_NAME}' at '{DB_HOST}', "
-                                  f"for {__db_build_query_msg(sel_stmt, where_vals)}")
+                                  f"for '{__db_build_query_msg(sel_stmt, where_vals)}'")
 
-                # 'require_singleton' has been defined, and more the one tuple was found ?
+                # has 'require_singleton' been defined, and more the one tuple was returned ?
                 elif require_singleton and cursor.rowcount > 0:
                     # yes, report the error
                     errors.append(f"Singleton expected, but {cursor.rowcount} tuples returned "
@@ -96,14 +98,15 @@ def db_select_one(errors: list[str], sel_stmt: str, where_vals: tuple,
                     rec: Row = cursor.fetchone()
                     if rec is not None:
                         result = tuple(rec)
+            conn.commit()
     except Exception as e:
         errors.append(__db_except_msg(e))
 
     return result
 
 
-def db_select_all(errors: list[str], sel_stmt: str,
-                  where_vals: tuple, require_nonempty: bool = False) -> list[tuple]:
+def db_select_all(errors: list[str], sel_stmt: str,  where_vals: tuple,
+                  require_nonempty: bool = False, require_count: int = None) -> list[tuple]:
     """
     Searches the database and returns all tuples that satisfy the *sel_stmt* search command.
     The command can optionally contain search criteria, with respective values given
@@ -114,6 +117,7 @@ def db_select_all(errors: list[str], sel_stmt: str,
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the search criteria
     :param require_nonempty: defines whether an empty search should be considered an error
+    :param require_count: optionally defines the number of tuples required to be returned
     :return: list of tuples containing the search result, or [] if the search is empty
     """
     # initialize the return variable
@@ -121,20 +125,31 @@ def db_select_all(errors: list[str], sel_stmt: str,
 
     try:
         with connect(__CONNECTION_KWARGS) as conn:
+            # make sure the connection is not in autocommit mode
+            conn.autocommit = False
             # obtain the cursor and execute the operation
             with conn.cursor() as cursor:
                 cursor.execute(sel_stmt, where_vals)
 
-                # 'require_nonempty' has been defined, and the search is empty ?
+                # has 'require_nonempty' been defined, and the search is empty ?
                 if require_nonempty and cursor.rowcount == 0:
                     # yes, report the error
-                    errors.append( f"No tuple returned in '{DB_NAME}' at '{DB_HOST}', "
-                                   f"for '{__db_build_query_msg(sel_stmt, where_vals)}'")
+                    errors.append(f"No tuple returned in '{DB_NAME}' at '{DB_HOST}', "
+                                  f"for '{__db_build_query_msg(sel_stmt, where_vals)}'")
+
+                # has 'require_count' been defined, and a different number of tuples was returned ?
+                elif isinstance(require_count, int) and require_count != cursor.rowcount:
+                    # yes, report the error
+                    errors.append(f"{cursor.rowcount} tuples returned, "
+                                  f"but {require_count} expected, in '{DB_NAME}' at '{DB_HOST}', "
+                                  f"for '{__db_build_query_msg(sel_stmt, where_vals)}'")
+
                 else:
-                    # no, obtain the returned tuples
+                    # obtain the returned tuples
                     rows: list[Row] = cursor.fetchall()
                     for row in rows:
                         result.append(tuple(row))
+            conn.commit()
     except Exception as e:
         errors.append(__db_except_msg(e))
 
@@ -204,23 +219,20 @@ def db_bulk_insert(errors: list[str], insert_stmt: str, insert_vals: list[tuple]
             cursor.fast_executemany = True
             try:
                 cursor.executemany(insert_stmt, insert_vals)
+                cursor.close()
                 result = len(insert_vals)
-                # use either the connection or the cursor to commit
-                conn.commit()
             except Exception:
-                # use the connection to rollback, not the cursor
                 conn.rollback()
                 raise
-            finally:
-                cursor.close()
+            conn.commit()
     except Exception as e:
         errors.append(__db_except_msg(e))
 
     return result
 
 
-def db_exec_stored_procedure(errors: list[str], proc_name: str,
-                             proc_vals: tuple, require_nonempty: bool = False) -> list[tuple]:
+def db_exec_stored_procedure(errors: list[str], proc_name: str, proc_vals: tuple,
+                             require_nonempty: bool = False, require_count: int = None) -> list[tuple]:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 
@@ -228,6 +240,7 @@ def db_exec_stored_procedure(errors: list[str], proc_name: str,
     :param proc_name: name of the stored procedure
     :param proc_vals: parameters for the stored procedure
     :param require_nonempty: defines whether an empty search should be considered an error
+    :param require_count: optionally defines the number of tuples required to be returned
     :return: list of tuples containing the search result, or [] if the search is empty
     """
     # initialize the return variable
@@ -240,17 +253,23 @@ def db_exec_stored_procedure(errors: list[str], proc_name: str,
                 stmt = f"SET NOCOUNT ON; EXEC {proc_name} {','.join(('?',) * len(proc_vals))}"
                 cursor.execute(stmt, proc_vals)
 
-                # 'require_nonempty' has been defined, and the search is empty ?
+                # has 'require_nonempty' been defined, and the search is empty ?
                 if require_nonempty and cursor.rowcount == 0:
                     # yes, report the error
                     errors.append(f"No tuple returned in '{DB_NAME}' at '{DB_HOST}', "
                                   f"for executing stored procedure '{proc_name}', with values '{proc_vals}'")
+
+                # has 'require_count' been defined, and a different number of tuples was returned ?
+                elif isinstance(require_count, int) and require_count != cursor.rowcount:
+                    # yes, report the error
+                    errors.append(f"{cursor.rowcount} tuples returned, "
+                                  f"but {require_count} expected, in '{DB_NAME}' at '{DB_HOST}', "
+                                  f"for executing stored procedure '{proc_name}', with values '{proc_vals}'")
                 else:
-                    # no, obtain the returned tuples
+                    # obtain the returned tuples
                     rows: list[Row] = cursor.fetchall()
                     for row in rows:
-                        values: list = [item for item in row]
-                        result.append(tuple(values))
+                        result.append(tuple(row))
     except Exception as e:
         errors.append(__db_except_msg(e))
 
@@ -273,11 +292,13 @@ def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple) -> int:
 
     try:
         with connect(__CONNECTION_KWARGS) as conn:
+            # make sure the connection is not in autocommit mode
+            conn.autocommit = False
             # obtain the cursor and execute the operation
             with conn.cursor() as cursor:
                 cursor.execute(modify_stmt, bind_vals)
                 result = cursor.rowcount
-                conn.commit()
+            conn.commit()
     except Exception as e:
         errors.append(__db_except_msg(e))
 
@@ -306,9 +327,7 @@ def __db_except_msg(exception: Exception) -> str:
     :param exception: the exception raised
     :return:the formatted error message
     """
-    result = f"Error accessing {DB_NAME} at {DB_HOST}: {__db_msg_clean(f'{exception}')}"
-
-    return result
+    return f"Error accessing {DB_NAME} at {DB_HOST}: {__db_msg_clean(f'{exception}')}"
 
 
 def __db_build_query_msg(sel_stmt: str, where_vals: tuple) -> str:
