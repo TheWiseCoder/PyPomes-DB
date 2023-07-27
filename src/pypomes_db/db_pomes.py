@@ -248,6 +248,8 @@ def db_exec_stored_procedure(errors: list[str], proc_name: str, proc_vals: tuple
 
     try:
         with connect(__CONNECTION_KWARGS) as conn:
+            # make sure the connection is not in autocommit mode
+            conn.autocommit = False
             # obtain the cursor and execute the operation
             with conn.cursor() as cursor:
                 stmt = f"SET NOCOUNT ON; EXEC {proc_name} {','.join(('?',) * len(proc_vals))}"
@@ -257,19 +259,20 @@ def db_exec_stored_procedure(errors: list[str], proc_name: str, proc_vals: tuple
                 if require_nonempty and cursor.rowcount == 0:
                     # yes, report the error
                     errors.append(f"No tuple returned in '{DB_NAME}' at '{DB_HOST}', "
-                                  f"for executing stored procedure '{proc_name}', with values '{proc_vals}'")
+                                  f"for stored procedure '{proc_name}', with values '{proc_vals}'")
 
                 # has 'require_count' been defined, and a different number of tuples was returned ?
                 elif isinstance(require_count, int) and require_count != cursor.rowcount:
                     # yes, report the error
                     errors.append(f"{cursor.rowcount} tuples returned, "
                                   f"but {require_count} expected, in '{DB_NAME}' at '{DB_HOST}', "
-                                  f"for executing stored procedure '{proc_name}', with values '{proc_vals}'")
+                                  f"for stored procedure '{proc_name}', with values '{proc_vals}'")
                 else:
                     # obtain the returned tuples
                     rows: list[Row] = cursor.fetchall()
                     for row in rows:
                         result.append(tuple(row))
+            conn.commit()
     except Exception as e:
         errors.append(__db_except_msg(e))
 
