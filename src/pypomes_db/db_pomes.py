@@ -10,13 +10,15 @@ DB_PORT: Final[int] = env_get_int(f"{APP_PREFIX}_DB_PORT")
 DB_PWD: Final[str] = env_get_str(f"{APP_PREFIX}_DB_PWD")
 DB_USER: Final[str] = env_get_str(f"{APP_PREFIX}_DB_USER")
 
-__CONNECTION_KWARGS: Final[str] = f"DRIVER={{{DB_DRIVER}}};SERVER={DB_HOST},{DB_PORT};" \
-                                  f"DATABASE={DB_NAME};UID={DB_USER};PWD={DB_PWD};TrustServerCertificate=yes;"
+__CONNECTION_KWARGS: Final[str] = (
+    f"DRIVER={{{DB_DRIVER}}};SERVER={DB_HOST},{DB_PORT};"
+    f"DATABASE={DB_NAME};UID={DB_USER};PWD={DB_PWD};TrustServerCertificate=yes;"
+)
 
 
 def db_connect(errors: list[str]) -> Connection:
     """
-    Obtains and returns a connection to the database, or *None* if the connection cannot be obtained.
+    Obtain and return a connection to the database, or *None* if the connection cannot be obtained.
 
     :param errors: incidental error messages
     :return: the connection to the database
@@ -35,9 +37,12 @@ def db_connect(errors: list[str]) -> Connection:
 
 def db_exists(errors: list[str], table: str, where_attrs: list[str], where_vals: tuple) -> bool:
     """
-    Determines whether the table *table* in the database contains at least one tuple where *where_attrs* equals
-    *where_values*, respectively. If more than one, the attributes are concatenated by the *AND* logical connector.
-    Returns *None* if there was an error in querying the database.
+    Determine whether the table *table* in the database contains at least one tuple.
+
+    For this determination, the where *where_attrs* are made equal to the
+    *where_values* in the query, respectively.
+    If more than one, the attributes are concatenated by the *AND* logical connector.
+    Return *None* if there was an error in querying the database.
 
     :param errors: incidental error messages
     :param table: the table to be searched
@@ -45,7 +50,8 @@ def db_exists(errors: list[str], table: str, where_attrs: list[str], where_vals:
     :param where_vals: the values for the search attributes
     :return: True if at least one tuple was found
     """
-    sel_stmt: str = f"SELECT * FROM {table}"  # noqa
+    # noinspection PyDataSource
+    sel_stmt: str = "SELECT * FROM " + table
     if len(where_attrs) > 0:
         sel_stmt += " WHERE " + "".join(f"{attr} = ? AND " for attr in where_attrs)[0:-5]
     rec: tuple = db_select_one(errors, sel_stmt, where_vals)
@@ -57,7 +63,8 @@ def db_exists(errors: list[str], table: str, where_attrs: list[str], where_vals:
 def db_select_one(errors: list[str], sel_stmt: str, where_vals: tuple,
                   require_nonempty: bool = False, require_singleton: bool = False) -> tuple:
     """
-    Searches the database and returns the first tuple that satisfies the *sel_stmt* search command.
+    Search the database and return the first tuple that satisfies the *sel_stmt* search command.
+
     The command can optionally contain search criteria, with respective values given
     in *where_vals*. The list of values for an attribute with the *IN* clause must be contained
     in a specific tuple. In case of error, or if the search is empty, *None* is returned.
@@ -108,7 +115,8 @@ def db_select_one(errors: list[str], sel_stmt: str, where_vals: tuple,
 def db_select_all(errors: list[str], sel_stmt: str,  where_vals: tuple,
                   require_nonempty: bool = False, require_count: int = None) -> list[tuple]:
     """
-    Searches the database and returns all tuples that satisfy the *sel_stmt* search command.
+    Search the database and return all tuples that satisfy the *sel_stmt* search command.
+
     The command can optionally contain search criteria, with respective values given
     in *where_vals*. The list of values for an attribute with the *IN* clause must be contained
     in a specific tuple. If the search is empty, an empty list is returned.
@@ -158,7 +166,7 @@ def db_select_all(errors: list[str], sel_stmt: str,  where_vals: tuple,
 
 def db_insert(errors: list[str], insert_stmt: str, insert_vals: tuple) -> int:
     """
-    Inserts a tuple, with values defined in *insert_vals*, into the database.
+    Insert a tuple, with values defined in *insert_vals*, into the database.
 
     :param errors: incidental error messages
     :param insert_stmt: the INSERT command
@@ -171,8 +179,9 @@ def db_insert(errors: list[str], insert_stmt: str, insert_vals: tuple) -> int:
 def db_update(errors: list[str], update_stmt: str,
               update_vals: tuple, where_vals: tuple) -> int:
     """
-    Updates one or more tuples in the database, as defined by the command
-    *update_stmt*. The values for this update are in *update_vals*.
+    Update one or more tuples in the database, as defined by the command *update_stmt*.
+
+    The values for this update are in *update_vals*.
     The values for selecting the tuples to be updated are in *where_vals*.
 
     :param errors: incidental error messages
@@ -187,7 +196,8 @@ def db_update(errors: list[str], update_stmt: str,
 
 def db_delete(errors: list[str], delete_stmt: str, where_vals: tuple) -> int:
     """
-    Deletes one or more tuples in the database, as defined by the *delete_stmt* command.
+    Delete one or more tuples in the database, as defined by the *delete_stmt* command.
+
     The values for selecting the tuples to be deleted are in *where_vals*.
 
     :param errors: incidental error messages
@@ -200,7 +210,7 @@ def db_delete(errors: list[str], delete_stmt: str, where_vals: tuple) -> int:
 
 def db_bulk_insert(errors: list[str], insert_stmt: str, insert_vals: list[tuple]) -> int:
     """
-    Inserts the tuples, with values defined in *insert_vals*, into the database.
+    Insert the tuples, with values defined in *insert_vals*, into the database.
 
     :param errors: incidental error messages
     :param insert_stmt: the INSERT command
@@ -281,9 +291,9 @@ def db_exec_stored_procedure(errors: list[str], proc_name: str, proc_vals: tuple
 
 def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple) -> int:
     """
-    Modifies the database, inserting, updating or deleting tuples, according to the
-    *modify_stmt* command definitions. The values for this modification, followed by the
-    values for selecting tuples are in *bind_vals*.
+    Modify the database, inserting, updating or deleting tuples, according to the *modify_stmt* command definitions.
+
+    The values for this modification, followed by the values for selecting tuples are in *bind_vals*.
 
     :param errors: incidental error messages
     :param modify_stmt: INSERT, UPDATE, or DELETE command
@@ -310,7 +320,9 @@ def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple) -> int:
 
 def __db_msg_clean(msg: str) -> str:
     """
-    Clean the given *msg* string, by replacing double quotes with single quotes,
+    Clean the given *msg* string.
+
+    The cleaning is carriedc out by replacing double quotes with single quotes,
     and newlines and tabs with whitespace, and by removing backslashes.
 
     :param msg: the string to be cleaned
@@ -324,8 +336,7 @@ def __db_msg_clean(msg: str) -> str:
 
 def __db_except_msg(exception: Exception) -> str:
     """
-    Formats and returns the error message corresponding to the exception raised
-    while accessing the database.
+    Format and return the error message corresponding to the exception raised while accessing the database.
 
     :param exception: the exception raised
     :return:the formatted error message
@@ -335,7 +346,7 @@ def __db_except_msg(exception: Exception) -> str:
 
 def __db_build_query_msg(sel_stmt: str, where_vals: tuple) -> str:
     """
-    Formats and returns the message indicative of an empty search.
+    Format and return the message indicative of an empty search.
 
     :param sel_stmt: the search command
     :param where_vals: values associated with the search criteria
