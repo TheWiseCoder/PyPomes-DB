@@ -155,8 +155,7 @@ def db_select_all(errors: list[str], sel_stmt: str,  where_vals: tuple,
                 else:
                     # obtain the returned tuples
                     rows: list[Row] = cursor.fetchall()
-                    for row in rows:
-                        result.append(tuple(row))
+                    result = [tuple(row) for row in rows]
             conn.commit()
     except Exception as e:
         errors.append(__db_except_msg(e))
@@ -280,8 +279,7 @@ def db_exec_stored_procedure(errors: list[str], proc_name: str, proc_vals: tuple
                 else:
                     # obtain the returned tuples
                     rows: list[Row] = cursor.fetchall()
-                    for row in rows:
-                        result.append(tuple(row))
+                    result = [tuple(row) for row in rows]
             conn.commit()
     except Exception as e:
         errors.append(__db_except_msg(e))
@@ -356,9 +354,9 @@ def __db_build_query_msg(sel_stmt: str, where_vals: tuple) -> str:
 
     for val in where_vals:
         if isinstance(val, str):
-            val = f"'{val}'"
+            sval: str = f"'{val}'"
         else:
-            val = str(val)
-        result = result.replace("?", val, 1)
+            sval: str = str(val)
+        result = result.replace("?", sval, 1)
 
     return result
