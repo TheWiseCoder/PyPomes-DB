@@ -16,7 +16,7 @@ __CONNECTION_KWARGS: Final[str] = (
 )
 
 
-def db_connect(errors: list[str], logger: Logger = None) -> Connection:
+def db_connect(errors: list[str] | None, logger: Logger = None) -> Connection:
     """
     Obtain and return a connection to the database, or *None* if the connection cannot be obtained.
 
@@ -39,7 +39,7 @@ def db_connect(errors: list[str], logger: Logger = None) -> Connection:
     return result
 
 
-def db_exists(errors: list[str], table: str,
+def db_exists(errors: list[str] | None, table: str,
               where_attrs: list[str], where_vals: tuple, logger: Logger = None) -> bool:
     """
     Determine whether the table *table* in the database contains at least one tuple.
@@ -47,7 +47,6 @@ def db_exists(errors: list[str], table: str,
     For this determination, the where *where_attrs* are made equal to the
     *where_values* in the query, respectively.
     If more than one, the attributes are concatenated by the *AND* logical connector.
-    Return *None* if there was an error in querying the database.
 
     :param errors: incidental error messages
     :param table: the table to be searched
@@ -61,12 +60,12 @@ def db_exists(errors: list[str], table: str,
     if len(where_attrs) > 0:
         sel_stmt += " WHERE " + "".join(f"{attr} = ? AND " for attr in where_attrs)[0:-5]
     rec: tuple = db_select_one(errors, sel_stmt, where_vals, False, False, logger)
-    result: bool = None if len(errors) > 0 else rec is not None
+    result: bool = rec is not None
 
     return result
 
 
-def db_select_one(errors: list[str], sel_stmt: str, where_vals: tuple,
+def db_select_one(errors: list[str] | None, sel_stmt: str, where_vals: tuple,
                   require_nonempty: bool = False, require_singleton: bool = False, logger: Logger = None) -> tuple:
     """
     Search the database and return the first tuple that satisfies the *sel_stmt* search command.
@@ -126,7 +125,7 @@ def db_select_one(errors: list[str], sel_stmt: str, where_vals: tuple,
     return result
 
 
-def db_select_all(errors: list[str], sel_stmt: str,  where_vals: tuple,
+def db_select_all(errors: list[str] | None, sel_stmt: str,  where_vals: tuple,
                   require_nonempty: bool = False, require_count: int = None, logger: Logger = None) -> list[tuple]:
     """
     Search the database and return all tuples that satisfy the *sel_stmt* search command.
@@ -185,7 +184,8 @@ def db_select_all(errors: list[str], sel_stmt: str,  where_vals: tuple,
     return result
 
 
-def db_insert(errors: list[str], insert_stmt: str, insert_vals: tuple, logger: Logger = None) -> int:
+def db_insert(errors: list[str] | None, insert_stmt: str,
+              insert_vals: tuple, logger: Logger = None) -> int:
     """
     Insert a tuple, with values defined in *insert_vals*, into the database.
 
@@ -198,7 +198,7 @@ def db_insert(errors: list[str], insert_stmt: str, insert_vals: tuple, logger: L
     return __db_modify(errors, insert_stmt, insert_vals, logger)
 
 
-def db_update(errors: list[str], update_stmt: str,
+def db_update(errors: list[str] | None, update_stmt: str,
               update_vals: tuple, where_vals: tuple, logger: Logger = None) -> int:
     """
     Update one or more tuples in the database, as defined by the command *update_stmt*.
@@ -217,7 +217,8 @@ def db_update(errors: list[str], update_stmt: str,
     return __db_modify(errors, update_stmt, values, logger)
 
 
-def db_delete(errors: list[str], delete_stmt: str, where_vals: tuple, logger: Logger = None) -> int:
+def db_delete(errors: list[str] | None, delete_stmt: str,
+              where_vals: tuple, logger: Logger = None) -> int:
     """
     Delete one or more tuples in the database, as defined by the *delete_stmt* command.
 
@@ -232,7 +233,8 @@ def db_delete(errors: list[str], delete_stmt: str, where_vals: tuple, logger: Lo
     return __db_modify(errors, delete_stmt, where_vals, logger)
 
 
-def db_bulk_insert(errors: list[str], insert_stmt: str, insert_vals: list[tuple], logger: Logger = None) -> int:
+def db_bulk_insert(errors: list[str] | None, insert_stmt: str,
+                   insert_vals: list[tuple], logger: Logger = None) -> int:
     """
     Insert the tuples, with values defined in *insert_vals*, into the database.
 
@@ -269,7 +271,7 @@ def db_bulk_insert(errors: list[str], insert_stmt: str, insert_vals: list[tuple]
     return result
 
 
-def db_exec_stored_procedure(errors: list[str], proc_name: str, proc_vals: tuple,
+def db_exec_stored_procedure(errors: list[str] | None, proc_name: str, proc_vals: tuple,
                              require_nonempty: bool = False, require_count: int = None,
                              logger: Logger = None) -> list[tuple]:
     """
@@ -326,7 +328,7 @@ def db_exec_stored_procedure(errors: list[str], proc_name: str, proc_vals: tuple
     return result
 
 
-def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple, logger: Logger = None) -> int:
+def __db_modify(errors: list[str] | None, modify_stmt: str, bind_vals: tuple, logger: Logger = None) -> int:
     """
     Modify the database, inserting, updating or deleting tuples, according to the *modify_stmt* command definitions.
 
@@ -405,10 +407,11 @@ def __db_build_query_msg(query_stmt: str, bind_vals: tuple) -> str:
     return result
 
 
-def __db_log(errors: list[str], err_msg: str, logger: Logger, debug_msg):
+def __db_log(errors: list[str] | None, err_msg: str, logger: Logger, debug_msg):
 
     if err_msg:
-        errors.append(err_msg)
+        if errors:
+            errors.append(err_msg)
         if logger:
             logger.error(err_msg)
     elif logger:
