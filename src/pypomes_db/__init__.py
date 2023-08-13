@@ -12,5 +12,5 @@ __all__ = [
 ]
 
 from importlib.metadata import version
-__version__ = version("pypomes_core")
+__version__ = version("pypomes_db")
 __version_info__ = tuple(int(i) for i in __version__.split(".") if i.isdigit())
