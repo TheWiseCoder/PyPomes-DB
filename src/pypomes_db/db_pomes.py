@@ -407,12 +407,19 @@ def __db_build_query_msg(query_stmt: str, bind_vals: tuple) -> str:
     return result
 
 
-def __db_log(errors: list[str] | None, err_msg: str, logger: Logger, debug_msg):
-
+def __db_log(errors: list[str], err_msg: str, logger: Logger, debug_msg: str) -> None:
+    """
+    Log *err_msg* and add it to *errors*, or log *debug_msg*, whatever is applicable.
+    
+    :param errors: incidental errors
+    :param err_msg: the error message
+    :param logger: optional logger
+    :param debug_msg: a debug message
+    """
     if err_msg:
-        if errors:
-            errors.append(err_msg)
         if logger:
             logger.error(err_msg)
+        if errors is not None:
+            errors.append(err_msg)
     elif logger:
         logger.debug(debug_msg)
