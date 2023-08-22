@@ -114,7 +114,7 @@ def db_select_one(errors: list[str] | None, sel_stmt: str, where_vals: tuple,
                 else:
                     # obtain the first tuple returned (None if no tuple was returned)
                     rec: Row = cursor.fetchone()
-                    if rec is not None:
+                    if rec:
                         result = tuple(rec)
             conn.commit()
     except Exception as e:
@@ -169,7 +169,7 @@ def db_select_all(errors: list[str] | None, sel_stmt: str,  where_vals: tuple,
                        f"{cursor.rowcount} tuples returned, "
                        f"but {require_count} expected, in '{DB_NAME}' at '{DB_HOST}', "
                        f"for '{__db_build_query_msg(sel_stmt, where_vals)}'"
-                   )
+                    )
 
                 else:
                     # obtain the returned tuples
