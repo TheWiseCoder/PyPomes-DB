@@ -120,7 +120,7 @@ def db_select_one(errors: list[str] | None, sel_stmt: str, where_vals: tuple,
     except Exception as e:
         err_msg = __db_except_msg(e)
 
-    __db_log(errors, err_msg, logger, f"To '{DB_NAME}': {__db_build_query_msg(sel_stmt, where_vals)}")
+    __db_log(errors, err_msg, logger, sel_stmt, where_vals)
 
     return result
 
@@ -179,7 +179,7 @@ def db_select_all(errors: list[str] | None, sel_stmt: str,  where_vals: tuple,
     except Exception as e:
         err_msg = __db_except_msg(e)
 
-    __db_log(errors, err_msg, logger, f"To '{DB_NAME}': {__db_build_query_msg(sel_stmt, where_vals)}")
+    __db_log(errors, err_msg, logger, sel_stmt, where_vals)
 
     return result
 
@@ -266,7 +266,7 @@ def db_bulk_insert(errors: list[str] | None, insert_stmt: str,
     except Exception as e:
         err_msg = __db_except_msg(e)
 
-    __db_log(errors, err_msg, logger, f"To '{DB_NAME}': {__db_msg_clean(insert_stmt)}")
+    __db_log(errors, err_msg, logger, insert_stmt, insert_vals[0])
 
     return result
 
@@ -323,7 +323,7 @@ def db_exec_stored_procedure(errors: list[str] | None, proc_name: str, proc_vals
     except Exception as e:
         err_msg = __db_except_msg(e)
 
-    __db_log(errors, err_msg, logger, f"To '{DB_NAME}': {__db_build_query_msg(proc_stmt, proc_vals)}")
+    __db_log(errors, err_msg, logger, proc_stmt, proc_vals)
 
     return result
 
@@ -356,7 +356,7 @@ def __db_modify(errors: list[str] | None, modify_stmt: str, bind_vals: tuple, lo
     except Exception as e:
         err_msg = __db_except_msg(e)
 
-    __db_log(errors, err_msg, logger, f"To '{DB_NAME}': {__db_build_query_msg(modify_stmt, bind_vals)}")
+    __db_log(errors, err_msg, logger, modify_stmt, bind_vals)
 
     return result
 
@@ -397,24 +397,27 @@ def __db_build_query_msg(query_stmt: str, bind_vals: tuple) -> str:
     """
     result: str = __db_msg_clean(query_stmt)
 
-    for val in bind_vals:
-        if isinstance(val, str):
-            sval: str = f"'{val}'"
-        else:
-            sval: str = str(val)
-        result = result.replace("?", sval, 1)
+    if bind_vals:
+        for val in bind_vals:
+            if isinstance(val, str):
+                sval: str = f"'{val}'"
+            else:
+                sval: str = str(val)
+            result = result.replace("?", sval, 1)
 
     return result
 
 
-def __db_log(errors: list[str], err_msg: str, logger: Logger, debug_msg: str) -> None:
+def __db_log(errors: list[str], err_msg: str, logger: Logger,
+             query_stmt: str, bind_vals: tuple = None) -> None:
     """
     Log *err_msg* and add it to *errors*, or log *debug_msg*, whatever is applicable.
     
     :param errors: incidental errors
     :param err_msg: the error message
-    :param logger: optional logger
-    :param debug_msg: a debug message
+    :param logger: the logger object
+    :param query_stmt: the query statement
+    :param bind_vals: optional bind values for the query statement
     """
     if err_msg:
         if logger:
@@ -422,4 +425,5 @@ def __db_log(errors: list[str], err_msg: str, logger: Logger, debug_msg: str) ->
         if errors is not None:
             errors.append(err_msg)
     elif logger:
+        debug_msg: str = __db_build_query_msg(query_stmt, bind_vals)
         logger.debug(debug_msg)
