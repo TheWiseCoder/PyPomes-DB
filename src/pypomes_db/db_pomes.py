@@ -1,7 +1,7 @@
 from logging import Logger
 from pyodbc import connect, Connection, Cursor, Row
 from typing import Final
-from pypomes_core import APP_PREFIX, env_get_int, env_get_str
+from pypomes_core import APP_PREFIX, env_get_int, env_get_str, str_sanitize
 
 DB_DRIVER: Final[str] = env_get_str(f"{APP_PREFIX}_DB_DRIVER")
 DB_NAME: Final[str] = env_get_str(f"{APP_PREFIX}_DB_NAME")
@@ -326,25 +326,6 @@ def __db_modify(errors: list[str] | None, modify_stmt: str, bind_vals: tuple, lo
     return result
 
 
-def __db_msg_clean(msg: str) -> str:
-    """
-    Clean the given *msg* string.
-
-    The cleaning is carriedc out by replacing double quotes with single quotes,
-    and newlines and tabs with whitespace, and by removing backslashes.
-
-    :param msg: the string to be cleaned
-    :return: the cleaned string
-    """
-    cleaned: str = msg.replace('"', "'") \
-                      .replace("\n", " ") \
-                      .replace("\t", " ") \
-                      .replace("\\", "")
-
-    # trim multiple consecutive spaces
-    return " ".join(cleaned.split())
-
-
 def __db_except_msg(exception: Exception) -> str:
     """
     Format and return the error message corresponding to the exception raised while accessing the database.
@@ -352,7 +333,7 @@ def __db_except_msg(exception: Exception) -> str:
     :param exception: the exception raised
     :return:the formatted error message
     """
-    return f"Error accessing '{DB_NAME}' at '{DB_HOST}': {__db_msg_clean(f'{exception}')}"
+    return f"Error accessing '{DB_NAME}' at '{DB_HOST}': {str_sanitize(f'{exception}')}"
 
 
 def __db_build_query_msg(query_stmt: str, bind_vals: tuple) -> str:
@@ -363,7 +344,7 @@ def __db_build_query_msg(query_stmt: str, bind_vals: tuple) -> str:
     :param bind_vals: values associated with the query command
     :return: message indicative of empty search
     """
-    result: str = __db_msg_clean(query_stmt)
+    result: str = str_sanitize(query_stmt)
 
     if bind_vals:
         for val in bind_vals:
