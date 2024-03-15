@@ -1,7 +1,7 @@
 from logging import Logger
 from typing import Any
 
-from ._db_common import DB_ENGINE
+from .db_common import DB_ENGINE
 
 match DB_ENGINE:
     case "postgres":

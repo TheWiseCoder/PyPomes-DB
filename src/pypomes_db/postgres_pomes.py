@@ -1,9 +1,10 @@
 from logging import Logger
 from psycopg2 import connect
+from psycopg2.extras import execute_values
 # noinspection PyProtectedMember
 from psycopg2._psycopg import connection
 
-from._db_common import (
+from .db_common import (
     DB_NAME, DB_HOST, DB_PORT, DB_PWD, DB_USER,
     _db_log, _db_except_msg, _db_build_query_msg
 )
@@ -17,7 +18,7 @@ def db_connect(errors: list[str], logger: Logger = None) -> connection:
     :param logger: optional logger
     :return: the connection to the database
     """
-    # initialize the return valiable
+    # initialize the return variable
     result: connection | None = None
 
     # Obtain a connection to the database
@@ -31,6 +32,7 @@ def db_connect(errors: list[str], logger: Logger = None) -> connection:
     except Exception as e:
         err_msg = _db_except_msg(e)
 
+    # log the results
     _db_log(errors, err_msg, logger, f"Connected to '{DB_NAME}'")
 
     return result
@@ -101,8 +103,10 @@ def db_select_all(errors: list[str], sel_stmt: str, where_vals: tuple,
     :param logger: optional logger
     :return: list of tuples containing the search result, or [] if the search is empty
     """
-    # initialize the return valiable
+    # initialize the return variable
     result: list[tuple] = []
+    if isinstance(require_max, int) and int(require_max) >= 0:
+        sel_stmt += f" LIMIT {require_max}"
 
     err_msg: str | None = None
     try:
@@ -116,32 +120,23 @@ def db_select_all(errors: list[str], sel_stmt: str, where_vals: tuple,
             cursor.execute(query=f"{sel_stmt};",
                            vars=where_vals)
 
-            # has an exact number of tuples been defined but not returned ?
-            if isinstance(require_min, int) and isinstance(require_max, int) and \
-                    require_min == require_max and require_min != cursor.rowcount:
-                # yes, report the error
-                err_msg = (
-                   f"{cursor.rowcount} tuples returned, exactly {require_min} expected, "
-                   f"for '{_db_build_query_msg(sel_stmt, where_vals)}'"
-                )
-
             # has a minimum number of tuples been defined but not returned ?
-            elif isinstance(require_min, int) and cursor.rowcount < require_min:
+            if isinstance(require_min, int) and cursor.rowcount < require_min:
                 # yes, report the error
                 err_msg = (
                     f"{cursor.rowcount} tuples returned, at least {require_min} expected, "
                     f"for '{_db_build_query_msg(sel_stmt, where_vals)}'"
                 )
-
             else:
-                # obtain the returned tuples
-                # for record in cursor:
-                #     result.append(record)
-                result = cursor
+                # no, obtain the returned tuples
+                result = list(cursor)
+
+            # commit the transaction
             conn.commit()
     except Exception as e:
         err_msg = _db_except_msg(e)
 
+    # log the results
     _db_log(errors, err_msg, logger, sel_stmt, where_vals)
 
     return result
@@ -199,14 +194,42 @@ def db_bulk_insert(errors: list[str] | None, insert_stmt: str,
     """
     Insert the tuples, with values defined in *insert_vals*, into the database.
 
+    The 'VALUES' clause in *insert_stmt' must be simply 'VALUES %s'.
+    Note that, after the execution of 'execute_values', the 'cursor.rowcount' property
+    will not contain a total result, and thus the value 1 (one) is returned on success.
+
     :param errors: incidental error messages
     :param insert_stmt: the INSERT command
     :param insert_vals: the list of values to be inserted
     :param logger: optional logger
-    :return: the number of inserted tuples, or None if an error occurred
+    :return: 1 (one), or None if an error occurred
     """
     # initialize the return variable
     result: int | None = None
+
+    # execute the bulk insert
+    err_msg: str | None = None
+    try:
+        with connect(host=DB_HOST,
+                     port=DB_PORT,
+                     database=DB_NAME,
+                     user=DB_USER,
+                     password=DB_PWD) as conn:
+            # make sure the connection is not in autocommit mode
+            conn.autocommit = False
+            # obtain the cursor and execute the operation
+            with conn.cursor() as cursor:
+                execute_values(cur=cursor,
+                               sql=insert_stmt,
+                               argslist=insert_vals)
+                result = 1
+            # commit the transaction
+            conn.commit()
+    except Exception as e:
+        err_msg = _db_except_msg(e)
+
+    # log the results
+    _db_log(errors, err_msg, logger, insert_stmt)
 
     return result
 
@@ -214,13 +237,72 @@ def db_bulk_insert(errors: list[str] | None, insert_stmt: str,
 def db_exec_stored_procedure(errors: list[str] | None, proc_name: str, proc_vals: tuple,
                              require_nonempty: bool = False, require_count: int = None,
                              logger: Logger = None) -> list[tuple]:
+    """
+    Execute the stored procedure *proc_name*, with the arguments given in *proc_vals*.
 
+    :param errors:  incidental error messages
+    :param proc_name: the name of the sotred procedure
+    :param proc_vals: the arguments to be passed
+    :param require_nonempty:
+    :param require_count:
+    :param logger: optional logger
+    :return: the tuples returned
+    """
+    # initialize the return variable
     result: list[tuple] = [()]
+
+    # build the command
+    proc_stmt: str = f"{proc_name}("
+    for i in range(0, len(proc_vals)):
+        proc_stmt += "%s, "
+    proc_stmt = f"{proc_stmt[:-2]})"
+
+    # execute the stored procedure
+    err_msg: str | None = None
+    try:
+        with connect(host=DB_HOST,
+                     port=DB_PORT,
+                     database=DB_NAME,
+                     user=DB_USER,
+                     password=DB_PWD) as conn:
+            # make sure the connection is not in autocommit mode
+            conn.autocommit = False
+            # obtain the cursor and execute the operation
+            with conn.cursor() as cursor:
+                cursor.execute(query=proc_stmt,
+                               argslist=proc_vals)
+
+                # has 'require_nonempty' been defined, and the search is empty ?
+                if require_nonempty and cursor.rowcount == 0:
+                    # yes, report the error
+                    err_msg = (
+                        f"No tuple returned in '{DB_NAME}' at '{DB_HOST}', "
+                        f"for stored procedure '{proc_name}', with values '{proc_vals}'"
+                    )
+
+                # has 'require_count' been defined, and a different number of tuples was returned ?
+                elif isinstance(require_count, int) and require_count != cursor.rowcount:
+                    # yes, report the error
+                    err_msg = (
+                        f"{cursor.rowcount} tuples returned, "
+                        f"but {require_count} expected, in '{DB_NAME}' at '{DB_HOST}', "
+                        f"for stored procedure '{proc_name}', with values '{proc_vals}'"
+                    )
+                else:
+                    # obtain the returned tuples
+                    result = list(cursor)
+            # commit the transaction
+            conn.commit()
+    except Exception as e:
+        err_msg = _db_except_msg(e)
+
+    # log the results
+    _db_log(errors, err_msg, logger, proc_stmt, proc_vals)
+
     return result
 
 
-# modifica tabela no banco de dados e retorna o número de tuplas afetadas
-def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple, logger: Logger) -> int:
+def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple | list[tuple], logger: Logger) -> int:
     """
     Modify the database, inserting, updating or deleting tuples, according to the *modify_stmt* command definitions.
 
@@ -249,10 +331,12 @@ def __db_modify(errors: list[str], modify_stmt: str, bind_vals: tuple, logger: L
                 cursor.execute(query=f"{modify_stmt};",
                                vars=bind_vals)
                 result = cursor.rowcount
-                conn.commit()
+            # commit the transaction
+            conn.commit()
     except Exception as e:
         err_msg = _db_except_msg(e)
 
+    # log the results
     _db_log(errors, err_msg, logger, modify_stmt, bind_vals)
 
     return result

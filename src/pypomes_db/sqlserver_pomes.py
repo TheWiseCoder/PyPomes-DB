@@ -3,7 +3,7 @@ from pyodbc import connect, Connection, Cursor, Row
 from pypomes_core import APP_PREFIX, env_get_str
 from typing import Final
 
-from ._db_common import (
+from .db_common import (
     DB_NAME, DB_HOST, DB_PORT, DB_PWD, DB_USER,
     _db_log, _db_except_msg, _db_build_query_msg
 )
@@ -33,6 +33,7 @@ def db_connect(errors: list[str] | None, logger: Logger = None) -> Connection:
     except Exception as e:
         err_msg = _db_except_msg(e)
 
+    # log the results
     _db_log(errors, err_msg, logger, f"Connected to '{DB_NAME}'")
 
     return result
@@ -143,6 +144,7 @@ def db_select_all(errors: list[str] | None, sel_stmt: str,  where_vals: tuple,
     except Exception as e:
         err_msg = _db_except_msg(e)
 
+    # log the results
     _db_log(errors, err_msg, logger, sel_stmt, where_vals)
 
     return result
@@ -230,6 +232,7 @@ def db_bulk_insert(errors: list[str] | None, insert_stmt: str,
     except Exception as e:
         err_msg = _db_except_msg(e)
 
+    # log the results
     _db_log(errors, err_msg, logger, insert_stmt, insert_vals[0])
 
     return result
@@ -252,8 +255,11 @@ def db_exec_stored_procedure(errors: list[str] | None, proc_name: str, proc_vals
     # initialize the return variable
     result: list[tuple] = []
 
-    err_msg: str | None = None
+    # build the command
     proc_stmt: str | None = None
+
+    # execute the stored procedure
+    err_msg: str | None = None
     try:
         with connect(__CONNECTION_KWARGS) as conn:
             # make sure the connection is not in autocommit mode
@@ -283,10 +289,12 @@ def db_exec_stored_procedure(errors: list[str] | None, proc_name: str, proc_vals
                     # obtain the returned tuples
                     rows: list[Row] = cursor.fetchall()
                     result = [tuple(row) for row in rows]
+            # commit the transaction
             conn.commit()
     except Exception as e:
         err_msg = _db_except_msg(e)
 
+    # log the results
     _db_log(errors, err_msg, logger, proc_stmt, proc_vals)
 
     return result
@@ -316,10 +324,12 @@ def __db_modify(errors: list[str] | None, modify_stmt: str, bind_vals: tuple, lo
             with conn.cursor() as cursor:
                 cursor.execute(modify_stmt, bind_vals)
                 result = cursor.rowcount
+            # commit the transaction
             conn.commit()
     except Exception as e:
         err_msg = _db_except_msg(e)
 
+    # log the results
     _db_log(errors, err_msg, logger, modify_stmt, bind_vals)
 
     return result
