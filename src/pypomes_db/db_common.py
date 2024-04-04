@@ -10,6 +10,34 @@ DB_PWD: Final[str] = env_get_str(f"{APP_PREFIX}_DB_PWD")
 DB_USER: Final[str] = env_get_str(f"{APP_PREFIX}_DB_USER")
 
 
+def _assert_query_quota(errors: list[str], query: str, where_vals: tuple,
+                        count: int, require_min: int, require_max: int) -> bool:
+
+    # initialize the return variable
+    result: bool = True
+
+    # has an exact number of tuples been defined but not returned ?
+    if isinstance(require_min, int) and isinstance(require_max, int) and \
+            require_min == require_max and require_min != count:
+        # yes, report the error, if applicable
+        if isinstance(errors, list):
+            errors.append(
+                f"{count} tuples returned, exactly {require_min} expected, "
+                f"for '{_db_build_query_msg(query, where_vals)}'"
+            )
+
+    # has a minimum number of tuples been defined but not returned ?
+    elif isinstance(require_min, int) and require_min > 0 and count < require_min:
+        # yes, report the error, if applicable
+        if isinstance(errors, list):
+            errors.append(
+                f"{count} tuples returned, at least {require_min} expected, "
+                f"for '{_db_build_query_msg(query, where_vals)}'"
+            )
+
+    return result
+
+
 def _db_except_msg(exception: Exception) -> str:
     """
     Format and return the error message corresponding to the exception raised while accessing the database.
@@ -55,7 +83,7 @@ def _db_log(errors: list[str], err_msg: str, logger: Logger,
     if err_msg:
         if logger:
             logger.error(err_msg)
-        if errors is not None:
+        if isinstance(errors, list):
             errors.append(err_msg)
     elif logger:
         debug_msg: str = _db_build_query_msg(query_stmt, bind_vals)

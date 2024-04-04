@@ -4,6 +4,8 @@ from typing import Any
 from .db_common import DB_ENGINE
 
 match DB_ENGINE:
+    case "oracle":
+        from . import oracle_pomes
     case "postgres":
         from . import postgres_pomes
     case "sqlserver":
@@ -28,13 +30,12 @@ def db_connect(errors: list[str] | None, logger: Logger = None) -> Any:
     return result
 
 
-def db_exists(errors: list[str] | None, table: str,
+def db_exists(errors: list[str], table: str,
               where_attrs: list[str], where_vals: tuple, logger: Logger = None) -> bool:
     """
     Determine whether the table *table* in the database contains at least one tuple.
 
-    For this determination, the where *where_attrs* are made equal to the
-    *where_values* in the query, respectively.
+    For this determination, *where_attrs* are made equal to *where_values* in the query, respectively.
     If more than one, the attributes are concatenated by the *AND* logical connector.
 
     :param errors: incidental error messages
@@ -44,12 +45,16 @@ def db_exists(errors: list[str] | None, table: str,
     :param logger: optional logger
     :return: True if at least one tuple was found
     """
-    result: bool | None = None
-    match DB_ENGINE:
-        case "postgres":
-            result = postgres_pomes.db_exists(errors, table, where_attrs, where_vals, logger)
-        case "sqlserver":
-            result = sqlserver_pomes.db_exists(errors, table, where_attrs, where_vals, logger)
+    # noinspection PyDataSource
+    sel_stmt: str = "SELECT * FROM " + table
+    if len(where_attrs) > 0:
+        sel_stmt += " WHERE " + "".join(f"{attr} = %s AND " for attr in where_attrs)[0:-5]
+    rec: tuple = db_select_one(errors=errors,
+                               sel_stmt=sel_stmt,
+                               where_vals=where_vals,
+                               require_nonempty=False,
+                               logger=logger)
+    result: bool = None if len(errors) > 0 else rec is not None
 
     return result
 
@@ -70,14 +75,15 @@ def db_select_one(errors: list[str] | None, sel_stmt: str, where_vals: tuple,
     :param logger: optional logger
     :return: tuple containing the search result, or None if there was an error, or if the search was empty
     """
-    result: tuple | None = None
-    match DB_ENGINE:
-        case "postgres":
-            result = postgres_pomes.db_select_one(errors, sel_stmt, where_vals, require_nonempty, logger)
-        case "sqlserver":
-            result = sqlserver_pomes.db_select_one(errors, sel_stmt, where_vals, require_nonempty, logger)
+    require_min: int = 1 if require_nonempty else None
+    reply: list[tuple] = db_select_all(errors=errors,
+                                       sel_stmt=sel_stmt,
+                                       where_vals=where_vals,
+                                       require_min=require_min,
+                                       require_max=1,
+                                       logger=logger)
 
-    return result
+    return reply[0] if reply else None
 
 
 def db_select_all(errors: list[str] | None, sel_stmt: str,  where_vals: tuple,
@@ -87,7 +93,8 @@ def db_select_all(errors: list[str] | None, sel_stmt: str,  where_vals: tuple,
 
     The command can optionally contain search criteria, with respective values given
     in *where_vals*. The list of values for an attribute with the *IN* clause must be contained
-    in a specific tuple. If the search is empty, an empty list is returned.
+    in a specific tuple. If not positive integers, *require_min* and *require_max* are ignored.
+    If the search is empty, an empty list is returned.
 
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
@@ -99,6 +106,8 @@ def db_select_all(errors: list[str] | None, sel_stmt: str,  where_vals: tuple,
     """
     result: list[tuple] | None = None
     match DB_ENGINE:
+        case "oracle":
+            result = oracle_pomes.db_select_all(errors, sel_stmt, where_vals, require_min, require_max,  logger)
         case "postgres":
             result = postgres_pomes.db_select_all(errors, sel_stmt, where_vals, require_min, require_max,  logger)
         case "sqlserver":
@@ -120,10 +129,12 @@ def db_insert(errors: list[str] | None, insert_stmt: str,
     """
     result: int | None = None
     match DB_ENGINE:
+        case "oracle":
+            result = oracle_pomes.db_modify(errors, insert_stmt, insert_vals, logger)
         case "postgres":
-            result = postgres_pomes.db_insert(errors, insert_stmt, insert_vals, logger)
+            result = postgres_pomes.db_modify(errors, insert_stmt, insert_vals, logger)
         case "sqlserver":
-            result = sqlserver_pomes.db_insert(errors, insert_stmt, insert_vals, logger)
+            result = sqlserver_pomes.db_modify(errors, insert_stmt, insert_vals, logger)
 
     return result
 
@@ -144,11 +155,14 @@ def db_update(errors: list[str] | None, update_stmt: str,
     :return: the number of updated tuples, or None if an error occurred
     """
     result: int | None = None
+    values: tuple = update_vals + where_vals
     match DB_ENGINE:
+        case "oracle":
+            result = oracle_pomes.db_modify(errors, update_stmt, values, logger)
         case "postgres":
-            result = postgres_pomes.db_update(errors, update_stmt, update_vals, where_vals,  logger)
+            result = postgres_pomes.db_modify(errors, update_stmt, values, logger)
         case "sqlserver":
-            result = sqlserver_pomes.db_update(errors, update_stmt, update_vals, where_vals, logger)
+            result = sqlserver_pomes.db_modify(errors, update_stmt, values, logger)
 
     return result
 
@@ -168,10 +182,12 @@ def db_delete(errors: list[str] | None, delete_stmt: str,
     """
     result: int | None = None
     match DB_ENGINE:
+        case "oracle":
+            result = oracle_pomes.db_modify(errors, delete_stmt, where_vals, logger)
         case "postgres":
-            result = postgres_pomes.db_delete(errors, delete_stmt, where_vals,  logger)
+            result = postgres_pomes.db_modify(errors, delete_stmt, where_vals, logger)
         case "sqlserver":
-            result = sqlserver_pomes.db_delete(errors, delete_stmt, where_vals, logger)
+            result = sqlserver_pomes.db_modify(errors, delete_stmt, where_vals, logger)
 
     return result
 
