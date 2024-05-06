@@ -1,17 +1,18 @@
 from logging import Logger
-from oracledb import Connection, connect
+from oracledb import Connection, connect, init_oracle_client
 
 from .db_common import (
-    DB_NAME, DB_HOST, DB_PORT, DB_PWD, DB_USER,
-    _assert_query_quota, _db_log, _db_except_msg
+    _DB_CONN_DATA,
+    _assert_query_quota, _db_get_params, _db_log, _db_except_msg
 )
 
-# TODO: db_bulk_insert, db_exec_stored_procedure
+# TODO: db_call_function, db_call_procedure
 
 
-def db_connect(errors: list[str], logger: Logger = None) -> Connection:
+def db_connect(errors: list[str],
+               logger: Logger) -> Connection:
     """
-    Obtain and return a connection to the database, or *None* if the connection cannot be obtained.
+    Obtain and return a connection to the database, or *None* if the connection could not be obtained.
 
     :param errors: incidental error messages
     :param logger: optional logger
@@ -20,26 +21,39 @@ def db_connect(errors: list[str], logger: Logger = None) -> Connection:
     # initialize the return variable
     result: Connection | None = None
 
+    # retrieve the connection parameters
+    name, user, pwd, host, port = _db_get_params("oracle")
+
     # obtain a connection to the database
     err_msg: str | None = None
     try:
-        result = connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            user=DB_USER,
-            password=DB_PWD
-        )
+        result = connect(service_name=name,
+                         host=host,
+                         port=port,
+                         user=user,
+                         password=pwd)
+        # make sure the connection is not in autocommit mode
+        result.autocommit = False
     except Exception as e:
-        err_msg = _db_except_msg(e)
+        err_msg = _db_except_msg(exception=e,
+                                 engine="oracle")
 
     # log the results
-    _db_log(errors, err_msg, logger, f"Connected to '{DB_NAME}'")
+    _db_log(errors=errors,
+            err_msg=err_msg,
+            logger=logger,
+            query_stmt=f"Connecting to '{name}' at '{host}'")
 
     return result
 
 
-def db_select_all(errors: list[str] | None, sel_stmt: str,  where_vals: tuple,
-                  require_min: int = None, require_max: int = None, logger: Logger = None) -> list[tuple]:
+def db_select_all(errors: list[str],
+                  sel_stmt: str,
+                  where_vals: tuple,
+                  require_min: int,
+                  require_max: int,
+                  conn: Connection,
+                  logger: Logger) -> list[tuple]:
     """
     Search the database and return all tuples that satisfy the *sel_stmt* search command.
 
@@ -53,84 +67,278 @@ def db_select_all(errors: list[str] | None, sel_stmt: str,  where_vals: tuple,
     :param where_vals: the values to be associated with the search criteria
     :param require_min: optionally defines the minimum number of tuples to be returned
     :param require_max: optionally defines the maximum number of tuples to be returned
+    :param conn: optional connection to use (obtains a new one, if not specified)
     :param logger: optional logger
     :return: list of tuples containing the search result, or [] if the search is empty
     """
     # initialize the return variable
     result: list[tuple] = []
 
+    # make sure to have a connection
+    curr_conn: Connection = conn or db_connect(errors=errors,
+                                               logger=logger)
+
     if isinstance(require_max, int) and require_max > 0:
         sel_stmt: str = f"{sel_stmt} FETCH NEXT {require_max} ROWS ONLY"
 
     err_msg: str | None = None
     try:
-        # obtain the connection
-        with connect(host=DB_HOST,
-                     port=DB_PORT,
-                     user=DB_USER,
-                     password=DB_PWD) as conn:
-            # make sure the connection is not in autocommit mode
-            conn.autocommit = False
+        # obtain a cursor and perform the operation
+        with curr_conn.cursor() as cursor:
+            # execute the query
+            cursor.execute(statement=sel_stmt,
+                           parameters=where_vals)
+            # obtain the number of tuples returned
+            count: int = cursor.rowcount
 
-            # obtain a cursor and perform the operation
-            with conn.cursor() as cursor:
-                # execute the query
-                cursor.execute(statement=sel_stmt,
-                               parameters=where_vals)
-                # obtain the number of tuples returned
-                count: int = cursor.rowcount
-
-                # has the query quota been satisfied ?
-                if _assert_query_quota(errors, sel_stmt, where_vals, count, require_min, require_max):
-                    # yes, retrieve the returned tuples
-                    rows: list = cursor.fetchall()
-                    result = [tuple(row) for row in rows]
-            # commit the transaction
-            conn.commit()
+            # has the query quota been satisfied ?
+            if _assert_query_quota(errors=errors,
+                                   query=sel_stmt,
+                                   where_vals=where_vals,
+                                   count=count,
+                                   require_min=require_min,
+                                   require_max=require_max):
+                # yes, retrieve the returned tuples
+                rows: list = cursor.fetchall()
+                result = [tuple(row) for row in rows]
+        # commit the transaction
+        curr_conn.commit()
     except Exception as e:
-        err_msg = _db_except_msg(e)
+        err_msg = _db_except_msg(exception=e,
+                                 engine="oracle")
+    finally:
+        # close the connection, if locally acquired
+        if not conn:
+            curr_conn.close()
 
     # log the results
-    _db_log(errors, err_msg, logger, sel_stmt, where_vals)
+    _db_log(errors=errors,
+            err_msg=err_msg,
+            logger=logger,
+            query_stmt=sel_stmt,
+            bind_vals=where_vals)
 
     return result
 
 
-def db_modify(errors: list[str] | None, modify_stmt: str, bind_vals: tuple | list[tuple], logger: Logger) -> int:
+def db_bulk_insert(errors: list[str],
+                   insert_stmt: str,
+                   insert_vals: list[tuple],
+                   conn: Connection,
+                   logger: Logger) -> int:
     """
-    Modify the database, inserting, updating or deleting tuples, according to the *modify_stmt* command definitions.
+    Insert the tuples, with values defined in *insert_vals*, into the database.
 
-    The values for this modification, followed by the values for selecting tuples are in *bind_vals*.
+    The binding must be done by position. Thus, the *VALUES* clause in *insert_stmt*
+    must contain as many ':n' placeholders as there are elements in the tuples found in the
+    list provided in *insert_vals*, where 'n' is the 1-based position of the data in the tuple.
 
     :param errors: incidental error messages
-    :param modify_stmt: INSERT, UPDATE, or DELETE command
-    :param bind_vals: values for database modification, and for tuples selection
+    :param insert_stmt: the INSERT command
+    :param insert_vals: the list of values to be inserted
+    :param conn: optional connection to use (obtains a new one, if not specified)
     :param logger: optional logger
-    :return: the number of inserted, modified, or deleted tuples, ou None if an error occurred
+    :return: the number of inserted tuples, or None if an error occurred
     """
     # initialize the return variable
     result: int | None = None
 
+    # make sure to have a connection
+    curr_conn: Connection = conn or db_connect(errors=errors,
+                                               logger=logger)
+
     err_msg: str | None = None
     try:
-        # obtain a connection
-        with connect(host=DB_HOST,
-                     port=DB_PORT,
-                     user=DB_USER,
-                     password=DB_PWD) as conn:
-            # make sure the connection is not in autocommit mode
-            conn.autocommit = False
-            # obtain the cursor and execute the operation
-            with conn.cursor() as cursor:
-                cursor.execute(statement=modify_stmt,
-                               parameters=bind_vals)
-                result = cursor.rowcount
-            # commit the transaction
-            conn.commit()
+        # obtain a cursor and perform the operation
+        with curr_conn.cursor() as cursor:
+            try:
+                cursor.executemany(statement=insert_stmt,
+                                   parameters=insert_vals)
+                result = len(insert_vals)
+            except Exception:
+                conn.rollback()
+                raise
+        curr_conn.commit()
     except Exception as e:
-        err_msg = _db_except_msg(e)
+        err_msg = _db_except_msg(exception=e,
+                                 engine="oracle")
+    finally:
+        # close the connection, if locally acquired
+        if not conn:
+            curr_conn.close()
 
     # log the results
-    _db_log(errors, err_msg, logger, modify_stmt, bind_vals)
+    _db_log(errors=errors,
+            err_msg=err_msg,
+            logger=logger,
+            query_stmt=insert_stmt,
+            bind_vals=insert_vals[0])
+
+    return result
+
+
+def db_execute(errors: list[str],
+               exc_stmt: str,
+               bind_vals: tuple,
+               conn: Connection,
+               logger: Logger) -> int:
+    """
+    Execute the command *exc_stmt* on the database.
+
+    This command might be a DML ccommand modifying the database, such as
+    inserting, updating or deleting tuples, or it might be a DDL statement,
+    or it might even be an environment-related command.
+    The optional bind values for this operation are in *bind_vals*.
+    The value returned is the value obtained from the execution of *exc_stmt*.
+    It might be the number of inserted, modified, or deleted tuples,
+    ou None if an error occurred.
+
+    :param errors: incidental error messages
+    :param exc_stmt: the command to execute
+    :param bind_vals: optional bind values
+    :param conn: optional connection to use (obtains a new one, if not specified)
+    :param logger: optional logger
+    :return: the return value from the command execution
+    """
+    # initialize the return variable
+    result: int | None = None
+
+    # make sure to have a connection
+    curr_conn: Connection = conn or db_connect(errors=errors,
+                                               logger=logger)
+
+    err_msg: str | None = None
+    try:
+        # obtain a cursor and execute the operation
+        with curr_conn.cursor() as cursor:
+            cursor.execute(statement=exc_stmt,
+                           parameters=bind_vals)
+            result = cursor.rowcount
+        # commit the transaction
+        curr_conn.commit()
+    except Exception as e:
+        err_msg = _db_except_msg(exception=e,
+                                 engine="oracle")
+    finally:
+        # close the connection, if locally acquired
+        if not conn:
+            curr_conn.close()
+
+    # log the results
+    _db_log(errors=errors,
+            err_msg=err_msg,
+            logger=logger,
+            query_stmt=exc_stmt,
+            bind_vals=bind_vals)
+
+    return result
+
+
+# TODO: see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html
+# noinspection PyUnusedLocal
+def db_call_function(errors: list[str],
+                     func_name: str,
+                     func_vals: tuple,
+                     conn: Connection,
+                     logger: Logger) -> list[tuple]:
+    """
+    Execute the stored function *func_name* in the database, with the parameters given in *func_vals*.
+
+    :param errors: incidental error messages
+    :param func_name: name of the stored function
+    :param func_vals: parameters for the stored function
+    :param conn: optional connection to use (obtains a new one, if not specified)
+    :param logger: optional logger
+    :return: the data returned by the function
+    """
+    # initialize the return variable
+    result: list[tuple] = []
+
+    return result
+
+
+# TODO: see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html
+def db_call_procedure(errors: list[str],
+                      proc_name: str,
+                      proc_vals: tuple,
+                      conn: Connection,
+                      logger: Logger) -> list[tuple]:
+    """
+    Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
+
+    :param errors: incidental error messages
+    :param proc_name: name of the stored procedure
+    :param proc_vals: parameters for the stored procedure
+    :param conn: optional connection to use (obtains a new one, if not specified)
+    :param logger: optional logger
+    :return: the data returned by the procedure
+    """
+    # initialize the return variable
+    # noinspection DuplicatedCode
+    result: list[tuple] = []
+
+    # make sure to have a connection
+    curr_conn: Connection = conn or db_connect(errors=errors,
+                                               logger=logger)
+
+    # execute the stored procedure
+    err_msg: str | None = None
+    try:
+        # obtain a cursor and perform the operation
+        with curr_conn.cursor() as cursor:
+            cursor.callproc(name=proc_name,
+                            parameters=proc_vals)
+
+            # retrieve the returned tuples
+            result = list(cursor)
+        # commit the transaction
+        curr_conn.commit()
+    except Exception as e:
+        err_msg = _db_except_msg(exception=e,
+                                 engine="oracle")
+    finally:
+        # close the connection, if locally acquired
+        if not conn:
+            curr_conn.close()
+
+    # log the results
+    _db_log(errors=errors,
+            err_msg=err_msg,
+            logger=logger,
+            query_stmt=proc_name,
+            bind_vals=proc_vals)
+
+    return result
+
+__is_initialized: str | None = None
+
+def _initialize(errors: list[str],
+                logger: Logger) -> bool:
+    """
+    Setup the oracle engine to access the database throught the installed client software.
+
+    :param errors: incidental error messages
+    :param logger: optional logger
+    :return: False if an error happened, True otherwise
+    """
+    # initialize the return variable
+    result: bool = True
+
+    global __is_initialized
+    if not __is_initialized:
+        err_msg: str | None = None
+        client: str = _DB_CONN_DATA["oracle"]["client"]
+        try:
+            init_oracle_client(client)
+            __is_initialized = True
+        except Exception as e:
+            result = False
+            err_msg = _db_except_msg(exception=e,
+                                     engine="oracle")
+        # log the results
+        _db_log(errors=errors,
+                err_msg=err_msg,
+                logger=logger,
+                query_stmt="Initializing the client")
 
     return result
