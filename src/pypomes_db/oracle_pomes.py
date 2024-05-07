@@ -232,7 +232,7 @@ def db_bulk_copy(errors: list[str],
                                             insert_vals=rows,
                                             engine=target_engine,
                                             conn=target_conn,
-                                            logger=logger)
+                                            logger=logger) or 0
                 # errors ?
                 if op_errors:
                     # yes, register them and abort the operation
