@@ -106,8 +106,8 @@ def db_assert_connection(errors: list[str] | None,
     if curr_engine == "oracle":
         from . import oracle_pomes
         # noinspection PyProtectedMember
-        proceed = oracle_pomes._initialize(errors=errors,
-                                           logger=logger)
+        proceed = oracle_pomes.initialize(errors=errors,
+                                          logger=logger)
     if proceed:
         conn: Any = db_connect(errors=errors,
                                engine=curr_engine,
@@ -435,6 +435,76 @@ def db_bulk_insert(errors: list[str] | None,
                                                 insert_vals=insert_vals,
                                                 conn=conn,
                                                 logger=logger)
+
+    return result
+
+
+def db_bulk_copy(errors: list[str] | None,
+                 sel_stmt: str,
+                 insert_stmt: str,
+                 target_engine: str,
+                 batch_size: int = None,
+                 where_vals: tuple = None,
+                 target_conn: Any = None,
+                 engine: str = None,
+                 conn: Any = None,
+                 logger: Logger = None) -> int:
+    """
+    Bulk copy data from a Oracle database to another database.
+
+    The destination database brand must be in the list of databases configured and supported by this package.
+
+    :param errors: incidental error messages
+    :param sel_stmt: SELECT command for the search
+    :param insert_stmt: the insert statement to use for bulk-inserting
+    :param target_engine: the destination database engine type
+    :param batch_size: number of tuples in the batch, or 0 or None for no limit
+    :param where_vals: the values to be associated with the search criteria
+    :param target_conn: the connection to the destination database
+    :param engine: the database engine to use (uses the default engine, if not specified)
+    :param conn: optional connection to use (obtains a new one, if not specified)
+    :param logger: optional logger
+    :return: number of tuples effectively copied
+    """
+    # initialize the return variable
+    result: int | None = None
+
+    curr_engine: str = _assert_engine(errors, engine)
+    if curr_engine == "mysql":
+        pass
+    elif curr_engine == "oracle":
+        from . import oracle_pomes
+        result = oracle_pomes.db_bulk_copy(errors=errors,
+                                           sel_stmt=sel_stmt,
+                                           insert_stmt=insert_stmt,
+                                           batch_size=batch_size,
+                                           target_engine=target_engine,
+                                           where_vals=where_vals,
+                                           target_conn=target_conn,
+                                           conn=conn,
+                                           logger=logger)
+    elif curr_engine == "postgres":
+        from . import postgres_pomes
+        result = postgres_pomes.db_bulk_copy(errors=errors,
+                                             sel_stmt=sel_stmt,
+                                             insert_stmt=insert_stmt,
+                                             batch_size=batch_size,
+                                             target_engine=target_engine,
+                                             where_vals=where_vals,
+                                             target_conn=target_conn,
+                                             conn=conn,
+                                             logger=logger)
+    elif curr_engine == "sqlserver":
+        from . import sqlserver_pomes
+        result = sqlserver_pomes.db_bulk_copy(errors=errors,
+                                              sel_stmt=sel_stmt,
+                                              insert_stmt=insert_stmt,
+                                              batch_size=batch_size,
+                                              target_engine=target_engine,
+                                              where_vals=where_vals,
+                                              target_conn=target_conn,
+                                              conn=conn,
+                                              logger=logger)
 
     return result
 

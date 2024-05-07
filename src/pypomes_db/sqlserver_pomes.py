@@ -1,9 +1,11 @@
 from logging import Logger
 from pyodbc import connect, Connection, Row
+from typing import Any
 
 from .db_common import (
     _assert_query_quota, _db_get_params, _db_log, _db_except_msg
 )
+from .db_pomes import db_bulk_insert as db_bulk_insert_to
 
 
 def db_connect(errors: list[str],
@@ -99,6 +101,7 @@ def db_select_all(errors: list[str],
         # commit the transaction
         curr_conn.commit()
     except Exception as e:
+        curr_conn.rollback()
         err_msg = _db_except_msg(exception=e,
                                  engine="sqlserver")
     finally:
@@ -154,6 +157,7 @@ def db_bulk_insert(errors: list[str],
                 raise
         curr_conn.commit()
     except Exception as e:
+        curr_conn.rollback()
         err_msg = _db_except_msg(exception=e,
                                  engine="sqlserver")
     finally:
@@ -167,6 +171,94 @@ def db_bulk_insert(errors: list[str],
             logger=logger,
             query_stmt=insert_stmt,
             bind_vals=insert_vals[0])
+
+    return result
+
+
+def db_bulk_copy(errors: list[str],
+                 sel_stmt: str,
+                 insert_stmt: str,
+                 target_engine: str,
+                 batch_size: int,
+                 where_vals: tuple,
+                 target_conn: Any,
+                 conn: Connection,
+                 logger: Logger) -> int:
+    """
+    Bulk copy data from a Oracle database to another database.
+
+    The destination database brand must be in the list of databases configured and supported by this package.
+
+    :param errors: incidental error messages
+    :param sel_stmt: SELECT command for the search
+    :param insert_stmt: the insert statement to use for bulk-inserting
+    :param target_engine: the destination database engine type
+    :param batch_size: number of tuples in the batch, or 0 or None for no limit
+    :param where_vals: the values to be associated with the search criteria
+    :param target_conn: the connection to the destination database
+    :param conn: optional connection to use (obtains a new one, if not specified)
+    :param logger: optional logger
+    :return: number of tuples effectively copied
+    """
+    # initialize the return variable
+    result: int | None = None
+
+    # make sure to have a connection
+    curr_conn: Connection = conn or db_connect(errors=errors,
+                                               logger=logger)
+
+    err_msg: str | None = None
+    try:
+        # noinspection DuplicatedCode
+        with curr_conn.cursor() as cursor:
+
+            # execute the query
+            cursor.execute(sel_stmt, where_vals)
+
+            # fetch rows in batches/all rows
+            result = 0
+            op_errors: list[str] = []
+            rows: list[Row]
+            if batch_size:
+                rows = cursor.fetchmany(batch_size)
+            else:
+                rows = cursor.fetchall()
+            while rows:
+                tuples: list[tuple] = [tuple(row) for row in rows]
+                result += db_bulk_insert_to(errors=op_errors,
+                                            insert_stmt=insert_stmt,
+                                            insert_vals=tuples,
+                                            engine=target_engine,
+                                            conn=target_conn,
+                                            logger=logger)
+                # errors ?
+                if op_errors:
+                    # yes, register them and abort the operation
+                    errors.extend(op_errors)
+                    break
+                if not batch_size:
+                    break
+                rows = cursor.fetchmany(batch_size)
+
+        # commit the source and target transactions
+        curr_conn.commit()
+        target_conn.commit()
+    except Exception as e:
+        err_msg = _db_except_msg(exception=e,
+                                 engine="postgres")
+        curr_conn.rollback()
+        target_conn.rollback()
+    finally:
+        # close the connection, if locally acquired
+        if not conn:
+            curr_conn.close()
+
+    # log the results
+    _db_log(errors=errors,
+            err_msg=err_msg,
+            logger=logger,
+            query_stmt=sel_stmt,
+            bind_vals=where_vals)
 
     return result
 
@@ -210,6 +302,7 @@ def db_execute(errors: list[str],
         # commit the transaction
         curr_conn.commit()
     except Exception as e:
+        curr_conn.rollback()
         err_msg = _db_except_msg(exception=e,
                                  engine="sqlserver")
     finally:
@@ -265,6 +358,7 @@ def db_call_procedure(errors: list[str],
         # commit the transaction
         curr_conn.commit()
     except Exception as e:
+        curr_conn.rollback()
         err_msg = _db_except_msg(exception=e,
                                  engine="sqlserver")
     finally:
