@@ -1,15 +1,15 @@
+# noinspection DuplicatedCode
 from logging import Logger
-from pyodbc import connect, Connection, Row
-from typing import Any
+from pyodbc import Binary, Connection, Row, connect
+from pathlib import Path
 
 from .db_common import (
-    _assert_query_quota, _db_get_params, _db_log, _db_except_msg
+    _db_assert_query_quota, _db_get_params, _db_log, _db_except_msg
 )
-from .db_pomes import db_bulk_insert as db_bulk_insert_to
 
 
-def db_connect(errors: list[str],
-               logger: Logger = None) -> Connection:
+def _connect(errors: list[str],
+             logger: Logger = None) -> Connection:
     """
     Obtain and return a connection to the database, or *None* if the connection could not be obtained.
 
@@ -38,21 +38,22 @@ def db_connect(errors: list[str],
                                  engine="sqlserver")
 
     # log the results
-    _db_log(errors=errors,
+    _db_log(logger=logger,
+            engine="sqlserver",
             err_msg=err_msg,
-            logger=logger,
-            query_stmt=f"Connecting to '{name}' at '{host}'")
+            errors=errors,
+            stmt=f"Connecting to '{name}' at '{host}'")
 
     return result
 
 
-def db_select_all(errors: list[str],
-                  sel_stmt: str,
-                  where_vals: tuple,
-                  require_min: int,
-                  require_max: int,
-                  conn: Connection,
-                  logger: Logger) -> list[tuple]:
+def _select_all(errors: list[str],
+                sel_stmt: str,
+                where_vals: tuple,
+                require_min: int,
+                require_max: int,
+                conn: Connection,
+                logger: Logger) -> list[tuple]:
     """
     Search the database and return all tuples that satisfy the *sel_stmt* search command.
 
@@ -66,16 +67,16 @@ def db_select_all(errors: list[str],
     :param where_vals: the values to be associated with the search criteria
     :param require_min: optionally defines the minimum number of tuples to be returned
     :param require_max: optionally defines the maximum number of tuples to be returned
-    :param conn: optional connection to use (obtains a new one, if not specified)
+    :param conn: optional connection to use (obtains a new one, if not provided)
     :param logger: optional logger
-    :return: list of tuples containing the search result, or [] if the search is empty
+    :return: tuple containing the search result, [] if the search was empty, or None if there was an error
     """
     # initialize the return variable
     result: list[tuple] = []
 
     # make sure to have a connection
-    curr_conn: Connection = conn or db_connect(errors=errors,
-                                               logger=logger)
+    curr_conn: Connection = conn or _connect(errors=errors,
+                                             logger=logger)
 
     err_msg: str | None = None
     if isinstance(require_max, int) and require_max > 0:
@@ -89,41 +90,45 @@ def db_select_all(errors: list[str],
             count: int = cursor.rowcount
 
             # has the query quota been satisfied ?
-            if _assert_query_quota(errors=errors,
-                                   query=sel_stmt,
-                                   where_vals=where_vals,
-                                   count=count,
-                                   require_min=require_min,
-                                   require_max=require_max):
+            if _db_assert_query_quota(errors=errors,
+                                      engine="sqlserver",
+                                      query=sel_stmt,
+                                      where_vals=where_vals,
+                                      count=count,
+                                      require_min=require_min,
+                                      require_max=require_max):
                 # yes, retrieve the returned tuples
                 rows: list[Row] = cursor.fetchall()
                 result = [tuple(row) for row in rows]
         # commit the transaction
         curr_conn.commit()
     except Exception as e:
-        curr_conn.rollback()
+        if curr_conn:
+            curr_conn.rollback()
         err_msg = _db_except_msg(exception=e,
                                  engine="sqlserver")
     finally:
         # close the connection, if locally acquired
-        if not conn:
+        if curr_conn and not conn:
             curr_conn.close()
 
-    # log the results
-    _db_log(errors=errors,
-            err_msg=err_msg,
-            logger=logger,
-            query_stmt=sel_stmt,
-            bind_vals=where_vals)
+    # log eventual errors
+    if errors or err_msg:
+        _db_log(logger=logger,
+                engine="sqlserver",
+                err_msg=err_msg,
+                errors=errors,
+                stmt=sel_stmt,
+                bind_vals=where_vals)
 
     return result
 
 
-def db_bulk_insert(errors: list[str],
-                   insert_stmt: str,
-                   insert_vals: list[tuple],
-                   conn: Connection,
-                   logger: Logger) -> int:
+def _bulk_insert(errors: list[str],
+                 insert_stmt: str,
+                 insert_vals: list[tuple],
+                 conn: Connection,
+                 logger: Logger) -> int:
     """
     Insert the tuples, with values defined in *insert_vals*, into the database.
 
@@ -133,7 +138,7 @@ def db_bulk_insert(errors: list[str],
     :param errors: incidental error messages
     :param insert_stmt: the INSERT command
     :param insert_vals: the list of values to be inserted
-    :param conn: optional connection to use (obtains a new one, if not specified)
+    :param conn: optional connection to use (obtains a new one, if not provided)
     :param logger: optional logger
     :return: the number of inserted tuples, or None if an error occurred
     """
@@ -141,8 +146,8 @@ def db_bulk_insert(errors: list[str],
     result: int | None = None
 
     # make sure to have a connection
-    curr_conn: Connection = conn or db_connect(errors=errors,
-                                               logger=logger)
+    curr_conn: Connection = conn or _connect(errors=errors,
+                                             logger=logger)
 
     err_msg: str | None = None
     try:
@@ -157,117 +162,106 @@ def db_bulk_insert(errors: list[str],
                 raise
         curr_conn.commit()
     except Exception as e:
-        curr_conn.rollback()
+        if curr_conn:
+            curr_conn.rollback()
         err_msg = _db_except_msg(exception=e,
                                  engine="sqlserver")
     finally:
         # close the connection, if locally acquired
-        if not conn:
+        if curr_conn and not conn:
             curr_conn.close()
 
-    # log the results
-    _db_log(errors=errors,
-            err_msg=err_msg,
-            logger=logger,
-            query_stmt=insert_stmt,
-            bind_vals=insert_vals[0])
+    # log eventual errors
+    if errors or err_msg:
+        _db_log(logger=logger,
+                engine="sqlserver",
+                err_msg=err_msg,
+                errors=errors,
+                stmt=insert_stmt,
+                bind_vals=insert_vals[0])
 
     return result
 
 
-def db_bulk_copy(errors: list[str],
-                 sel_stmt: str,
-                 insert_stmt: str,
-                 target_engine: str,
-                 batch_size: int,
-                 where_vals: tuple,
-                 target_conn: Any,
-                 conn: Connection,
-                 logger: Logger) -> int:
+def _update_lob(errors: list[str],
+                lob_table: str,
+                lob_column: str,
+                pk_columns: list[str],
+                pk_vals: tuple,
+                lob_file: str | Path,
+                chunk_size: int,
+                conn: Connection,
+                logger: Logger) -> None:
     """
-    Bulk copy data from a Oracle database to another database.
-
-    The destination database brand must be in the list of databases configured and supported by this package.
+    Update a large binary objects (LOB) in the given table and column.
 
     :param errors: incidental error messages
-    :param sel_stmt: SELECT command for the search
-    :param insert_stmt: the insert statement to use for bulk-inserting
-    :param target_engine: the destination database engine type
-    :param batch_size: number of tuples in the batch, or 0 or None for no limit
-    :param where_vals: the values to be associated with the search criteria
-    :param target_conn: the connection to the destination database
-    :param conn: optional connection to use (obtains a new one, if not specified)
+    :param lob_table: the table to be update with the new LOB
+    :param lob_column: the column to be updated with the new LOB
+    :param pk_columns: columns making up a primary key, or a unique identifier for the tuple
+    :param pk_vals: values with which to locate the tuple to be updated
+    :param lob_file: file holding the LOB (a file object or a valid path)
+    :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
+    :param conn: optional connection to use (obtains a new one, if not provided)
     :param logger: optional logger
-    :return: number of tuples effectively copied
     """
-    # initialize the return variable
-    result: int | None = None
-
     # make sure to have a connection
-    curr_conn: Connection = conn or db_connect(errors=errors,
-                                               logger=logger)
+    curr_conn: Connection = conn or _connect(errors=errors,
+                                             logger=logger)
+
+    # make sure to have a data file
+    data_file: Path = Path(lob_file) if isinstance(lob_file, str) else lob_file
+
+    # normalize the chunk size
+    if not chunk_size:
+        chunk_size = -1
+
+    # build the UPDATE query
+    where_clause: str = " AND ".join([f"{column} = ?" for column in pk_columns])
+    update_stmt: str = (f"UPDATE {lob_table} "
+                        f"SET {lob_column} = ? "
+                        f"WHERE {where_clause}")
 
     err_msg: str | None = None
     try:
-        # noinspection DuplicatedCode
+        # obtain a cursor and execute the operation
         with curr_conn.cursor() as cursor:
 
-            # execute the query
-            cursor.execute(sel_stmt, where_vals)
+            # retrieve the lob data from file in chunks and write to the file
+            lob_data : bytes
+            with data_file.open("rb") as file:
+                lob_data = file.read(chunk_size)
+                while lob_data:
+                    cursor.execute(update_stmt, (Binary(lob_data), *pk_vals))
+                    lob_data = file.read(chunk_size)
 
-            # fetch rows in batches/all rows
-            result = 0
-            op_errors: list[str] = []
-            rows: list[Row]
-            if batch_size:
-                rows = cursor.fetchmany(batch_size)
-            else:
-                rows = cursor.fetchall()
-            while rows:
-                tuples: list[tuple] = [tuple(row) for row in rows]
-                result += db_bulk_insert_to(errors=op_errors,
-                                            insert_stmt=insert_stmt,
-                                            insert_vals=tuples,
-                                            engine=target_engine,
-                                            conn=target_conn,
-                                            logger=logger) or 0
-                # errors ?
-                if op_errors:
-                    # yes, register them and abort the operation
-                    errors.extend(op_errors)
-                    break
-                if not batch_size:
-                    break
-                rows = cursor.fetchmany(batch_size)
-
-        # commit the source and target transactions
+        # commit the transaction
         curr_conn.commit()
-        target_conn.commit()
     except Exception as e:
+        if curr_conn:
+            curr_conn.rollback()
         err_msg = _db_except_msg(exception=e,
-                                 engine="postgres")
-        curr_conn.rollback()
-        target_conn.rollback()
+                                 engine="sqlserver")
     finally:
         # close the connection, if locally acquired
-        if not conn:
+        if curr_conn and not conn:
             curr_conn.close()
 
-    # log the results
-    _db_log(errors=errors,
-            err_msg=err_msg,
-            logger=logger,
-            query_stmt=sel_stmt,
-            bind_vals=where_vals)
+    # log eventual errors
+    if errors or err_msg:
+        _db_log(logger=logger,
+                engine="sqlserver",
+                err_msg=err_msg,
+                errors=errors,
+                stmt=update_stmt,
+                bind_vals=pk_vals)
 
-    return result
 
-
-def db_execute(errors: list[str],
-               exc_stmt: str,
-               bind_vals: tuple,
-               conn: Connection,
-               logger: Logger) -> int:
+def _execute(errors: list[str],
+             exc_stmt: str,
+             bind_vals: tuple,
+             conn: Connection,
+             logger: Logger) -> int:
     """
     Execute the command *exc_stmt* on the database.
 
@@ -282,7 +276,7 @@ def db_execute(errors: list[str],
     :param errors: incidental error messages
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
-    :param conn: optional connection to use (obtains a new one, if not specified)
+    :param conn: optional connection to use (obtains a new one, if not provided)
     :param logger: optional logger
     :return: the return value from the command execution
     """
@@ -290,8 +284,8 @@ def db_execute(errors: list[str],
     result: int | None = None
 
     # make sure to have a connection
-    curr_conn: Connection = conn or db_connect(errors=errors,
-                                               logger=logger)
+    curr_conn: Connection = conn or _connect(errors=errors,
+                                             logger=logger)
 
     err_msg: str | None = None
     try:
@@ -302,36 +296,39 @@ def db_execute(errors: list[str],
         # commit the transaction
         curr_conn.commit()
     except Exception as e:
-        curr_conn.rollback()
+        if curr_conn:
+            curr_conn.rollback()
         err_msg = _db_except_msg(exception=e,
                                  engine="sqlserver")
     finally:
         # close the connection, if locally acquired
-        if not conn:
+        if curr_conn and not conn:
             curr_conn.close()
 
-    # log the results
-    _db_log(errors=errors,
-            err_msg=err_msg,
-            logger=logger,
-            query_stmt=exc_stmt,
-            bind_vals=bind_vals)
+    # log eventual errors
+    if errors or err_msg:
+        _db_log(logger=logger,
+                engine="sqlserver",
+                err_msg=err_msg,
+                errors=errors,
+                stmt=exc_stmt,
+                bind_vals=bind_vals)
 
     return result
 
 
-def db_call_procedure(errors: list[str],
-                      proc_name: str,
-                      proc_vals: tuple,
-                      conn: Connection,
-                      logger: Logger = None) -> list[tuple]:
+def _call_procedure(errors: list[str],
+                    proc_name: str,
+                    proc_vals: tuple,
+                    conn: Connection,
+                    logger: Logger = None) -> list[tuple]:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 
     :param errors: incidental error messages
     :param proc_name: name of the stored procedure
     :param proc_vals: parameters for the stored procedure
-    :param conn: optional connection to use (obtains a new one, if not specified)
+    :param conn: optional connection to use (obtains a new one, if not provided)
     :param logger: optional logger
     :return: the data returned by the procedure
     """
@@ -339,8 +336,8 @@ def db_call_procedure(errors: list[str],
     result: list[tuple] | None = None
 
     # make sure to have a connection
-    curr_conn: Connection = conn or db_connect(errors=errors,
-                                               logger=logger)
+    curr_conn: Connection = conn or _connect(errors=errors,
+                                             logger=logger)
 
     # build the command
     proc_stmt: str | None = None
@@ -358,19 +355,22 @@ def db_call_procedure(errors: list[str],
         # commit the transaction
         curr_conn.commit()
     except Exception as e:
-        curr_conn.rollback()
+        if curr_conn:
+            curr_conn.rollback()
         err_msg = _db_except_msg(exception=e,
                                  engine="sqlserver")
     finally:
         # close the connection, if locally acquired
-        if not conn:
+        if curr_conn and not conn:
             curr_conn.close()
 
-    # log the results
-    _db_log(errors=errors,
-            err_msg=err_msg,
-            logger=logger,
-            query_stmt=proc_stmt,
-            bind_vals=proc_vals)
+    # log eventual errors
+    if errors or err_msg:
+        _db_log(logger=logger,
+                engine="sqlserver",
+                err_msg=err_msg,
+                errors=errors,
+                stmt=proc_stmt,
+                bind_vals=proc_vals)
 
     return result

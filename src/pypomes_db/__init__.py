@@ -1,18 +1,23 @@
 from .db_pomes import (
     db_setup, db_get_engines, db_get_params,
     db_assert_connection, db_connect, db_exists,
-    db_select_one, db_select_all, db_update,
-    db_delete, db_insert, db_bulk_insert, db_bulk_copy,
-    db_execute, db_call_function, db_call_procedure,
+    db_select_one, db_select_all, db_update, db_delete,
+    db_insert, db_bulk_insert, db_update_lob, db_execute,
+    db_call_function, db_call_procedure,
+)
+from .migration_pomes import (
+    db_migrate_data, db_migrate_lobs,
 )
 
 __all__ = [
     # db_pomes
     "db_setup", "db_get_engines", "db_get_params",
     "db_assert_connection", "db_connect", "db_exists",
-    "db_select_one", "db_select_all", "db_update",
-    "db_delete", "db_insert", "db_bulk_insert", "db_bulk_copy",
-    "db_execute", "db_call_function", "db_call_procedure",
+    "db_select_one", "db_select_all", "db_update", "db_delete",
+    "db_insert", "db_bulk_insert", "db_update_lob", "db_execute",
+    "db_call_function", "db_call_procedure",
+    # migration_pomes
+    "db_migrate_data", "db_migrate_lobs",
 ]
 
 from importlib.metadata import version
