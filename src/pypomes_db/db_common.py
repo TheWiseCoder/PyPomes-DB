@@ -23,9 +23,10 @@ from typing import Any, Iterable
 
 _DB_CONN_DATA: dict = {}
 _DB_ENGINES: list[str] = []
-if env_get_str(f"{APP_PREFIX}_DB_ENGINE",  None):
+_prefix: str = env_get_str(f"{APP_PREFIX}_DB_ENGINE",  None)
+if _prefix:
     _default_setup: bool = True
-    _DB_ENGINES.append(env_get_str(f"{APP_PREFIX}_DB_ENGINE"))
+    _DB_ENGINES.append(_prefix)
 else:
     _default_setup: bool = False
     _engines: str = env_get_str(f"{APP_PREFIX}_DB_ENGINES", None)
@@ -127,6 +128,18 @@ def _db_assert_query_quota(errors: list[str],
             errors.append(f"{count} tuples returned, at least {require_min} expected, for '{msg}'")
 
     return result
+
+
+def _db_get_param(engine: str,
+                  param: str) -> Any:
+    """
+    Return the current value of *param* being used by *engine*.
+
+    :param engine: the reference database engine
+    :param param: the reference parameter
+    :return: the parameter's current value
+    """
+    return _DB_CONN_DATA[engine].get(param)
 
 
 def _db_get_params(engine: str) -> tuple:

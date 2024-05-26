@@ -26,7 +26,7 @@ def db_migrate_data(errors: list[str],
     The origin and destination databases must be in the list of databases configured and
     supported by this package. The columns must not be type LOB (large binary object).
     The columns in the target database must be of equivalent types, respectively,
-    in both the origin and the destination database.
+    in both the origin and the destination databases.
 
     :param errors: incidental error messages
     :param source_engine: the source database engine type
@@ -55,7 +55,6 @@ def db_migrate_data(errors: list[str],
     curr_target_conn: Any = target_conn or db_connect(errors=op_errors,
                                                       engine=target_engine,
                                                       logger=logger)
-
     # make sure to have a target table
     if not target_table:
         target_table = source_table
@@ -251,7 +250,6 @@ def db_migrate_lobs(errors: list[str],
     curr_target_conn: Any = target_conn or db_connect(errors=op_errors,
                                                       engine=target_engine,
                                                       logger=logger)
-
     # make sure to have a target table
     if not target_table:
         target_table = source_table
@@ -331,7 +329,9 @@ def db_migrate_lobs(errors: list[str],
             offset: int = 1
             has_data: bool = False
             lob: Any = row[blob_index]
-            lob_data: bytes | str = lob.read(offset=offset, amount=chunk_size) if lob else None
+            lob_data: bytes | str = lob.read(offset=offset,
+                                             amount=chunk_size) \
+                                    if lob else None
             while lob_data:
                 size: int = len(lob_data)
                 has_data = True

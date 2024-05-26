@@ -1,6 +1,7 @@
 # noinspection DuplicatedCode
+import oracledb
 from logging import Logger
-from oracledb import Connection, connect, init_oracle_client
+from oracledb import Connection, init_oracle_client
 from pathlib import Path
 
 from .db_common import (
@@ -9,12 +10,14 @@ from .db_common import (
 )
 
 
-def _connect(errors: list[str],
-             logger: Logger) -> Connection:
+def connect(errors: list[str],
+            autocommit: bool,
+            logger: Logger) -> Connection:
     """
     Obtain and return a connection to the database, or *None* if the connection could not be obtained.
 
     :param errors: incidental error messages
+    :param autocommit: whether the connection is to be in autocommit mode
     :param logger: optional logger
     :return: the connection to the database
     """
@@ -27,13 +30,13 @@ def _connect(errors: list[str],
     # obtain a connection to the database
     err_msg: str | None = None
     try:
-        result = connect(service_name=name,
-                         host=host,
-                         port=port,
-                         user=user,
-                         password=pwd)
-        # make sure the connection is not in autocommit mode
-        result.autocommit = False
+        result = oracledb.connect(service_name=name,
+                                  host=host,
+                                  port=port,
+                                  user=user,
+                                  password=pwd)
+        # establish the connection's autocommit mode
+        result.autocommit = autocommit
     except Exception as e:
         err_msg = _db_except_msg(exception=e,
                                  engine="oracle")
@@ -48,13 +51,14 @@ def _connect(errors: list[str],
     return result
 
 
-def _select_all(errors: list[str],
-                sel_stmt: str,
-                where_vals: tuple,
-                require_min: int,
-                require_max: int,
-                conn: Connection,
-                logger: Logger) -> list[tuple]:
+def select_all(errors: list[str],
+               sel_stmt: str,
+               where_vals: tuple,
+               require_min: int,
+               require_max: int,
+               conn: Connection,
+               committable: bool,
+               logger: Logger) -> list[tuple]:
     """
     Search the database and return all tuples that satisfy the *sel_stmt* search command.
 
@@ -69,6 +73,7 @@ def _select_all(errors: list[str],
     :param require_min: optionally defines the minimum number of tuples to be returned
     :param require_max: optionally defines the maximum number of tuples to be returned
     :param conn: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
     :param logger: optional logger
     :return: tuple containing the search result, [] if the search was empty, or None if there was an error
     """
@@ -76,8 +81,9 @@ def _select_all(errors: list[str],
     result: list[tuple] = []
 
     # make sure to have a connection
-    curr_conn: Connection = conn or _connect(errors=errors,
-                                             logger=logger)
+    curr_conn: Connection = conn or connect(errors=errors,
+                                            autocommit=False,
+                                            logger=logger)
 
     if isinstance(require_max, int) and require_max > 0:
         sel_stmt: str = f"{sel_stmt} FETCH NEXT {require_max} ROWS ONLY"
@@ -103,8 +109,9 @@ def _select_all(errors: list[str],
                 # yes, retrieve the returned tuples
                 rows: list = cursor.fetchall()
                 result = [tuple(row) for row in rows]
-        # commit the transaction
-        curr_conn.commit()
+        # commit the transaction, if appropriate
+        if committable or not conn:
+            curr_conn.commit()
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
@@ -127,40 +134,50 @@ def _select_all(errors: list[str],
     return result
 
 
-def _bulk_insert(errors: list[str],
-                 insert_stmt: str,
-                 insert_vals: list[tuple],
-                 conn: Connection,
-                 logger: Logger) -> int:
+def execute(errors: list[str],
+            exc_stmt: str,
+            bind_vals: tuple,
+            conn: Connection,
+            committable: bool,
+            logger: Logger) -> int:
     """
-    Insert the tuples, with values defined in *insert_vals*, into the database.
+    Execute the command *exc_stmt* on the database.
 
-    The binding must be done by position. Thus, the *VALUES* clause in *insert_stmt*
-    must contain as many ':n' placeholders as there are elements in the tuples found in the
-    list provided in *insert_vals*, where 'n' is the 1-based position of the data in the tuple.
+    This command might be a DML ccommand modifying the database, such as
+    inserting, updating or deleting tuples, or it might be a DDL statement,
+    or it might even be an environment-related command.
+    The optional bind values for this operation are in *bind_vals*.
+    The value returned is the value obtained from the execution of *exc_stmt*.
+    It might be the number of inserted, modified, or deleted tuples,
+    ou None if an error occurred.
 
     :param errors: incidental error messages
-    :param insert_stmt: the INSERT command
-    :param insert_vals: the list of values to be inserted
+    :param exc_stmt: the command to execute
+    :param bind_vals: optional bind values
     :param conn: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
     :param logger: optional logger
-    :return: the number of inserted tuples, or None if an error occurred
+    :return: the return value from the command execution
     """
     # initialize the return variable
     result: int | None = None
 
     # make sure to have a connection
-    curr_conn: Connection = conn or _connect(errors=errors,
-                                             logger=logger)
+    curr_conn: Connection = conn or connect(errors=errors,
+                                            autocommit=False,
+                                            logger=logger)
 
     err_msg: str | None = None
     try:
-        # obtain a cursor and perform the operation
+        # obtain a cursor and execute the operation
         with curr_conn.cursor() as cursor:
-            cursor.executemany(statement=insert_stmt,
-                               parameters=insert_vals)
-            result = len(insert_vals)
-        curr_conn.commit()
+            cursor.execute(statement=exc_stmt,
+                           parameters=bind_vals)
+            result = cursor.rowcount
+
+        # commit the transaction, if appropriate
+        if committable or not conn:
+            curr_conn.commit()
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
@@ -177,21 +194,86 @@ def _bulk_insert(errors: list[str],
                 engine="oracle",
                 err_msg=err_msg,
                 errors=errors,
-                stmt=insert_stmt,
-                bind_vals=insert_vals[0])
+                stmt=exc_stmt,
+                bind_vals=bind_vals)
 
     return result
 
 
-def _update_lob(errors: list[str],
-                lob_table: str,
-                lob_column: str,
-                pk_columns: list[str],
-                pk_vals: tuple,
-                lob_file: str | Path,
-                chunk_size: int,
-                conn: Connection,
-                logger: Logger) -> None:
+def bulk_execute(errors: list[str],
+                 exc_stmt: str,
+                 exc_vals: list[tuple],
+                 conn: Connection,
+                 committable: bool,
+                 logger: Logger) -> int:
+    """
+    Bulk-update the database with the statement defined in *execute_stmt*, and the values in *execute_vals*.
+
+    The binding is done by position. Thus, the binding clauses in *execute_stmt* must contain
+    as many ':n' placeholders as there are elements in the tuples found in the list provided in
+    *execute_vals*, where 'n' is the 1-based position of the data in the tuple.
+    Note that, in *UPDATE* operations, the placeholders in the *WHERE* clause will follow
+    the ones in the *SET* clause.
+
+    :param errors: incidental error messages
+    :param exc_stmt: the command to update the database with
+    :param exc_vals: the list of values for tuple identification, and to update the database with
+    :param conn: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param logger: optional logger
+    :return: the number of inserted or updated tuples, or None if an error occurred
+    """
+    # initialize the return variable
+    result: int | None = None
+
+    # make sure to have a connection
+    curr_conn: Connection = conn or connect(errors=errors,
+                                            autocommit=False,
+                                            logger=logger)
+
+    err_msg: str | None = None
+    try:
+        # obtain a cursor and perform the operation
+        with curr_conn.cursor() as cursor:
+            cursor.executemany(statement=exc_stmt,
+                               parameters=exc_vals)
+            result = len(exc_vals)
+
+        # commit the transaction, if appropriate
+        if committable or not conn:
+            curr_conn.commit()
+    except Exception as e:
+        if curr_conn:
+            curr_conn.rollback()
+        err_msg = _db_except_msg(exception=e,
+                                 engine="oracle")
+    finally:
+        # close the connection, if locally acquired
+        if curr_conn and not conn:
+            curr_conn.close()
+
+    # log eventual errors
+    if errors or err_msg:
+        _db_log(logger=logger,
+                engine="oracle",
+                err_msg=err_msg,
+                errors=errors,
+                stmt=exc_stmt,
+                bind_vals=exc_vals[0])
+
+    return result
+
+
+def update_lob(errors: list[str],
+               lob_table: str,
+               lob_column: str,
+               pk_columns: list[str],
+               pk_vals: tuple,
+               lob_file: str | Path,
+               chunk_size: int,
+               conn: Connection,
+               committable: bool,
+               logger: Logger) -> None:
     """
     Update a large binary objects (LOB) in the given table and column.
 
@@ -203,11 +285,13 @@ def _update_lob(errors: list[str],
     :param lob_file: file holding the LOB (a file object or a valid path)
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param conn: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
     :param logger: optional logger
     """
     # make sure to have a connection
-    curr_conn: Connection = conn or _connect(errors=errors,
-                                             logger=logger)
+    curr_conn: Connection = conn or connect(errors=errors,
+                                            autocommit=False,
+                                            logger=logger)
 
     # make sure to have a data file
     data_file: Path = Path(lob_file) if isinstance(lob_file, str) else lob_file
@@ -238,8 +322,9 @@ def _update_lob(errors: list[str],
                                    parameters=(lob_data, *pk_vals))
                     lob_data = file.read(chunk_size)
 
-        # commit the transaction
-        curr_conn.commit()
+        # commit the transaction, if appropriate
+        if committable or not conn:
+            curr_conn.commit()
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
@@ -260,74 +345,14 @@ def _update_lob(errors: list[str],
                 bind_vals=pk_vals)
 
 
-def _execute(errors: list[str],
-             exc_stmt: str,
-             bind_vals: tuple,
-             conn: Connection,
-             logger: Logger) -> int:
-    """
-    Execute the command *exc_stmt* on the database.
-
-    This command might be a DML ccommand modifying the database, such as
-    inserting, updating or deleting tuples, or it might be a DDL statement,
-    or it might even be an environment-related command.
-    The optional bind values for this operation are in *bind_vals*.
-    The value returned is the value obtained from the execution of *exc_stmt*.
-    It might be the number of inserted, modified, or deleted tuples,
-    ou None if an error occurred.
-
-    :param errors: incidental error messages
-    :param exc_stmt: the command to execute
-    :param bind_vals: optional bind values
-    :param conn: optional connection to use (obtains a new one, if not provided)
-    :param logger: optional logger
-    :return: the return value from the command execution
-    """
-    # initialize the return variable
-    result: int | None = None
-
-    # make sure to have a connection
-    curr_conn: Connection = conn or _connect(errors=errors,
-                                             logger=logger)
-
-    err_msg: str | None = None
-    try:
-        # obtain a cursor and execute the operation
-        with curr_conn.cursor() as cursor:
-            cursor.execute(statement=exc_stmt,
-                           parameters=bind_vals)
-            result = cursor.rowcount
-        # commit the transaction
-        curr_conn.commit()
-    except Exception as e:
-        if curr_conn:
-            curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="oracle")
-    finally:
-        # close the connection, if locally acquired
-        if curr_conn and not conn:
-            curr_conn.close()
-
-    # log eventual errors
-    if errors or err_msg:
-        _db_log(logger=logger,
-                engine="oracle",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=exc_stmt,
-                bind_vals=bind_vals)
-
-    return result
-
-
 # TODO: see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html
 # noinspection PyUnusedLocal
-def _call_function(errors: list[str],
-                   func_name: str,
-                   func_vals: tuple,
-                   conn: Connection,
-                   logger: Logger) -> list[tuple]:
+def call_function(errors: list[str],
+                  func_name: str,
+                  func_vals: tuple,
+                  conn: Connection,
+                  committable: bool,
+                  logger: Logger) -> list[tuple]:
     """
     Execute the stored function *func_name* in the database, with the parameters given in *func_vals*.
 
@@ -335,6 +360,7 @@ def _call_function(errors: list[str],
     :param func_name: name of the stored function
     :param func_vals: parameters for the stored function
     :param conn: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
     :param logger: optional logger
     :return: the data returned by the function
     """
@@ -345,11 +371,12 @@ def _call_function(errors: list[str],
 
 
 # TODO: see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html
-def _call_procedure(errors: list[str],
-                    proc_name: str,
-                    proc_vals: tuple,
-                    conn: Connection,
-                    logger: Logger) -> list[tuple]:
+def call_procedure(errors: list[str],
+                   proc_name: str,
+                   proc_vals: tuple,
+                   conn: Connection,
+                   committable: bool,
+                   logger: Logger) -> list[tuple]:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 
@@ -357,6 +384,7 @@ def _call_procedure(errors: list[str],
     :param proc_name: name of the stored procedure
     :param proc_vals: parameters for the stored procedure
     :param conn: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
     :param logger: optional logger
     :return: the data returned by the procedure
     """
@@ -364,8 +392,9 @@ def _call_procedure(errors: list[str],
     result: list[tuple] = []
 
     # make sure to have a connection
-    curr_conn: Connection = conn or _connect(errors=errors,
-                                             logger=logger)
+    curr_conn: Connection = conn or connect(errors=errors,
+                                            autocommit=False,
+                                            logger=logger)
 
     # execute the stored procedure
     err_msg: str | None = None
@@ -377,8 +406,10 @@ def _call_procedure(errors: list[str],
 
             # retrieve the returned tuples
             result = list(cursor)
-        # commit the transaction
-        curr_conn.commit()
+
+        # commit the transaction, if appropriate
+        if committable or not conn:
+            curr_conn.commit()
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
@@ -402,8 +433,8 @@ def _call_procedure(errors: list[str],
 
 __is_initialized: str | None = None
 
-def _initialize(errors: list[str],
-                logger: Logger) -> bool:
+def initialize(errors: list[str],
+               logger: Logger) -> bool:
     """
     Prepare the oracle engine to access the database throught the installed client software.
 
