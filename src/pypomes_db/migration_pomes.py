@@ -3,7 +3,7 @@ from logging import WARNING, Logger
 from typing import Any
 
 from .db_common import (
-    _db_bind_columns, _db_bind_marks, _db_log, _db_except_msg, _db_remove_nulls
+    _bind_columns, _bind_marks, _log, _except_msg, _remove_nulls
 )
 from .db_pomes import db_connect
 
@@ -73,18 +73,18 @@ def db_migrate_data(errors: list[str],
     if target_engine == "postgres":
         values: str = "VALUES %s"
     else:
-        raw_row: str = _db_bind_marks(engine=target_engine,
-                                      start=1,
-                                      finish=len(target_columns)+1)
+        raw_row: str = _bind_marks(engine=target_engine,
+                                   start=1,
+                                   finish=len(target_columns)+1)
         values: str = f"VALUES({raw_row})"
     cols: str = ", ".join(target_columns)
     insert_stmt = (f"INSERT INTO {target_table} "
                    f"({cols}) {values}")
 
     # log the migration start
-    _db_log(logger=logger,
-            engine=source_engine,
-            stmt=(f"Started migrating data, "
+    _log(logger=logger,
+         engine=source_engine,
+         stmt=(f"Started migrating data, "
                   f"from {source_engine}.{source_table} "
                   f"to {target_engine}.{target_table}"))
 
@@ -125,14 +125,14 @@ def db_migrate_data(errors: list[str],
                         # ("A string literal cannot contain NUL (0x00) characters.")
                         if "contain NUL" in e.args[0]:
                             # yes, log the occurrence, remove the NULLs, and try again
-                            _db_log(logger=logger,
-                                    engine="postgres",
-                                    level=WARNING,
-                                    stmt=f"Found NULLs in values for {insert_stmt}")
+                            _log(logger=logger,
+                                 engine="postgres",
+                                 level=WARNING,
+                                 stmt=f"Found NULLs in values for {insert_stmt}")
                             # search for NULLs in input data
                             cleaned_rows: [tuple] = []
                             for row in rows:
-                                cleaned_row: list[Any] = _db_remove_nulls(row)
+                                cleaned_row: list[Any] = _remove_nulls(row)
                                 # has the row been cleaned ?
                                 if cleaned_row:
                                     # yes, use it
@@ -150,9 +150,9 @@ def db_migrate_data(errors: list[str],
             # log partial result
             row_count += 1
             if row_count % 100000 == 0:
-                _db_log(logger=logger,
-                        engine=source_engine,
-                        stmt=(f"Migrated {row_count} tuples, "
+                _log(logger=logger,
+                     engine=source_engine,
+                     stmt=(f"Migrated {row_count} tuples, "
                               f"from {source_engine}.{source_table} "
                               f"to {target_engine}.{target_table}"))
 
@@ -175,8 +175,8 @@ def db_migrate_data(errors: list[str],
             curr_source_conn.rollback()
         if curr_target_conn:
             curr_target_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine=source_engine)
+        err_msg = _except_msg(exception=e,
+                              engine=source_engine)
     finally:
         # close the connections, if locally acquired
         if curr_source_conn and not source_conn:
@@ -185,11 +185,11 @@ def db_migrate_data(errors: list[str],
             curr_target_conn.close()
 
     # log the migration finish
-    _db_log(logger=logger,
-            engine=source_engine,
-            err_msg=err_msg,
-            errors=op_errors,
-            stmt=(f"Migrated {result} tuples, "
+    _log(logger=logger,
+         engine=source_engine,
+         err_msg=err_msg,
+         errors=op_errors,
+         stmt=(f"Migrated {result} tuples, "
                   f"from {source_engine}.{source_table} "
                   f"to {target_engine}.{target_table}"))
 
@@ -274,28 +274,28 @@ def db_migrate_lobs(errors: list[str],
     blob_index: int = len(source_pk_columns)
 
     # build the UPDATE query
-    target_where_columns: str = _db_bind_columns(engine=target_engine,
-                                                 columns=target_pk_columns,
-                                                 concat=" AND ",
-                                                 start_index=2)
+    target_where_columns: str = _bind_columns(engine=target_engine,
+                                              columns=target_pk_columns,
+                                              concat=" AND ",
+                                              start_index=2)
     if target_engine == "oracle":
         update_stmt: str = (f"UPDATE {target_table} "
                             f"SET {target_lob_column} = empty_blob() "
                             f"WHERE {target_where_columns} "
                             f"RETURNING {target_lob_column} INTO :{len(target_where_columns) + 2}")
     else:
-        lob_bind: str = _db_bind_columns(engine=target_engine,
-                                         columns=[target_lob_column],
-                                         concat=", ",
-                                         start_index=1)
+        lob_bind: str = _bind_columns(engine=target_engine,
+                                      columns=[target_lob_column],
+                                      concat=", ",
+                                      start_index=1)
         update_stmt: str = (f"UPDATE {target_table} "
                             f"SET {target_lob_column} = {target_lob_column} || {lob_bind[len(target_lob_column) + 3:]} "
                             f"WHERE {target_where_columns}")
 
     # log the migration start
-    _db_log(logger=logger,
-            engine=source_engine,
-            stmt=(f"Started migrating LOBs, "
+    _log(logger=logger,
+         engine=source_engine,
+         stmt=(f"Started migrating LOBs, "
                   f"from {source_engine}.{source_table}.{source_lob_column} "
                   f"to {target_engine}.{target_table}.{target_lob_column}"))
 
@@ -372,9 +372,9 @@ def db_migrate_lobs(errors: list[str],
 
             # log partial result at each 100000 LOBs migrated
             if result % 10000 == 0:
-                _db_log(logger=logger,
-                        engine=source_engine,
-                        stmt=(f"Migrated {result} LOBs, "
+                _log(logger=logger,
+                     engine=source_engine,
+                     stmt=(f"Migrated {result} LOBs, "
                               f"from {source_engine}.{source_table}.{source_lob_column} "
                               f"to {target_engine}.{target_table}.{target_lob_column}"))
 
@@ -389,8 +389,8 @@ def db_migrate_lobs(errors: list[str],
             curr_source_conn.rollback()
         if curr_target_conn:
             curr_target_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine=source_engine)
+        err_msg = _except_msg(exception=e,
+                              engine=source_engine)
     finally:
         # close the connections, if locally acquired
         if curr_source_conn and not source_conn:
@@ -399,11 +399,11 @@ def db_migrate_lobs(errors: list[str],
             curr_target_conn.close()
 
     # log the migration finish
-    _db_log(logger=logger,
-            engine=source_engine,
-            err_msg=err_msg,
-            errors=op_errors,
-            stmt=(f"Migrated {result} LOBs, "
+    _log(logger=logger,
+         engine=source_engine,
+         err_msg=err_msg,
+         errors=op_errors,
+         stmt=(f"Migrated {result} LOBs, "
                   f"from {source_engine}.{source_table}.{source_lob_column} "
                   f"to {target_engine}.{target_table}.{target_lob_column}"))
 

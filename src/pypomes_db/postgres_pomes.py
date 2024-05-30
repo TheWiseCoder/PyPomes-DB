@@ -9,8 +9,8 @@ from psycopg2._psycopg import connection
 from typing import Any
 
 from .db_common import (
-    _db_assert_query_quota, _db_get_params,
-    _db_log, _db_except_msg, _db_remove_nulls
+    _assert_query_quota, _get_params,
+    _log, _except_msg, _remove_nulls
 )
 
 
@@ -29,7 +29,7 @@ def connect(errors: list[str],
     result: connection | None = None
 
     # retrieve the connection parameters
-    name, user, pwd, host, port = _db_get_params("postgres")
+    name, user, pwd, host, port = _get_params("postgres")
 
     # obtain a connection to the database
     err_msg: str | None = None
@@ -42,14 +42,14 @@ def connect(errors: list[str],
         # establish the connection's autocommit mode
         result.autocommit = autocommit
     except Exception as e:
-        err_msg = _db_except_msg(e, "postgres")
+        err_msg = _except_msg(e, "postgres")
 
     # log the results
-    _db_log(logger=logger,
-            engine="postgres",
-            err_msg=err_msg,
-            errors=errors,
-            stmt=f"Connecting to '{name}' at '{host}'")
+    _log(logger=logger,
+         engine="postgres",
+         err_msg=err_msg,
+         errors=errors,
+         stmt=f"Connecting to '{name}' at '{host}'")
 
     return result
 
@@ -101,13 +101,13 @@ def select_all(errors: list[str],
             count: int = cursor.rowcount
 
             # has the query quota been satisfied ?
-            if _db_assert_query_quota(errors=errors,
-                                      engine="postgres",
-                                      query=sel_stmt,
-                                      where_vals=where_vals,
-                                      count=count,
-                                      require_min=require_min,
-                                      require_max=require_max):
+            if _assert_query_quota(errors=errors,
+                                   engine="postgres",
+                                   query=sel_stmt,
+                                   where_vals=where_vals,
+                                   count=count,
+                                   require_min=require_min,
+                                   require_max=require_max):
                 # yes, retrieve the returned tuples
                 result = list(cursor)
 
@@ -117,8 +117,8 @@ def select_all(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="postgres")
+        err_msg = _except_msg(exception=e,
+                              engine="postgres")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -126,12 +126,12 @@ def select_all(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="postgres",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=sel_stmt,
-                bind_vals=where_vals)
+        _log(logger=logger,
+             engine="postgres",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=sel_stmt,
+             bind_vals=where_vals)
 
     return result
 
@@ -183,8 +183,8 @@ def execute(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="postgres")
+        err_msg = _except_msg(exception=e,
+                              engine="postgres")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -192,12 +192,12 @@ def execute(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="postgres",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=exc_stmt,
-                bind_vals=bind_vals)
+        _log(logger=logger,
+             engine="postgres",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=exc_stmt,
+             bind_vals=bind_vals)
 
     return result
 
@@ -249,14 +249,14 @@ def bulk_execute(errors: list[str],
         # is the exception ValueError("A string literal cannot contain NUL (0x00) characters.") ?
         if "contain NUL" in e.args[0]:
             # yes, log the occurrence, remove the NULLs, and try again
-            _db_log(logger=logger,
-                    engine="postgres",
-                    level=WARNING,
-                    stmt=f"Found NULLs in values for {exc_stmt}")
+            _log(logger=logger,
+                 engine="postgres",
+                 level=WARNING,
+                 stmt=f"Found NULLs in values for {exc_stmt}")
             # search for NULLs in input data
             cleaned_rows: list[tuple[int, list]] = []
             for inx, vals in enumerate(exc_vals):
-                cleaned_row: list[Any] = _db_remove_nulls(vals)
+                cleaned_row: list[Any] = _remove_nulls(vals)
                 # has the row been cleaned ?
                 if cleaned_row:
                     # yes, register it
@@ -274,8 +274,8 @@ def bulk_execute(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="postgres")
+        err_msg = _except_msg(exception=e,
+                              engine="postgres")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -283,11 +283,11 @@ def bulk_execute(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="postgres",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=exc_stmt)
+        _log(logger=logger,
+             engine="postgres",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=exc_stmt)
 
     return result
 
@@ -353,8 +353,8 @@ def update_lob(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="postgres")
+        err_msg = _except_msg(exception=e,
+                              engine="postgres")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -362,12 +362,12 @@ def update_lob(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="postgres",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=update_stmt,
-                bind_vals=pk_vals)
+        _log(logger=logger,
+             engine="postgres",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=update_stmt,
+             bind_vals=pk_vals)
 
 
 def call_procedure(errors: list[str],
@@ -414,8 +414,8 @@ def call_procedure(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="postgres")
+        err_msg = _except_msg(exception=e,
+                              engine="postgres")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -423,11 +423,11 @@ def call_procedure(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="postgres",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=proc_stmt,
-                bind_vals=proc_vals)
+        _log(logger=logger,
+             engine="postgres",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=proc_stmt,
+             bind_vals=proc_vals)
 
     return result

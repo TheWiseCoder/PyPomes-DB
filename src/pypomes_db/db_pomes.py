@@ -1,14 +1,15 @@
 # noinspection DuplicatedCode
+from copy import copy
 from logging import Logger
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .db_common import (
-    _DB_ENGINES, _DB_CONN_DATA, _assert_engine
+    _DB_ENGINES, _DB_CONN_DATA, _assert_engine, _get_param
 )
 
 
-def db_setup(engine: str,
+def db_setup(engine: Literal["mysql", "oracle", "postgres", "sqlserver"],
              db_name: str,
              db_user: str,
              db_pwd: str,
@@ -74,20 +75,41 @@ def db_get_engines() -> list[str]:
     return _DB_ENGINES
 
 
+def db_get_param(key: Literal["name", "user", "host", "port", "client", "driver"],
+                 engine: str = None) -> dict:
+    """
+    Return the connection parameter value for *key*.
+
+    The connection key should be one of *name*, *user*, *host*, and *port*.
+    For *oracle* and *sqlserver* engines, the extra keys *client* and *driver*
+    might be used, respectively.
+
+    :param key: the reference parameter
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :return: the current connection parameters for the engine
+    """
+    curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+    return None if key == "pwd" else _get_param(curr_engine, key)
+
+
 def db_get_params(engine: str = None) -> dict:
     """
     Return the connection parameters as a *dict*.
 
-    The returned *dict* contains the keys *name*, *user*, *pwd*, *host*, *port*.
+    The returned *dict* contains the keys *name*, *user*, *host*, *port*.
     For *oracle* engines, the returned *dict* contains the extra key *client*.
     For *sqlserver* engines, the  returned *dict* contains the extra key *driver*.
     The meaning of these parameters may vary between different database engines.
+    Note that the value of the *pwd* parameter is not returned.
 
-    :param engine: the database engine
+    :param engine: the database engine to use (uses the default engine, if not provided)
     :return: the current connection parameters for the engine
     """
     curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
-    return _DB_CONN_DATA.get(engine or curr_engine)
+    result: dict = copy(x=_DB_CONN_DATA.get(curr_engine))
+    result.pop("pwd", None)
+
+    return result
 
 
 def db_assert_connection(errors: list[str] | None,
@@ -198,7 +220,7 @@ def db_exists(errors: list[str],
     :param where_vals: the values for the search attributes
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
     :return: True if at least one tuple was found
     """
@@ -247,7 +269,7 @@ def db_select_one(errors: list[str] | None,
     :param require_nonempty: defines whether an empty search should be considered an error
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
     :return: tuple containing the search result, [] if the search was empty, or None if there was an error
     """
@@ -296,7 +318,7 @@ def db_select_all(errors: list[str] | None,
     :param require_max: optionally defines the maximum number of tuples to be returned
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
     :return: list of tuples containing the search result, or [] if the search is empty
     """
@@ -365,7 +387,7 @@ def db_insert(errors: list[str] | None,
     :param insert_vals: the values to be inserted
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
     :return: the number of inserted tuples (0 ou 1), or None if an error occurred
     """
@@ -407,7 +429,7 @@ def db_update(errors: list[str] | None,
     :param where_vals: the values to be associated with the search criteria
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
     :return: the number of updated tuples, or None if an error occurred
     """
@@ -453,7 +475,7 @@ def db_delete(errors: list[str] | None,
     :param where_vals: the values to be associated with the search criteria
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
     :return: the number of deleted tuples, or None if an error occurred
     """
@@ -497,7 +519,7 @@ def db_bulk_insert(errors: list[str] | None,
     :param insert_vals: the list of values to be inserted
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
     :return: the number of inserted tuples (1 for postgres), or None if an error occurred
     """
@@ -570,7 +592,7 @@ def db_bulk_update(errors: list[str] | None,
     :param update_vals: the list of values to update the database with, and to locate the tuple
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
     :return: the number of updated tuples, or None if an error occurred
     """
@@ -639,7 +661,7 @@ def db_update_lob(errors: list[str],
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
     :return: number of LOBs effectively copied
     """
@@ -715,7 +737,7 @@ def db_execute(errors: list[str] | None,
     :param bind_vals: optional bind values
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
     :return: the return value from the command execution
     """
@@ -778,7 +800,7 @@ def db_call_function(errors: list[str] | None,
     :param func_vals: parameters for the stored function
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
     :return: the data returned by the function
     """
@@ -841,7 +863,7 @@ def db_call_procedure(errors: list[str] | None,
     :param proc_vals: parameters for the stored procedure
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
     :return: the data returned by the procedure
     """

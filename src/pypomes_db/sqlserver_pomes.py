@@ -5,7 +5,7 @@ from pyodbc import Binary, Connection, Row
 from pathlib import Path
 
 from .db_common import (
-    _db_assert_query_quota, _db_get_params, _db_log, _db_except_msg
+    _assert_query_quota, _get_params, _log, _except_msg
 )
 
 
@@ -24,7 +24,7 @@ def connect(errors: list[str],
     result: Connection | None = None
 
     # retrieve the connection parameters and build the connection string
-    name, user, pwd, host, port, driver = _db_get_params("sqlserver")
+    name, user, pwd, host, port, driver = _get_params("sqlserver")
     connection_kwargs: str = (
         f"DRIVER={{{driver}}};SERVER={host},{port};"
         f"DATABASE={name};UID={user};PWD={pwd};TrustServerCertificate=yes;"
@@ -37,15 +37,15 @@ def connect(errors: list[str],
         # establish the connection's autocommit mode
         result.autocommit = autocommit
     except Exception as e:
-        err_msg = _db_except_msg(exception=e,
-                                 engine="sqlserver")
+        err_msg = _except_msg(exception=e,
+                              engine="sqlserver")
 
     # log the results
-    _db_log(logger=logger,
-            engine="sqlserver",
-            err_msg=err_msg,
-            errors=errors,
-            stmt=f"Connecting to '{name}' at '{host}'")
+    _log(logger=logger,
+         engine="sqlserver",
+         err_msg=err_msg,
+         errors=errors,
+         stmt=f"Connecting to '{name}' at '{host}'")
 
     return result
 
@@ -96,13 +96,13 @@ def select_all(errors: list[str],
             count: int = cursor.rowcount
 
             # has the query quota been satisfied ?
-            if _db_assert_query_quota(errors=errors,
-                                      engine="sqlserver",
-                                      query=sel_stmt,
-                                      where_vals=where_vals,
-                                      count=count,
-                                      require_min=require_min,
-                                      require_max=require_max):
+            if _assert_query_quota(errors=errors,
+                                   engine="sqlserver",
+                                   query=sel_stmt,
+                                   where_vals=where_vals,
+                                   count=count,
+                                   require_min=require_min,
+                                   require_max=require_max):
                 # yes, retrieve the returned tuples
                 rows: list[Row] = cursor.fetchall()
                 result = [tuple(row) for row in rows]
@@ -113,8 +113,8 @@ def select_all(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="sqlserver")
+        err_msg = _except_msg(exception=e,
+                              engine="sqlserver")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -122,12 +122,12 @@ def select_all(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="sqlserver",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=sel_stmt,
-                bind_vals=where_vals)
+        _log(logger=logger,
+             engine="sqlserver",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=sel_stmt,
+             bind_vals=where_vals)
 
     return result
 
@@ -178,8 +178,8 @@ def execute(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="sqlserver")
+        err_msg = _except_msg(exception=e,
+                              engine="sqlserver")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -187,12 +187,12 @@ def execute(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="sqlserver",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=exc_stmt,
-                bind_vals=bind_vals)
+        _log(logger=logger,
+             engine="sqlserver",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=exc_stmt,
+             bind_vals=bind_vals)
 
     return result
 
@@ -245,8 +245,8 @@ def bulk_execute(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="sqlserver")
+        err_msg = _except_msg(exception=e,
+                              engine="sqlserver")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -254,12 +254,12 @@ def bulk_execute(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="sqlserver",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=exc_stmt,
-                bind_vals=exc_vals[0])
+        _log(logger=logger,
+             engine="sqlserver",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=exc_stmt,
+             bind_vals=exc_vals[0])
 
     return result
 
@@ -325,8 +325,8 @@ def update_lob(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="sqlserver")
+        err_msg = _except_msg(exception=e,
+                              engine="sqlserver")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -334,12 +334,12 @@ def update_lob(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="sqlserver",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=update_stmt,
-                bind_vals=pk_vals)
+        _log(logger=logger,
+             engine="sqlserver",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=update_stmt,
+             bind_vals=pk_vals)
 
 
 def call_procedure(errors: list[str],
@@ -387,8 +387,8 @@ def call_procedure(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="sqlserver")
+        err_msg = _except_msg(exception=e,
+                              engine="sqlserver")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -396,11 +396,11 @@ def call_procedure(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="sqlserver",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=proc_stmt,
-                bind_vals=proc_vals)
+        _log(logger=logger,
+             engine="sqlserver",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=proc_stmt,
+             bind_vals=proc_vals)
 
     return result

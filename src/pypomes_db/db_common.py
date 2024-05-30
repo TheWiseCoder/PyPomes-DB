@@ -23,13 +23,15 @@ from typing import Any, Iterable
 
 _DB_CONN_DATA: dict = {}
 _DB_ENGINES: list[str] = []
-_prefix: str = env_get_str(f"{APP_PREFIX}_DB_ENGINE",  None)
+_prefix: str = env_get_str(key=f"{APP_PREFIX}_DB_ENGINE",
+                           def_value=None)
 if _prefix:
     _default_setup: bool = True
     _DB_ENGINES.append(_prefix)
 else:
     _default_setup: bool = False
-    _engines: str = env_get_str(f"{APP_PREFIX}_DB_ENGINES", None)
+    _engines: str = env_get_str(key=f"{APP_PREFIX}_DB_ENGINES",
+                                def_value=None)
     if _engines:
         _DB_ENGINES.extend(_engines.split(sep=","))
 for engine in _DB_ENGINES:
@@ -41,16 +43,17 @@ for engine in _DB_ENGINES:
                                        list_origin=["mysql", "oracle", "postgres", "sqlserver"],
                                        list_dest=["MSQL", "ORCL", "PG", "SQLS"])
     _db_data = {
-        "name":  env_get_str(f"{APP_PREFIX}_{_tag}_NAME"),
-        "user": env_get_str(f"{APP_PREFIX}_{_tag}_USER"),
-        "pwd": env_get_str(f"{APP_PREFIX}_{_tag}_PWD"),
-        "host": env_get_str(f"{APP_PREFIX}_{_tag}_HOST"),
-        "port": env_get_int(f"{APP_PREFIX}_{_tag}_PORT")
+        "name":  env_get_str(key=f"{APP_PREFIX}_{_tag}_NAME"),
+        "user": env_get_str(key=f"{APP_PREFIX}_{_tag}_USER"),
+        "pwd": env_get_str(key=f"{APP_PREFIX}_{_tag}_PWD"),
+        "host": env_get_str(key=f"{APP_PREFIX}_{_tag}_HOST"),
+        "port": env_get_int(key=f"{APP_PREFIX}_{_tag}_PORT")
     }
     if engine == "oracle":
-        _db_data["client"] = env_get_str(f"{APP_PREFIX}_{_tag}_CLIENT", None)
+        _db_data["client"] = env_get_str(key=f"{APP_PREFIX}_{_tag}_CLIENT",
+                                         def_value=None)
     elif engine == "sqlserver":
-        _db_data["driver"] = env_get_str(f"{APP_PREFIX}_{_tag}_DRIVER")
+        _db_data["driver"] = env_get_str(key=f"{APP_PREFIX}_{_tag}_DRIVER")
     _DB_CONN_DATA[engine] = _db_data
 
 
@@ -80,13 +83,13 @@ def _assert_engine(errors: list[str],
     return result
 
 
-def _db_assert_query_quota(errors: list[str],
-                           engine: str,
-                           query: str,
-                           where_vals: tuple,
-                           count: int,
-                           require_min: int,
-                           require_max: int) -> bool:
+def _assert_query_quota(errors: list[str],
+                        engine: str,
+                        query: str,
+                        where_vals: tuple,
+                        count: int,
+                        require_min: int,
+                        require_max: int) -> bool:
     """
     Verify whether the number of tuples returned is compliant with the constraints specified.
 
@@ -110,9 +113,9 @@ def _db_assert_query_quota(errors: list[str],
         # yes, report the error, if applicable
         result = False
         if isinstance(errors, list):
-            msg: str = _db_build_query_msg(query_stmt=query,
-                                            engine=engine,
-                                            bind_vals=where_vals)
+            msg: str = _build_query_msg(query_stmt=query,
+                                        engine=engine,
+                                        bind_vals=where_vals)
             errors.append(f"{count} tuples returned, {require_min} expected, for '{msg}'")
 
     # has a minimum number of tuples been defined but not returned ?
@@ -122,16 +125,16 @@ def _db_assert_query_quota(errors: list[str],
         # yes, report the error, if applicable
         result = False
         if isinstance(errors, list):
-            msg: str = _db_build_query_msg(query_stmt=query,
-                                            engine=engine,
-                                            bind_vals=where_vals)
+            msg: str = _build_query_msg(query_stmt=query,
+                                        engine=engine,
+                                        bind_vals=where_vals)
             errors.append(f"{count} tuples returned, at least {require_min} expected, for '{msg}'")
 
     return result
 
 
-def _db_get_param(engine: str,
-                  param: str) -> Any:
+def _get_param(engine: str,
+               param: str) -> Any:
     """
     Return the current value of *param* being used by *engine*.
 
@@ -139,10 +142,10 @@ def _db_get_param(engine: str,
     :param param: the reference parameter
     :return: the parameter's current value
     """
-    return _DB_CONN_DATA[engine].get(param)
+    return _DB_CONN_DATA.get(engine or {}).get(param)
 
 
-def _db_get_params(engine: str) -> tuple:
+def _get_params(engine: str) -> tuple:
     """
     Return the current connection parameters being used for *engine*.
 
@@ -155,15 +158,16 @@ def _db_get_params(engine: str) -> tuple:
     :param engine: the reference database engine
     :return: the current connection parameters for the engine
     """
-    name: str = _DB_CONN_DATA[engine].get("name")
-    user: str = _DB_CONN_DATA[engine].get("user")
-    pwd: str = _DB_CONN_DATA[engine].get("pwd")
-    host: str = _DB_CONN_DATA[engine].get("host")
-    port: int = _DB_CONN_DATA[engine].get("port")
+    conn_data: dict = _DB_CONN_DATA[engine] or {}
+    name: str = conn_data.get("name")
+    user: str = conn_data.get("user")
+    pwd: str = conn_data.get("pwd")
+    host: str = conn_data.get("host")
+    port: int = conn_data.get("port")
 
     result: tuple
     if engine == "sqlserver":
-        driver: str = _DB_CONN_DATA[engine].get("driver")
+        driver: str = conn_data.get("driver")
         result = (name, user, pwd, host, port, driver)
     else:
         result = (name, user, pwd, host, port)
@@ -171,8 +175,8 @@ def _db_get_params(engine: str) -> tuple:
     return result
 
 
-def _db_except_msg(exception: Exception,
-                   engine: str) -> str:
+def _except_msg(exception: Exception,
+                engine: str) -> str:
     """
     Format and return the error message corresponding to the exception raised while accessing the database.
 
@@ -185,13 +189,13 @@ def _db_except_msg(exception: Exception,
     return f"Error accessing '{name}' at '{host}': {str_sanitize(f'{exception}')}"
 
 
-def _db_log(logger: Logger,
-            engine: str,
-            err_msg: str = None,
-            level: int = DEBUG,
-            errors: list[str] = None,
-            stmt: str = None,
-            bind_vals: tuple = None) -> None:
+def _log(logger: Logger,
+         engine: str,
+         err_msg: str = None,
+         level: int = DEBUG,
+         errors: list[str] = None,
+         stmt: str = None,
+         bind_vals: tuple = None) -> None:
     """
     Log *err_msg* and add it to *errors*, or else log the executed query, whichever is applicable.
 
@@ -209,15 +213,15 @@ def _db_log(logger: Logger,
         if isinstance(errors, list):
             errors.append(err_msg)
     if logger and stmt:
-        log_msg: str = _db_build_query_msg(query_stmt=stmt,
-                                           engine=engine,
-                                           bind_vals=bind_vals)
+        log_msg: str = _build_query_msg(query_stmt=stmt,
+                                        engine=engine,
+                                        bind_vals=bind_vals)
         logger.log(level, log_msg)
 
 
-def _db_build_query_msg(query_stmt: str,
-                        engine: str,
-                        bind_vals: tuple) -> str:
+def _build_query_msg(query_stmt: str,
+                     engine: str,
+                     bind_vals: tuple) -> str:
     """
     Format and return the message indicative of a query problem.
 
@@ -244,10 +248,10 @@ def _db_build_query_msg(query_stmt: str,
     return result
 
 
-def _db_bind_columns(engine: str,
-                     columns: list[str],
-                     concat: str,
-                     start_index: int) -> str:
+def _bind_columns(engine: str,
+                  columns: list[str],
+                  concat: str,
+                  start_index: int) -> str:
     """
     Concatenate a list of column names bindings, appropriate for the engine sepcified.
 
@@ -279,9 +283,9 @@ def _db_bind_columns(engine: str,
     return result
 
 
-def _db_bind_marks(engine: str,
-                   start: int,
-                   finish: int) -> str:
+def _bind_marks(engine: str,
+                start: int,
+                finish: int) -> str:
     """
     Concatenate a list of binding marks, appropriate for the engine sepcified.
 
@@ -307,7 +311,7 @@ def _db_bind_marks(engine: str,
     return result
 
 
-def _db_remove_nulls(row: Iterable) -> list[Any]:
+def _remove_nulls(row: Iterable) -> list[Any]:
     """
     Remove all occurrences of *NULL* (char(0)) values from the elements in *row*.
 

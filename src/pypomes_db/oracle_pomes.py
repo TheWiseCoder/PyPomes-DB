@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .db_common import (
     _DB_CONN_DATA,
-    _db_assert_query_quota, _db_get_params, _db_log, _db_except_msg
+    _assert_query_quota, _get_params, _log, _except_msg
 )
 
 
@@ -25,7 +25,7 @@ def connect(errors: list[str],
     result: Connection | None = None
 
     # retrieve the connection parameters
-    name, user, pwd, host, port = _db_get_params("oracle")
+    name, user, pwd, host, port = _get_params("oracle")
 
     # obtain a connection to the database
     err_msg: str | None = None
@@ -38,15 +38,15 @@ def connect(errors: list[str],
         # establish the connection's autocommit mode
         result.autocommit = autocommit
     except Exception as e:
-        err_msg = _db_except_msg(exception=e,
-                                 engine="oracle")
+        err_msg = _except_msg(exception=e,
+                              engine="oracle")
 
     # log the results
-    _db_log(logger=logger,
-            engine="oracle",
-            err_msg=err_msg,
-            errors=errors,
-            stmt=f"Connecting to '{name}' at '{host}'")
+    _log(logger=logger,
+         engine="oracle",
+         err_msg=err_msg,
+         errors=errors,
+         stmt=f"Connecting to '{name}' at '{host}'")
 
     return result
 
@@ -99,13 +99,13 @@ def select_all(errors: list[str],
             count: int = cursor.rowcount
 
             # has the query quota been satisfied ?
-            if _db_assert_query_quota(errors=errors,
-                                      engine="oracle",
-                                      query=sel_stmt,
-                                      where_vals=where_vals,
-                                      count=count,
-                                      require_min=require_min,
-                                      require_max=require_max):
+            if _assert_query_quota(errors=errors,
+                                   engine="oracle",
+                                   query=sel_stmt,
+                                   where_vals=where_vals,
+                                   count=count,
+                                   require_min=require_min,
+                                   require_max=require_max):
                 # yes, retrieve the returned tuples
                 rows: list = cursor.fetchall()
                 result = [tuple(row) for row in rows]
@@ -115,8 +115,8 @@ def select_all(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="oracle")
+        err_msg = _except_msg(exception=e,
+                              engine="oracle")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -124,12 +124,12 @@ def select_all(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="oracle",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=sel_stmt,
-                bind_vals=where_vals)
+        _log(logger=logger,
+             engine="oracle",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=sel_stmt,
+             bind_vals=where_vals)
 
     return result
 
@@ -181,8 +181,8 @@ def execute(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="oracle")
+        err_msg = _except_msg(exception=e,
+                              engine="oracle")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -190,12 +190,12 @@ def execute(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="oracle",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=exc_stmt,
-                bind_vals=bind_vals)
+        _log(logger=logger,
+             engine="oracle",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=exc_stmt,
+             bind_vals=bind_vals)
 
     return result
 
@@ -245,8 +245,8 @@ def bulk_execute(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="oracle")
+        err_msg = _except_msg(exception=e,
+                              engine="oracle")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -254,12 +254,12 @@ def bulk_execute(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="oracle",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=exc_stmt,
-                bind_vals=exc_vals[0])
+        _log(logger=logger,
+             engine="oracle",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=exc_stmt,
+             bind_vals=exc_vals[0])
 
     return result
 
@@ -328,8 +328,8 @@ def update_lob(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="oracle")
+        err_msg = _except_msg(exception=e,
+                              engine="oracle")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -337,12 +337,12 @@ def update_lob(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                err_msg=err_msg,
-                engine="oracle",
-                errors=errors,
-                stmt=update_stmt,
-                bind_vals=pk_vals)
+        _log(logger=logger,
+             err_msg=err_msg,
+             engine="oracle",
+             errors=errors,
+             stmt=update_stmt,
+             bind_vals=pk_vals)
 
 
 # TODO: see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html
@@ -413,8 +413,8 @@ def call_procedure(errors: list[str],
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()
-        err_msg = _db_except_msg(exception=e,
-                                 engine="oracle")
+        err_msg = _except_msg(exception=e,
+                              engine="oracle")
     finally:
         # close the connection, if locally acquired
         if curr_conn and not conn:
@@ -422,12 +422,12 @@ def call_procedure(errors: list[str],
 
     # log eventual errors
     if errors or err_msg:
-        _db_log(logger=logger,
-                engine="oracle",
-                err_msg=err_msg,
-                errors=errors,
-                stmt=proc_name,
-                bind_vals=proc_vals)
+        _log(logger=logger,
+             engine="oracle",
+             err_msg=err_msg,
+             errors=errors,
+             stmt=proc_name,
+             bind_vals=proc_vals)
 
     return result
 
@@ -454,13 +454,13 @@ def initialize(errors: list[str],
             __is_initialized = True
         except Exception as e:
             result = False
-            err_msg = _db_except_msg(exception=e,
-                                     engine="oracle")
+            err_msg = _except_msg(exception=e,
+                                  engine="oracle")
         # log the results
-        _db_log(logger=logger,
-                engine="oracle",
-                err_msg=err_msg,
-                errors=errors,
-                stmt="Initializing the client")
+        _log(logger=logger,
+             engine="oracle",
+             err_msg=err_msg,
+             errors=errors,
+             stmt="Initializing the client")
 
     return result

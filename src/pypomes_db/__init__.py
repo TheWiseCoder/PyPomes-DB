@@ -1,5 +1,5 @@
 from .db_pomes import (
-    db_setup, db_get_engines, db_get_params,
+    db_setup, db_get_engines,  db_get_param, db_get_params,
     db_assert_connection, db_connect,
     db_exists, db_select_one, db_select_all,
     db_insert, db_update, db_delete,
@@ -12,7 +12,7 @@ from .migration_pomes import (
 
 __all__ = [
     # db_pomes
-    "db_setup", "db_get_engines", "db_get_params",
+    "db_setup", "db_get_engines", "db_get_param", "db_get_params",
     "db_assert_connection", "db_connect",
     "db_exists", "db_select_one", "db_select_all",
     "db_insert", "db_update", "db_delete",
