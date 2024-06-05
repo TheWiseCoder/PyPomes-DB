@@ -1,23 +1,39 @@
 # noinspection DuplicatedCode
 import oracledb
 from logging import Logger
-from oracledb import Connection, init_oracle_client
+from oracledb import Connection, init_oracle_client, makedsn
 from pathlib import Path
 
 from .db_common import (
     _DB_CONN_DATA,
     _assert_query_quota, _get_params, _log, _except_msg
 )
+def get_connection_string() -> str:
+    """
+    Build and return the connection string for connecting to the database.
+
+    :return: the connection string
+    """
+    # retrieve the connection parameters
+    name, user, pwd, host, port = _get_params("oracle")
+
+    # build and return the connection string
+    dsn: str = makedsn(host=host,
+                       port=port,
+                       service_name=name)
+    return f"oracle+oracledb://{user}:{pwd}@{dsn}"
 
 
 def connect(errors: list[str],
-            autocommit: bool,
-            logger: Logger) -> Connection:
+            autocommit: bool | None,
+            logger: Logger | None) -> Connection:
     """
-    Obtain and return a connection to the database, or *None* if the connection could not be obtained.
+    Obtain and return a connection to the database.
+
+    Return *None* if the connection could not be obtained.
 
     :param errors: incidental error messages
-    :param autocommit: whether the connection is to be in autocommit mode
+    :param autocommit: whether the connection is to be in autocommit mode (defaults to False)
     :param logger: optional logger
     :return: the connection to the database
     """
@@ -36,7 +52,7 @@ def connect(errors: list[str],
                                   user=user,
                                   password=pwd)
         # establish the connection's autocommit mode
-        result.autocommit = autocommit
+        result.autocommit = isinstance(autocommit, bool) and autocommit
     except Exception as e:
         err_msg = _except_msg(exception=e,
                               engine="oracle")
@@ -51,31 +67,35 @@ def connect(errors: list[str],
     return result
 
 
-def select_all(errors: list[str],
-               sel_stmt: str,
-               where_vals: tuple,
-               require_min: int,
-               require_max: int,
-               conn: Connection,
-               committable: bool,
-               logger: Logger) -> list[tuple]:
+def select(errors: list[str] | None,
+           sel_stmt: str,
+           where_vals: tuple | None,
+           min_count: int | None,
+           max_count: int | None,
+           require_count: int | None,
+           conn: Connection | None,
+           committable: bool | None,
+           logger: Logger | None) -> list[tuple]:
     """
     Search the database and return all tuples that satisfy the *sel_stmt* search command.
 
-    The command can optionally contain search criteria, with respective values given
-    in *where_vals*. The list of values for an attribute with the *IN* clause must be contained
-    in a specific tuple. If not positive integers, *require_min* and *require_max* are ignored.
+    The command can optionally contain search criteria, with respective values given in
+    *where_vals*. The list of values for an attribute with the *IN* clause must be contained in a
+    specific tuple. If not positive integers, *min_count*, *max_count*, and *require_count" are ignored.
+    If *require_count* is specified, then exactly that number of touples must be
+    returned by the query. If the search is empty, an empty list is returned.
     If the search is empty, an empty list is returned.
 
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the search criteria
-    :param require_min: optionally defines the minimum number of tuples to be returned
-    :param require_max: optionally defines the maximum number of tuples to be returned
+    :param min_count: optionally defines the minimum number of tuples to be returned
+    :param max_count: optionally defines the maximum number of tuples to be returned
+    :param require_count: number of touples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
     :param logger: optional logger
-    :return: tuple containing the search result, [] if the search was empty, or None if there was an error
+    :return: list of tuples containing the search result, '[]' if the search was empty, or 'None' if there was an error
     """
     # initialize the return variable
     result: list[tuple] = []
@@ -85,8 +105,13 @@ def select_all(errors: list[str],
                                             autocommit=False,
                                             logger=logger)
 
-    if isinstance(require_max, int) and require_max > 0:
-        sel_stmt: str = f"{sel_stmt} FETCH NEXT {require_max} ROWS ONLY"
+    # make sure to establish the right query cardinality
+    if isinstance(require_count, int) and require_count > 0:
+        min_count = require_count
+        max_count = require_count + 1
+
+    if isinstance(max_count, int) and max_count > 0:
+        sel_stmt: str = f"{sel_stmt} FETCH NEXT {max_count} ROWS ONLY"
 
     err_msg: str | None = None
     try:
@@ -95,8 +120,9 @@ def select_all(errors: list[str],
             # execute the query
             cursor.execute(statement=sel_stmt,
                            parameters=where_vals)
+            rows: list = cursor.fetchall()
             # obtain the number of tuples returned
-            count: int = cursor.rowcount
+            count: int = len(rows)
 
             # has the query quota been satisfied ?
             if _assert_query_quota(errors=errors,
@@ -104,10 +130,10 @@ def select_all(errors: list[str],
                                    query=sel_stmt,
                                    where_vals=where_vals,
                                    count=count,
-                                   require_min=require_min,
-                                   require_max=require_max):
+                                   min_count=min_count,
+                                   max_count=max_count,
+                                   require_count=require_count):
                 # yes, retrieve the returned tuples
-                rows: list = cursor.fetchall()
                 result = [tuple(row) for row in rows]
         # commit the transaction, if appropriate
         if committable or not conn:
@@ -134,12 +160,12 @@ def select_all(errors: list[str],
     return result
 
 
-def execute(errors: list[str],
+def execute(errors: list[str] | None,
             exc_stmt: str,
-            bind_vals: tuple,
-            conn: Connection,
-            committable: bool,
-            logger: Logger) -> int:
+            bind_vals: tuple | None,
+            conn: Connection | None,
+            committable: bool | None,
+            logger: Logger | None) -> int:
     """
     Execute the command *exc_stmt* on the database.
 
@@ -200,12 +226,12 @@ def execute(errors: list[str],
     return result
 
 
-def bulk_execute(errors: list[str],
+def bulk_execute(errors: list[str] | None,
                  exc_stmt: str,
                  exc_vals: list[tuple],
-                 conn: Connection,
-                 committable: bool,
-                 logger: Logger) -> int:
+                 conn: Connection | None,
+                 committable: bool | None,
+                 logger: Logger | None) -> int:
     """
     Bulk-update the database with the statement defined in *execute_stmt*, and the values in *execute_vals*.
 
@@ -271,9 +297,9 @@ def update_lob(errors: list[str],
                pk_vals: tuple,
                lob_file: str | Path,
                chunk_size: int,
-               conn: Connection,
-               committable: bool,
-               logger: Logger) -> None:
+               conn: Connection | None,
+               committable: bool | None,
+               logger: Logger | None) -> None:
     """
     Update a large binary objects (LOB) in the given table and column.
 
@@ -347,12 +373,12 @@ def update_lob(errors: list[str],
 
 # TODO: see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html
 # noinspection PyUnusedLocal
-def call_function(errors: list[str],
+def call_function(errors: list[str] | None,
                   func_name: str,
-                  func_vals: tuple,
-                  conn: Connection,
-                  committable: bool,
-                  logger: Logger) -> list[tuple]:
+                  func_vals: tuple | None,
+                  conn: Connection | None,
+                  committable: bool | None,
+                  logger: Logger | None) -> list[tuple]:
     """
     Execute the stored function *func_name* in the database, with the parameters given in *func_vals*.
 
@@ -371,12 +397,12 @@ def call_function(errors: list[str],
 
 
 # TODO: see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html
-def call_procedure(errors: list[str],
+def call_procedure(errors: list[str] | None,
                    proc_name: str,
-                   proc_vals: tuple,
-                   conn: Connection,
-                   committable: bool,
-                   logger: Logger) -> list[tuple]:
+                   proc_vals: tuple | None,
+                   conn: Connection | None,
+                   committable: bool | None,
+                   logger: Logger | None) -> list[tuple]:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 

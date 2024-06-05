@@ -23,15 +23,13 @@ from typing import Any, Iterable
 
 _DB_CONN_DATA: dict = {}
 _DB_ENGINES: list[str] = []
-_prefix: str = env_get_str(key=f"{APP_PREFIX}_DB_ENGINE",
-                           def_value=None)
+_prefix: str = env_get_str(key=f"{APP_PREFIX}_DB_ENGINE")
 if _prefix:
     _default_setup: bool = True
     _DB_ENGINES.append(_prefix)
 else:
     _default_setup: bool = False
-    _engines: str = env_get_str(key=f"{APP_PREFIX}_DB_ENGINES",
-                                def_value=None)
+    _engines: str = env_get_str(key=f"{APP_PREFIX}_DB_ENGINES")
     if _engines:
         _DB_ENGINES.extend(_engines.split(sep=","))
 for engine in _DB_ENGINES:
@@ -50,8 +48,7 @@ for engine in _DB_ENGINES:
         "port": env_get_int(key=f"{APP_PREFIX}_{_tag}_PORT")
     }
     if engine == "oracle":
-        _db_data["client"] = env_get_str(key=f"{APP_PREFIX}_{_tag}_CLIENT",
-                                         def_value=None)
+        _db_data["client"] = env_get_str(key=f"{APP_PREFIX}_{_tag}_CLIENT")
     elif engine == "sqlserver":
         _db_data["driver"] = env_get_str(key=f"{APP_PREFIX}_{_tag}_DRIVER")
     _DB_CONN_DATA[engine] = _db_data
@@ -88,8 +85,9 @@ def _assert_query_quota(errors: list[str],
                         query: str,
                         where_vals: tuple,
                         count: int,
-                        require_min: int,
-                        require_max: int) -> bool:
+                        min_count: int,
+                        max_count: int,
+                        require_count: int) -> bool:
     """
     Verify whether the number of tuples returned is compliant with the constraints specified.
 
@@ -98,37 +96,42 @@ def _assert_query_quota(errors: list[str],
     :param query: the query statement used
     :param where_vals: the bind values used in the query
     :param count: the number of tuples returned
-    :param require_min: optionally defines the minimum number of tuples to be returned
-    :param require_max: optionally defines the maximum number of tuples to be returned
+    :param min_count: optionally defines the minimum number of tuples to be returned
+    :param max_count: optionally defines the maximum number of tuples to be returned
+    :param require_count: number of touples that must exactly satisfy the query
     :return: whether or not the number of tuples returned is compliant
     """
-    # initialize the return variable
-    result: bool = True
+    # initialize the control message variable
+    err_msg: str | None = None
 
     # has an exact number of tuples been defined but not returned ?
-    if (isinstance(require_min, int) and
-        isinstance(require_max, int) and
-        require_min == require_max and
-        require_min != count):
+    if (isinstance(require_count, int) and
+        require_count > 0 and require_count != count):
         # yes, report the error, if applicable
-        result = False
-        if isinstance(errors, list):
-            msg: str = _build_query_msg(query_stmt=query,
-                                        engine=engine,
-                                        bind_vals=where_vals)
-            errors.append(f"{count} tuples returned, {require_min} expected, for '{msg}'")
+        err_msg = f"{count} tuples returned, exactly {require_count} expected"
 
     # has a minimum number of tuples been defined but not returned ?
-    elif (isinstance(require_min, int) and
-          require_min > 0 and
-          count < require_min):
+    elif (isinstance(min_count, int) and
+          min_count > 0 and min_count > count):
         # yes, report the error, if applicable
-        result = False
+        err_msg = f"{count} tuples returned, at least {min_count} expected'"
+
+    # has a maximum number of tuples been defined but not complied with ?
+    # INSANITY CHECK: expected to never occur
+    elif (isinstance(max_count, int) and
+        0 < max_count < count):
+        # yes, report the error, if applicable
+        err_msg = f"{count} tuples returned, up to {max_count} expected"
+
+    if err_msg:
+        result: bool = False
         if isinstance(errors, list):
-            msg: str = _build_query_msg(query_stmt=query,
-                                        engine=engine,
-                                        bind_vals=where_vals)
-            errors.append(f"{count} tuples returned, at least {require_min} expected, for '{msg}'")
+            query: str = _build_query_msg(query_stmt=query,
+                                          engine=engine,
+                                          bind_vals=where_vals)
+            errors.append(f"{err_msg}, for '{query}'")
+    else:
+        result: bool = True
 
     return result
 

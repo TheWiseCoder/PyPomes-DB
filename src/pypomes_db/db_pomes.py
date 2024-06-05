@@ -75,12 +75,12 @@ def db_get_engines() -> list[str]:
     return _DB_ENGINES
 
 
-def db_get_param(key: Literal["name", "user", "host", "port", "client", "driver"],
+def db_get_param(key: Literal["name", "user", "pwd", "host", "port", "client", "driver"],
                  engine: str = None) -> dict:
     """
     Return the connection parameter value for *key*.
 
-    The connection key should be one of *name*, *user*, *host*, and *port*.
+    The connection key should be one of *name*, *user*, *host*, *pwd", and *port*.
     For *oracle* and *sqlserver* engines, the extra keys *client* and *driver*
     might be used, respectively.
 
@@ -89,14 +89,13 @@ def db_get_param(key: Literal["name", "user", "host", "port", "client", "driver"
     :return: the current connection parameters for the engine
     """
     curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
-    return None if key == "pwd" else _get_param(curr_engine, key)
-
+    return _get_param(curr_engine, key)
 
 def db_get_params(engine: str = None) -> dict:
     """
     Return the connection parameters as a *dict*.
 
-    The returned *dict* contains the keys *name*, *user*, *host*, *port*.
+    The returned *dict* contains the keys *name*, *user*, *pwd*, *host*, and *port*.
     For *oracle* engines, the returned *dict* contains the extra key *client*.
     For *sqlserver* engines, the  returned *dict* contains the extra key *driver*.
     The meaning of these parameters may vary between different database engines.
@@ -106,8 +105,33 @@ def db_get_params(engine: str = None) -> dict:
     :return: the current connection parameters for the engine
     """
     curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
-    result: dict = copy(x=_DB_CONN_DATA.get(curr_engine))
-    result.pop("pwd", None)
+    return copy(x=_DB_CONN_DATA.get(curr_engine))
+
+
+def db_get_connection_string(engine: str = None) -> str:
+    """
+    Build and return the connection string for connecting to the database.
+
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :return: the connection string
+    """
+    # initialize the return variable
+    result: Any = None
+
+    # determine the database engine
+    curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+
+    if curr_engine == "mysql":
+        pass
+    elif curr_engine == "oracle":
+        from . import oracle_pomes
+        result = oracle_pomes.get_connection_string()
+    elif curr_engine == "postgres":
+        from . import postgres_pomes
+        result = postgres_pomes.get_connection_string()
+    elif curr_engine == "sqlserver":
+        from . import sqlserver_pomes
+        result = sqlserver_pomes.get_connection_string()
 
     return result
 
@@ -145,8 +169,9 @@ def db_assert_connection(errors: list[str] | None,
             conn.close()
             result = True
 
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
 
@@ -158,7 +183,7 @@ def db_connect(errors: list[str] | None,
     """
     Obtain and return a connection to the database, or *None* if the connection cannot be obtained.
 
-    The target database engine, default or specified, must have been previously configured.
+    The target database engine, specified or default, must have been previously configured.
 
     :param errors: incidental error messages
     :param autocommit: whether the connection is to be in autocommit mode (defaults to False)
@@ -193,8 +218,10 @@ def db_connect(errors: list[str] | None,
                                          autocommit=autocommit,
                                          logger=logger)
 
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
 
@@ -212,7 +239,7 @@ def db_exists(errors: list[str],
 
     For this determination, *where_attrs* are made equal to *where_values* in the query, respectively.
     If more than one, the attributes are concatenated by the *AND* logical connector.
-    The targer database engine, default or specified, must have been previously configured.
+    The targer database engine, specified or default, must have been previously configured.
 
     :param errors: incidental error messages
     :param table: the table to be searched
@@ -224,6 +251,9 @@ def db_exists(errors: list[str],
     :param logger: optional logger
     :return: True if at least one tuple was found
     """
+    # initialize the return variable
+    result: bool | None = None
+
     # initialize the local errors list
     op_errors: list[str] = []
 
@@ -231,141 +261,103 @@ def db_exists(errors: list[str],
     sel_stmt: str = "SELECT * FROM " + table
     if where_attrs:
         sel_stmt += " WHERE " + "".join(f"{attr} = %s AND " for attr in where_attrs)[0:-5]
-    rec: tuple = db_select_one(errors=op_errors,
-                               sel_stmt=sel_stmt,
-                               where_vals=where_vals,
-                               require_nonempty=False,
-                               engine = engine,
-                               connection=connection,
-                               committable=committable,
-                               logger=logger)
-    result: bool = None if op_errors else rec is not None
-
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+    rec: list[tuple] = db_select(errors=op_errors,
+                                 sel_stmt=sel_stmt,
+                                 where_vals=where_vals,
+                                 max_count=1,
+                                 engine = engine,
+                                 connection=connection,
+                                 committable=committable,
+                                 logger=logger)
+    if not op_errors:
+        result = rec is not None and len(rec) > 0
+    elif isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
 
 
-def db_select_one(errors: list[str] | None,
-                  sel_stmt: str,
-                  where_vals: tuple = None,
-                  require_nonempty: bool = False,
-                  engine: str = None,
-                  connection: Any = None,
-                  committable: bool = True,
-                  logger: Logger = None) -> tuple:
-    """
-    Search the database and return the first tuple that satisfies the *sel_stmt* search command.
-
-    The command can optionally contain search criteria, with respective values given
-    in *where_vals*. The list of values for an attribute with the *IN* clause must be contained
-    in a specific tuple. In case of error, or if the search is empty, *None* is returned.
-    The target database engine, default or specified, must have been previously configured.
-
-    :param errors: incidental error messages
-    :param sel_stmt: SELECT command for the search
-    :param where_vals: values to be associated with the search criteria
-    :param require_nonempty: defines whether an empty search should be considered an error
-    :param engine: the database engine to use (uses the default engine, if not provided)
-    :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
-    :param logger: optional logger
-    :return: tuple containing the search result, [] if the search was empty, or None if there was an error
-    """
-    # initialize the local errors list
-    op_errors: list[str] = []
-
-    require_min: int = 1 if require_nonempty else None
-    reply: list[tuple] = db_select_all(errors=op_errors,
-                                       sel_stmt=sel_stmt,
-                                       where_vals=where_vals,
-                                       require_min=require_min,
-                                       require_max=1,
-                                       engine=engine,
-                                       connection=connection,
-                                       committable=committable,
-                                       logger=logger)
-
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
-
-    return reply[0] if reply else None
-
-
-def db_select_all(errors: list[str] | None,
-                  sel_stmt: str,
-                  where_vals: tuple = None,
-                  require_min: int = None,
-                  require_max: int = None,
-                  engine: str = None,
-                  connection: Any = None,
-                  committable: bool = True,
-                  logger: Logger = None) -> list[tuple]:
+def db_select(errors: list[str] | None,
+              sel_stmt: str,
+              where_vals: tuple = None,
+              min_count: int = None,
+              max_count: int = None,
+              require_count: int = None,
+              engine: str = None,
+              connection: Any = None,
+              committable: bool = True,
+              logger: Logger = None) -> list[tuple]:
     """
     Search the database and return all tuples that satisfy the *sel_stmt* search command.
 
-    The command can optionally contain search criteria, with respective values given
-    in *where_vals*. The list of values for an attribute with the *IN* clause must be contained
-    in a specific tuple. If not positive integers, *require_min* and *require_max* are ignored.
-    If the search is empty, an empty list is returned.
-    The target database engine, default or specified, must have been previously configured.
+    The command can optionally contain search criteria, with respective values given in
+    *where_vals*. The list of values for an attribute with the *IN* clause must be contained in a
+    specific tuple. If not positive integers, *min_count*, *max_count*, and *require_count" are ignored.
+    If *require_count* is specified, then exactly that number of touples must be
+    returned by the query. If the search is empty, an empty list is returned.
+    The target database engine, specified or default, must have been previously configured.
 
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the search criteria
-    :param require_min: optionally defines the minimum number of tuples to be returned
-    :param require_max: optionally defines the maximum number of tuples to be returned
+    :param min_count: optionally defines the minimum number of tuples to be returned
+    :param max_count: optionally defines the maximum number of tuples to be returned
+    :param require_count: number of touples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: list of tuples containing the search result, or [] if the search is empty
+    :return: list of tuples containing the search result, '[]' if the search was empty, or 'None' if there was an error
     """
-    # initialize the return variable
-    result: list[tuple] | None = None
-
     # initialize the local errors list
     op_errors: list[str] = []
 
     # determine the database engine
     curr_engine: str = _assert_engine(errors=op_errors,
                                       engine=engine)
+
+    reply: list[tuple] | None = None
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":
         from . import oracle_pomes
-        result = oracle_pomes.select_all(errors=op_errors,
-                                         sel_stmt=sel_stmt,
-                                         where_vals=where_vals,
-                                         require_min=require_min,
-                                         require_max=require_max,
-                                         conn=connection,
-                                         committable=committable,
-                                         logger=logger)
+        reply = oracle_pomes.select(errors=op_errors,
+                                    sel_stmt=sel_stmt,
+                                    where_vals=where_vals,
+                                    min_count=min_count,
+                                    max_count=max_count,
+                                    require_count=require_count,
+                                    conn=connection,
+                                    committable=committable,
+                                    logger=logger)
     elif curr_engine == "postgres":
         from . import postgres_pomes
-        result = postgres_pomes.select_all(errors=op_errors,
-                                           sel_stmt=sel_stmt,
-                                           where_vals=where_vals,
-                                           require_min=require_min,
-                                           require_max=require_max,
-                                           conn=connection,
-                                           committable=committable,
-                                           logger=logger)
+        reply = postgres_pomes.select(errors=op_errors,
+                                      sel_stmt=sel_stmt,
+                                      where_vals=where_vals,
+                                      min_count=min_count,
+                                      max_count=max_count,
+                                      require_count=require_count,
+                                      conn=connection,
+                                      committable=committable,
+                                      logger=logger)
     elif curr_engine == "sqlserver":
         from . import sqlserver_pomes
-        result = sqlserver_pomes.select_all(errors=op_errors,
-                                            sel_stmt=sel_stmt,
-                                            where_vals=where_vals,
-                                            require_min=require_min,
-                                            require_max=require_max,
-                                            conn=connection,
-                                            committable=committable,
-                                            logger=logger)
+        reply = sqlserver_pomes.select(errors=op_errors,
+                                       sel_stmt=sel_stmt,
+                                       where_vals=where_vals,
+                                       min_count=min_count,
+                                       max_count=max_count,
+                                       require_count=require_count,
+                                       conn=connection,
+                                       committable=committable,
+                                       logger=logger)
 
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+    result: list[tuple] | None = None
+    if not op_errors:
+        result = reply
+    elif isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
 
@@ -380,7 +372,7 @@ def db_insert(errors: list[str] | None,
     """
     Insert a tuple, with values defined in *insert_vals*, into the database.
 
-    The target database engine, default or specified, must have been previously configured.
+    The target database engine, specified or default, must have been previously configured.
 
     :param errors: incidental error messages
     :param insert_stmt: the INSERT command
@@ -402,8 +394,9 @@ def db_insert(errors: list[str] | None,
                              committable=committable,
                              logger=logger)
 
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
 
@@ -421,7 +414,7 @@ def db_update(errors: list[str] | None,
 
     The values for this update are in *update_vals*.
     The values for selecting the tuples to be updated are in *where_vals*.
-    The target database engine, default or specified, must have been previously configured.
+    The target database engine, specified or default, must have been previously configured.
 
     :param errors: incidental error messages
     :param update_stmt: the UPDATE command
@@ -451,8 +444,9 @@ def db_update(errors: list[str] | None,
                              committable=committable,
                              logger=logger)
 
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
 
@@ -468,7 +462,7 @@ def db_delete(errors: list[str] | None,
     Delete one or more tuples in the database, as defined by the *delete_stmt* command.
 
     The values for selecting the tuples to be deleted are in *where_vals*.
-    The target database engine, default or specified, must have been previously configured.
+    The target database engine, specified or default, must have been previously configured.
 
     :param errors: incidental error messages
     :param delete_stmt: the DELETE command
@@ -490,8 +484,9 @@ def db_delete(errors: list[str] | None,
                              committable=committable,
                              logger=logger)
 
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
 
@@ -506,7 +501,7 @@ def db_bulk_insert(errors: list[str] | None,
     """
     Insert the tuples, with values defined in *insert_vals*, into the database.
 
-    The target database engine, default or specified, must have been previously configured.
+    The target database engine, specified or default, must have been previously configured.
 
     The binding is done by position. Thus, the *VALUES* clause in *insert_stmt* must contain
     as many placeholders as there are elements in the tuples found in the list provided in
@@ -559,8 +554,9 @@ def db_bulk_insert(errors: list[str] | None,
                                               committable=committable,
                                               logger=logger)
 
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
 
@@ -575,7 +571,7 @@ def db_bulk_update(errors: list[str] | None,
     """
     Insert the tuples, with values defined in *insert_vals*, into the database.
 
-    The target database engine, default or specified, must have been previously configured.
+    The target database engine, specified or default, must have been previously configured.
 
     The binding is done by position. Thus, the binding clauses in *update_stmt* must contain as many
     placeholders as there are elements in the tuples found in the list provided in *update_vals*.
@@ -632,8 +628,9 @@ def db_bulk_update(errors: list[str] | None,
                                               committable=committable,
                                               logger=logger)
 
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
 
@@ -710,8 +707,9 @@ def db_update_lob(errors: list[str],
                                    committable=committable,
                                    logger=logger)
 
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
 
 def db_execute(errors: list[str] | None,
@@ -777,8 +775,9 @@ def db_execute(errors: list[str] | None,
                                          committable=committable,
                                          logger=logger)
 
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
 
@@ -793,7 +792,7 @@ def db_call_function(errors: list[str] | None,
     """
     Execute the stored function *func_name* in the database, with the parameters given in *func_vals*.
 
-    The target database engine, default or specified, must have been previously configured.
+    The target database engine, specified or default, must have been previously configured.
 
     :param errors: incidental error messages
     :param func_name: name of the stored function
@@ -840,8 +839,9 @@ def db_call_function(errors: list[str] | None,
                                                 committable=committable,
                                                 logger=logger)
 
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
 
@@ -856,7 +856,7 @@ def db_call_procedure(errors: list[str] | None,
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 
-    The target database engine, default or specified, must have been previously configured.
+    The target database engine, specified or default, must have been previously configured.
 
     :param errors: incidental error messages
     :param proc_name: name of the stored procedure
@@ -903,7 +903,8 @@ def db_call_procedure(errors: list[str] | None,
                                                 committable=committable,
                                                 logger=logger)
 
-    # acknowledge eventual local errors
-    errors.extend(op_errors)
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result

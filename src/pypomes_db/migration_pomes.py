@@ -17,6 +17,8 @@ def db_migrate_data(errors: list[str],
                     target_columns: list[str] = None,
                     source_conn: Any = None,
                     target_conn: Any = None,
+                    source_committable: bool = True,
+                    target_committable: bool = True,
                     where_clause: tuple = None,
                     batch_size: int = None,
                     logger: Logger = None) -> int:
@@ -24,9 +26,9 @@ def db_migrate_data(errors: list[str],
     Migrate data from one database to another database.
 
     The origin and destination databases must be in the list of databases configured and
-    supported by this package. The columns must not be type LOB (large binary object).
-    The columns in the target database must be of equivalent types, respectively,
-    in both the origin and the destination databases.
+    supported by this package. The specified database columns must not be type LOB
+    (large binary object), and must have the same cardinality, and be of respectively
+    equivalent types, in both the origin and the destination databases.
 
     :param errors: incidental error messages
     :param source_engine: the source database engine type
@@ -37,6 +39,8 @@ def db_migrate_data(errors: list[str],
     :param target_columns: the columns to write the data to (defaults to the source columns)
     :param source_conn: the connection to the source database (obtains a new one, if not provided)
     :param target_conn: the connection to the destination database (obtains a new one, if not provided)
+    :param source_committable: whether to commit upon errorless completion ('False' needs 'source_conn' to be provided)
+    :param target_committable: whether to commit upon errorless completion ('False' needs 'target_conn' to be provided)
     :param where_clause: the criteria for tuple selection
     :param batch_size: the maximum number of tuples to migrate in each batch, or 0 or None for no limit
     :param logger: optional logger
@@ -166,9 +170,11 @@ def db_migrate_data(errors: list[str],
 
         # close the cursors and commit the transactions
         source_cursor.close()
-        curr_source_conn.commit()
+        if source_committable or not source_conn:
+            curr_source_conn.commit()
         target_cursor.close()
-        curr_target_conn.commit()
+        if target_committable or not target_conn:
+            curr_target_conn.commit()
     except Exception as e:
         # rollback the transactions
         if curr_source_conn:
@@ -194,7 +200,8 @@ def db_migrate_data(errors: list[str],
                   f"to {target_engine}.{target_table}"))
 
     # acknowledge eventual local errors
-    errors.extend(op_errors)
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
 
@@ -209,6 +216,8 @@ def db_migrate_lobs(errors: list[str],
                     target_pk_columns: list[str] = None,
                     source_conn: Any = None,
                     target_conn: Any = None,
+                    source_committable: bool = True,
+                    target_committable: bool = True,
                     where_clause: tuple = None,
                     chunk_size: int = None,
                     logger: Logger = None) -> int:
@@ -218,8 +227,8 @@ def db_migrate_lobs(errors: list[str],
     The origin and destination databases must be in the list of databases configured and
     supported by this package. One or more columns making up a primary key, or a unique row identifier,
     must exist on *source_table* and *target_table*, and be provided in *pk_columns*.
-    It is assumed that the primary key columns have the same cardinality, and are of equivalent types,
-    respectively, in both the origin and the destination databases.
+    It is assumed that the primary key columns have the same cardinality, and are of respectively
+    equivalent types, in both the origin and the destination databases.
 
     :param errors: incidental error messages
     :param source_engine: the source database engine type
@@ -232,6 +241,8 @@ def db_migrate_lobs(errors: list[str],
     :param target_pk_columns: columns making up a primary key, or a unique identifier for a tuple, in target database
     :param source_conn: the connection to the source database (obtains a new one, if not provided)
     :param target_conn: the connection to the destination database (obtains a new one, if not provided)
+    :param source_committable: whether to commit upon errorless completion ('False' needs 'source_conn' to be provided)
+    :param target_committable: whether to commit upon errorless completion ('False' needs 'target_conn' to be provided)
     :param where_clause: the criteria for tuple selection
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param logger: optional logger
@@ -380,9 +391,11 @@ def db_migrate_lobs(errors: list[str],
 
         # close the cursors and commit the transactions
         source_cursor.close()
-        curr_source_conn.commit()
+        if source_committable or not source_conn:
+            curr_source_conn.commit()
         target_cursor.close()
-        curr_target_conn.commit()
+        if target_committable or not target_conn:
+            curr_target_conn.commit()
     except Exception as e:
         # rollback the transactions
         if curr_source_conn:
@@ -408,6 +421,7 @@ def db_migrate_lobs(errors: list[str],
                   f"to {target_engine}.{target_table}.{target_lob_column}"))
 
     # acknowledge eventual local errors
-    errors.extend(op_errors)
+    if isinstance(errors, list):
+        errors.extend(op_errors)
 
     return result
