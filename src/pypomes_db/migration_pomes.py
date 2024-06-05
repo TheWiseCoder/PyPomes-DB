@@ -103,8 +103,11 @@ def db_migrate_data(errors: list[str],
         # execute the query
         source_cursor.execute(statement=sel_stmt)
 
+        # establish the conditions for logging
+        count_step: int = 100000
+        count_mark = count_step
+
         # fetch rows in batches/all rows
-        row_count: int = 0
         rows: list[tuple]
         if batch_size:
             rows = source_cursor.fetchmany(size=batch_size)
@@ -151,17 +154,18 @@ def db_migrate_data(errors: list[str],
                 case "sqlserver":
                     target_cursor.executemany(insert_stmt, rows)
 
+            # increment the tuple migration counter
+            result += len(rows)
+
             # log partial result
-            row_count += 1
-            if row_count % 100000 == 0:
+            if result > count_mark:
+                count_mark = result + count_step
                 _log(logger=logger,
                      engine=source_engine,
-                     stmt=(f"Migrated {row_count} tuples, "
+                     stmt=(f"Migrated {result} tuples, "
                               f"from {source_engine}.{source_table} "
                               f"to {target_engine}.{target_table}"))
 
-            # increment the tuple migration counter
-            result += len(rows)
             # read the next batch
             if batch_size:
                 rows = source_cursor.fetchmany(size=batch_size)
@@ -311,6 +315,7 @@ def db_migrate_lobs(errors: list[str],
                   f"to {target_engine}.{target_table}.{target_lob_column}"))
 
     # migrate the LOBs
+    count_step: int = 10000
     err_msg: str | None = None
     try:
         source_cursor: Any = curr_source_conn.cursor()
@@ -381,8 +386,8 @@ def db_migrate_lobs(errors: list[str],
             if has_data:
                 result += 1
 
-            # log partial result at each 100000 LOBs migrated
-            if result % 10000 == 0:
+            # log partial result at each 'count_step' LOBs migrated
+            if result % count_step == 0:
                 _log(logger=logger,
                      engine=source_engine,
                      stmt=(f"Migrated {result} LOBs, "
