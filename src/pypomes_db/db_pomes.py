@@ -218,6 +218,66 @@ def db_connect(errors: list[str] | None,
                                          autocommit=autocommit,
                                          logger=logger)
 
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
+
+    return result
+
+
+def db_has_table(errors: list[str],
+                 table_name: str,
+                 schema: str = None,
+                 engine: str = None,
+                 connection: Any = None,
+                 committable: bool = True,
+                 logger: Logger = None) -> bool:
+    """
+    Determine whether the table *table_name* exists in the database.
+
+    :param errors: incidental error messages
+    :param table_name: the name of the table to look for
+    :param schema: optional name of the schema to restrict the search to
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param logger: optional logger
+    :return: 'True' if the table was found, 'False' otherwise, 'None' if an error ocurred
+    """
+    #initialize the return variable
+    result: bool | None = None
+
+    # initialize the local errors list
+    op_errors: list[str] = []
+
+    # determine the database engine
+    curr_engine: str = _assert_engine(errors=op_errors,
+                                      engine=engine)
+
+    # proceed, if no errors
+    if not op_errors:
+        # build the query
+        if curr_engine == "oracle":
+            sel_stmt: str = f"SELECT COUNT(*) FROM all_tables WHERE table_name = '{table_name.upper()}'"
+            if schema:
+                sel_stmt += f" AND owner = '{schema.upper()}'"
+        else:
+            sel_stmt: str = ("SELECT COUNT(*) FROM information_schema.tables "
+                             f"WHERE table_type = 'BASE TABLE' AND LOWER(table_name) = '{table_name.lower()}'")
+            if schema:
+                sel_stmt += f" AND LOWER(table_schema) = '{schema.lower()}'"
+
+        # execute the query
+        reply: list[tuple[int]] = db_select(errors=op_errors,
+                                            sel_stmt=sel_stmt,
+                                            engine=curr_engine,
+                                            connection=connection,
+                                            committable=committable,
+                                             logger=logger)
+
+        # process the query result
+        if not op_errors:
+            result = reply[0][0] > 0
 
     # acknowledge eventual local errors, if appropriate
     if isinstance(errors, list):
@@ -225,6 +285,65 @@ def db_connect(errors: list[str] | None,
 
     return result
 
+
+def db_has_view(errors: list[str],
+                view_name: str,
+                schema: str = None,
+                engine: str = None,
+                connection: Any = None,
+                committable: bool = True,
+                logger: Logger = None) -> bool:
+    """
+    Determine whether the view *view_name* exists in the database.
+
+    :param errors: incidental error messages
+    :param view_name: the name of the view to look for
+    :param schema: optional name of the schema to restrict the search to
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param logger: optional logger
+    :return: 'True' if the view was found, 'False' otherwise, 'None' if an error ocurred
+    """
+    #initialize the return variable
+    result: bool | None = None
+
+    # initialize the local errors list
+    op_errors: list[str] = []
+
+    # determine the database engine
+    curr_engine: str = _assert_engine(errors=op_errors,
+                                      engine=engine)
+
+    # proceed, if no errors
+    if not op_errors:
+        # build the query
+        if curr_engine == "oracle":
+            sel_stmt: str = f"SELECT COUNT(*) FROM all_views WHERE view_name = '{view_name.upper()}'"
+            if schema:
+                sel_stmt += f" AND owner = '{schema.upper()}'"
+        else:
+            sel_stmt: str = ("SELECT COUNT(*) FROM information_schema.tables "
+                             f"WHERE table_type = 'VIEW' AND LOWER(table_name) = '{view_name.lower()}'")
+            if schema:
+                sel_stmt += f" AND LOWER(table_schema) = '{schema.lower()}'"
+
+        # execute the query
+        reply: list[tuple[int]] = db_select(errors=op_errors,
+                                            sel_stmt=sel_stmt,
+                                            engine=curr_engine,
+                                            connection=connection,
+                                            committable=committable,
+                                             logger=logger)
+        # process the query result
+        if not op_errors:
+            result = reply[0][0] > 0
+
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
+
+    return result
 
 def db_exists(errors: list[str],
               table: str,
@@ -249,7 +368,7 @@ def db_exists(errors: list[str],
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: True if at least one tuple was found
+    :return: 'True' if at least one tuple was found, 'False' otherwise, 'None' if an error ocurred
     """
     # initialize the return variable
     result: bool | None = None
@@ -353,6 +472,7 @@ def db_select(errors: list[str] | None,
                                        committable=committable,
                                        logger=logger)
 
+    # return the query result/acknowledge eventual local errors
     result: list[tuple] | None = None
     if not op_errors:
         result = reply

@@ -1,7 +1,8 @@
 from .db_pomes import (
     db_setup, db_get_engines, db_get_param, db_get_params,
     db_get_connection_string, db_assert_connection, db_connect,
-    db_exists, db_select, db_insert, db_update, db_delete,
+    db_has_table, db_has_view, db_exists,
+    db_select, db_insert, db_update, db_delete,
     db_bulk_insert, db_bulk_update, db_update_lob,
     db_execute, db_call_function, db_call_procedure,
 )
@@ -13,7 +14,8 @@ __all__ = [
     # db_pomes
     "db_setup", "db_get_engines", "db_get_param", "db_get_params",
     "db_get_connection_string", "db_assert_connection", "db_connect",
-    "db_exists", "db_select", "db_insert", "db_update", "db_delete",
+    "db_has_table", "db_has_view", "db_exists",
+    "db_select", "db_insert", "db_update", "db_delete",
     "db_bulk_insert", "db_bulk_update", "db_update_lob",
     "db_execute", "db_call_function", "db_call_procedure",
     # migration_pomes
