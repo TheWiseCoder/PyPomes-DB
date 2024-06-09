@@ -264,7 +264,7 @@ def _bind_columns(engine: str,
     :param engine: the reference database engine
     :param columns: the columns to concatenate
     :param concat: the concatenation term
-    :param start_index: the index to start the enumeration (rlevant to oracle, only)
+    :param start_index: the index to start the enumeration (relevant to oracle, only)
     :return: the concatenated string
     """
 
@@ -276,7 +276,7 @@ def _bind_columns(engine: str,
             pass
         case "oracle":
             result = concat.join([f"{column} = :{inx}"
-                                 for column, inx in enumerate(iterable=columns,
+                                 for inx, column in enumerate(iterable=columns,
                                                               start=start_index)])
         case "postgres":
             result =  concat.join([f"{column} = %s" for column in columns])
@@ -290,7 +290,7 @@ def _bind_marks(engine: str,
                 start: int,
                 finish: int) -> str:
     """
-    Concatenate a list of binding marks, appropriate for the engine sepcified.
+    Concatenate a list of binding marks, appropriate for the engine specified.
 
     :param engine: the reference database engine
     :param start: the number to start from, inclusive
