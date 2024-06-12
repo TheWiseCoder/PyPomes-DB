@@ -1,4 +1,3 @@
-# noinspection DuplicatedCode
 import oracledb
 from logging import Logger
 from oracledb import Connection, init_oracle_client, makedsn

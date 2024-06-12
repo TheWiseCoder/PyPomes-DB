@@ -1,4 +1,3 @@
-# noinspection DuplicatedCode
 import pyodbc
 from logging import Logger
 from pyodbc import Binary, Connection, Row

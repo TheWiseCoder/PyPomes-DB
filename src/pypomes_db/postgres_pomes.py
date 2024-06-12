@@ -1,4 +1,3 @@
-# noinspection DuplicatedCode
 import psycopg2
 from logging import WARNING, Logger
 from pathlib import Path

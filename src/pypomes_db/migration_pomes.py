@@ -1,4 +1,3 @@
-# noinspection DuplicatedCode
 from logging import WARNING, Logger
 from typing import Any
 
