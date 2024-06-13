@@ -5,7 +5,7 @@ from .db_pomes import db_select
 from .db_common import _assert_engine
 
 
-def db_get_tables(errors: list[str],
+def db_get_tables(errors: list[str] | None,
                   schema: str = None,
                   engine: str = None,
                   connection: Any = None,
@@ -65,7 +65,7 @@ def db_get_tables(errors: list[str],
     return result
 
 
-def db_table_exists(errors: list[str],
+def db_table_exists(errors: list[str] | None,
                     table_name: str,
                     engine: str = None,
                     connection: Any = None,

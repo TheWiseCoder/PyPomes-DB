@@ -226,7 +226,7 @@ def db_connect(errors: list[str] | None,
     return result
 
 
-def db_commit(errors: list[str],
+def db_commit(errors: list[str] | None,
               connection: Any,
               logger: Logger = None) -> None:
     """
@@ -251,7 +251,7 @@ def db_commit(errors: list[str],
         logger.debug(f"Transaction committed on {connection}")
 
 
-def db_rollback(errors: list[str],
+def db_rollback(errors: list[str] | None,
                 connection: Any,
                 logger: Logger = None) -> None:
     """
@@ -276,7 +276,7 @@ def db_rollback(errors: list[str],
         logger.debug(f"Transaction rolled back on {connection}")
 
 
-def db_exists(errors: list[str],
+def db_exists(errors: list[str] | None,
               table: str,
               where_attrs: list[str] = None,
               where_vals: tuple = None,
@@ -686,7 +686,7 @@ def db_bulk_update(errors: list[str] | None,
     return result
 
 
-def db_update_lob(errors: list[str],
+def db_update_lob(errors: list[str] | None,
                   lob_table: str,
                   lob_column: str,
                   pk_columns: list[str],

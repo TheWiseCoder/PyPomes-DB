@@ -121,7 +121,8 @@ def select(errors: list[str] | None,
             cursor.execute(query=f"{sel_stmt};",
                            vars=where_vals)
             # obtain the number of tuples returned
-            count: int = cursor.rowcount
+            rows: list[tuple] = list(cursor)
+            count: int = len(rows)
 
             # has the query quota been satisfied ?
             if _assert_query_quota(errors=errors,
@@ -133,7 +134,7 @@ def select(errors: list[str] | None,
                                    max_count=max_count,
                                    require_count=require_count):
                 # yes, retrieve the returned tuples
-                result = list(cursor)
+                result = rows
 
         # commit the transaction, if appropriate
         if committable or not conn:

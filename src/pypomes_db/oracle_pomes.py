@@ -119,7 +119,7 @@ def select(errors: list[str] | None,
             # execute the query
             cursor.execute(statement=sel_stmt,
                            parameters=where_vals)
-            rows: list = cursor.fetchall()
+            rows: list[tuple] = cursor.fetchall()
             # obtain the number of tuples returned
             count: int = len(rows)
 
@@ -133,7 +133,7 @@ def select(errors: list[str] | None,
                                    max_count=max_count,
                                    require_count=require_count):
                 # yes, retrieve the returned tuples
-                result = [tuple(row) for row in rows]
+                result = rows
         # commit the transaction, if appropriate
         if committable or not conn:
             curr_conn.commit()

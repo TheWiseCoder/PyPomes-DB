@@ -6,7 +6,7 @@ from .db_pomes import db_select
 from .db_common import _assert_engine
 
 
-def db_get_indexes(errors: list[str],
+def db_get_indexes(errors: list[str] | None,
                    schema: str = None,
                    omit_pks: bool = True,
                    tables: list[str] = None,

@@ -5,7 +5,7 @@ from .db_pomes import db_select
 from .db_common import _assert_engine
 
 
-def db_get_views(errors: list[str],
+def db_get_views(errors: list[str] | None,
                  view_type: Literal["M", "P"] = "P",
                  schema: str = None,
                  tables: list[str] = None,
@@ -102,7 +102,7 @@ def db_get_views(errors: list[str],
     return result
 
 
-def db_view_exists(errors: list[str],
+def db_view_exists(errors: list[str] | None,
                    view_name: str,
                    view_type: Literal["M", "P"] = "P",
                    engine: str = None,
@@ -189,7 +189,7 @@ def db_view_exists(errors: list[str],
     return result
 
 
-def db_get_view_dependencies(errors: list[str],
+def db_get_view_dependencies(errors: list[str] | None,
                              view_name: str,
                              view_type: Literal["M", "P"] = "P",
                              engine: str = None,
@@ -286,7 +286,7 @@ def db_get_view_dependencies(errors: list[str],
     return result
 
 
-def db_get_view_script(errors: list[str],
+def db_get_view_script(errors: list[str] | None,
                        view_name: str,
                        view_type: Literal["M", "P"] = "P",
                        engine: str = None,
@@ -370,6 +370,9 @@ def db_get_view_script(errors: list[str],
         # process the query result
         if not op_errors and recs:
             result = recs[0][0]
+            if not isinstance(result, str):
+                # HAZARD: Oracle's 'DBMS_METADATA.GET_DDL()' might return a 'CLOB'
+                result = str(result)
 
     # acknowledge eventual local errors, if applicable
     if isinstance(errors, list):

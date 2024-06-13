@@ -7,7 +7,7 @@ from .db_common import (
 from .db_pomes import db_connect
 
 
-def db_migrate_data(errors: list[str],
+def db_migrate_data(errors: list[str] | None,
                     source_engine: str,
                     source_table: str,
                     source_columns: list[str],
@@ -208,7 +208,7 @@ def db_migrate_data(errors: list[str],
 
     return result
 
-def db_migrate_lobs(errors: list[str],
+def db_migrate_lobs(errors: list[str] | None,
                     source_engine: str,
                     source_table: str,
                     source_lob_column: str,
