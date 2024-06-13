@@ -1,4 +1,5 @@
 from logging import Logger
+from pypomes_core import str_get_positional
 from typing import Any
 
 from .db_pomes import db_select
@@ -16,7 +17,7 @@ def db_get_indexes(errors: list[str],
     """
     Retrieve and return the list of indexes in the database.
 
-    If the list of table names *tables* is provided,
+    If the list of possibly schema-qualified table names *tables* is provided,
     only the indexes created on any of these tables' columns are returned.
     If *omit_pks* is set to 'True' (its default value),
     indexes created on primary key columns will not be included.
@@ -24,7 +25,7 @@ def db_get_indexes(errors: list[str],
     :param errors: incidental error messages
     :param schema: optional name of the schema to restrict the search to
     :param omit_pks: omit indexes on primary key columns (defaults to 'True')
-    :param tables: optional list of tables whose columns the indexes were created on
+    :param tables: optional list of possibly schema-qualified tables whose columns the indexes were created on
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
@@ -43,6 +44,35 @@ def db_get_indexes(errors: list[str],
 
     # proceed, if no errors
     if not op_errors:
+        # process table names
+        tbl_name = str_get_positional(source=curr_engine,
+                                      list_origin=["oracle", "postgres", "sqlserver"],
+                                      list_dest=["table_name", "LOWER(t.relname)", "LOWER(t.name)"])
+        sch_name = str_get_positional(source=curr_engine,
+                                      list_origin=["oracle", "postgres", "sqlserver"],
+                                      list_dest=["aic.table_name",
+                                                 "LOWER(ns.nspname)", "SCHEMA_NAME(t.schema_id)"])
+        in_tables: str = ""
+        where_tables: str = ""
+        for table in tables:
+            # process the existing schema
+            splits: list[str] = table.split(".")
+            # is 'table' schema-qualified ?
+            if len(splits) == 1:
+                # no
+                tbl_value: str = table.upper() if curr_engine == "oracle" else table.lower()
+                in_tables += f"'{tbl_value}',"
+            else:
+                # yes
+                tbl_value: str = splits[1].upper() if curr_engine == "oracle" else splits[1].lower()
+                sch_value: str = splits[0].upper() if curr_engine == "oracle" else splits[0].lower()
+                where_tables += (f"({tbl_name} = '{tbl_value}' "
+                                 f"AND {sch_name} = '{sch_value}') OR ")
+        if in_tables:
+            where_tables += f"{tbl_name} IN ({in_tables[:-1]})"
+        else:
+            where_tables = where_tables[:-4]
+
         # build the query
         sel_stmt: str | None = None
         match curr_engine:
@@ -58,10 +88,9 @@ def db_get_indexes(errors: list[str],
                                  "ON acc.constraint_name = ac.constraint_name AND ac.constraint_type != 'P' ")
                 sel_stmt += "WHERE ai.dropped = 'NO' AND "
                 if schema:
-                    sel_stmt += f"owner = '{schema.upper()}' AND "
-                if tables:
-                    in_tables: str = "','".join(tables)
-                    sel_stmt += f"table_name IN ('{in_tables.upper()}') AND "
+                    sel_stmt += f"ai.owner = '{schema.upper()}' AND "
+                if where_tables:
+                    sel_stmt += f"({where_tables}) AND "
                 sel_stmt = sel_stmt[:-5]
             case "postgres":
                 sel_stmt: str = ("SELECT i.relname FROM pg_class t "
@@ -74,23 +103,21 @@ def db_get_indexes(errors: list[str],
                         sel_stmt += "ix.indisprimary = false AND "
                     if schema:
                         sel_stmt += f"LOWER(ns.nspname) = '{schema.lower()}' AND "
-                    if tables:
-                        in_tables: str = "','".join(tables)
-                        sel_stmt += f"LOWER(t.relname) IN ('{in_tables.lower()}') AND "
-                    sel_stmt = sel_stmt[:-5]
+                if where_tables:
+                    sel_stmt += f"({where_tables}) AND "
+                sel_stmt = sel_stmt[:-5]
             case "sqlserver":
                 sel_stmt = ("SELECT i.name FROM sys.tables t "
                             "INNER JOIN sys.indexes i ON i.object_id = t.object_id")
-                if omit_pks or schema or tables:
+                if omit_pks or schema or where_tables:
                     sel_stmt += " WHERE "
                     if omit_pks:
                         sel_stmt += "i.is_primary_key = 0 AND "
                     if schema:
                         sel_stmt += f"SCHEMA_NAME(t.schema_id) = '{schema.lower()}' AND "
-                    if tables:
-                        in_tables: str = "','".join(tables)
-                        sel_stmt += f"LOWER(t.name) IN ('{in_tables.lower()}') AND "
-                    sel_stmt = sel_stmt[:-5]
+                    if where_tables:
+                        sel_stmt += f"({where_tables}) AND "
+                        sel_stmt = sel_stmt[:-5]
 
         # execute the query
         recs: list[tuple[str]] = db_select(errors=op_errors,

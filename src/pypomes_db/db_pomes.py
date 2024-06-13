@@ -3,6 +3,8 @@ from logging import Logger
 from pathlib import Path
 from typing import Any, Literal
 
+from pypomes_core import str_sanitize
+
 from .db_common import (
     _DB_ENGINES, _DB_CONN_DATA, _assert_engine, _get_param
 )
@@ -222,6 +224,56 @@ def db_connect(errors: list[str] | None,
         errors.extend(op_errors)
 
     return result
+
+
+def db_commit(errors: list[str],
+              connection: Any,
+              logger: Logger = None) -> None:
+    """
+    Commit the current transaction on *connection*.
+
+    :param errors: incidental error messages
+    :param connection: the reference database connection
+    :param logger: optional logger
+    """
+    # commit the transaction
+    try:
+        connection.commit()
+    except Exception as e:
+        err_msg: str = (f"Error committing the transaction on '{connection}': "
+                        f"{str_sanitize(f'{e}')}")
+        if logger:
+            logger.error(msg=err_msg)
+        if isinstance(errors, list):
+            errors.append(err_msg)
+
+    if logger:
+        logger.debug(f"Transaction committed on {connection}")
+
+
+def db_rollback(errors: list[str],
+                connection: Any,
+                logger: Logger = None) -> None:
+    """
+    Rollback the current transaction on *connection*.
+
+    :param errors: incidental error messages
+    :param connection: the reference database connection
+    :param logger: optional logger
+    """
+    # rollback the transaction
+    try:
+        connection.rollback()
+    except Exception as e:
+        err_msg: str = (f"Error rolling back the transaction on '{connection}': "
+                        f"{str_sanitize(f'{e}')}")
+        if logger:
+            logger.error(msg=err_msg)
+        if isinstance(errors, list):
+            errors.append(err_msg)
+
+    if logger:
+        logger.debug(f"Transaction rolled back on {connection}")
 
 
 def db_exists(errors: list[str],

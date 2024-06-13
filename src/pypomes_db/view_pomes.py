@@ -6,7 +6,7 @@ from .db_common import _assert_engine
 
 
 def db_get_views(errors: list[str],
-                 view_type: Literal["S", "M"] = "S",
+                 view_type: Literal["M", "P"] = "P",
                  schema: str = None,
                  tables: list[str] = None,
                  engine: str = None,
@@ -21,14 +21,14 @@ def db_get_views(errors: list[str],
     the views whose table dependencies are all included therein are returned.
 
     :param errors: incidental error messages
-    :param view_type: the type of views to search for ("S": standard; "M": materialized, defaults to "S")
+    :param view_type: the type of views to search for ("P": standard; "M": materialized, defaults to "P")
     :param schema: optional name of the schema to restrict the search to
     :param tables: optional list of, possibly schema-qualified, table names containing all views' dependencies
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: The schema-qualified views found, or 'None' if an error ocurred
+    :return: the schema-qualified views found, or 'None' if an error ocurred
     """
     #initialize the return variable
     result: list[str] | None = None
@@ -49,7 +49,7 @@ def db_get_views(errors: list[str],
             sel_stmt: str = f"SELECT owner || '.' || {vw_name} FROM {vw_table}"
             if schema:
                 sel_stmt += f" WHERE owner = '{schema.upper()}'"
-        elif view_type == "M":  # materialized views
+        elif view_type == "M":  # materialized views (postgres, sqlserver)
             if curr_engine == "postgres":
                 sel_stmt = "SELECT schemaname || '.' || matviewname FROM pg_matview "
                 if schema:
@@ -60,7 +60,7 @@ def db_get_views(errors: list[str],
                             f"WHERE i.index_id < 2")
                 if schema:
                     sel_stmt +=  f" AND LOWER(SCHEMA_NAME(v.schema_id)) = '{schema.lower()}'"
-        else:  # standard views
+        else:  # standard views (postgres, sqlserver)
             sel_stmt: str = ("SELECT table_schema || '.' || table_name "
                              "FROM information_schema.views")
             if schema:
@@ -88,7 +88,7 @@ def db_get_views(errors: list[str],
             dependencies: list[str] = \
                 db_get_view_dependencies(errors=errors,
                                          view_name=view_name,
-                                         engine=engine,
+                                         engine=curr_engine,
                                          connection=connection,
                                          committable=committable,
                                          logger=logger)
@@ -104,7 +104,7 @@ def db_get_views(errors: list[str],
 
 def db_view_exists(errors: list[str],
                    view_name: str,
-                   view_type: Literal["S", "M"] = "S",
+                   view_type: Literal["M", "P"] = "P",
                    engine: str = None,
                    connection: Any = None,
                    committable: bool = True,
@@ -116,7 +116,7 @@ def db_view_exists(errors: list[str],
 
     :param errors: incidental error messages
     :param view_name: the name of the view to look for
-    :param view_type: the type of view to search for ("S": standard, "M": materialized, defaults to "S")
+    :param view_type: the type of view to search for ("P": standard, "M": materialized, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
@@ -151,7 +151,7 @@ def db_view_exists(errors: list[str],
             if schema_name:
                 sel_stmt += f" AND owner = '{schema_name.upper()}'"
 
-        elif view_type == "M":  # materialized views
+        elif view_type == "M":  # materialized views (postgres, sqlserver)
             if curr_engine == "postgres":
                 sel_stmt = ("SELECT COUNT(*) FROM pg_matview "
                             f"WHERE LOWER(matviewname) = '{view_name.lower()}'")
@@ -191,7 +191,7 @@ def db_view_exists(errors: list[str],
 
 def db_get_view_dependencies(errors: list[str],
                              view_name: str,
-                             view_type: Literal["S", "M"] = "S",
+                             view_type: Literal["M", "P"] = "P",
                              engine: str = None,
                              connection: Any = None,
                              committable: bool = True,
@@ -199,17 +199,17 @@ def db_get_view_dependencies(errors: list[str],
     """
     Retrieve and return the names of the tables *view_name* depends on.
 
-    If *view_name* is schema-qualified, then the search will be restricted to the view in that schema.
+    If *view_name* is schema-qualified, then the search will be pointed to the view in that schema.
     The returned table names will be qualified with the schema they belong to.
 
     :param errors: incidental error messages
     :param view_name: the name of the view
-    :param view_type: the type of the view ("S": standard, "M": materialized, defaults to "S")
+    :param view_type: the type of the view ("P": standard, "M": materialized, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: The schema-qualified tables the view depends on, or 'None' if an error ocurred
+    :return: the schema-qualified tables the view depends on, or 'None' if view not found or an error ocurred
     """
     #initialize the return variable
     result: list[str] | None = None
@@ -288,7 +288,7 @@ def db_get_view_dependencies(errors: list[str],
 
 def db_get_view_script(errors: list[str],
                        view_name: str,
-                       view_type: Literal["S", "M"] = "S",
+                       view_type: Literal["M", "P"] = "P",
                        engine: str = None,
                        connection: Any = None,
                        committable: bool = True,
@@ -301,12 +301,12 @@ def db_get_view_script(errors: list[str],
 
     :param errors: incidental error messages
     :param view_name: the name of the view
-    :param view_type: the type of the view ("S": standard, "M": materialized, defaults to "S")
+    :param view_type: the type of the view ("P": standard, "M": materialized, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: The SQL script used to create the view, or 'None' if the view does not exist, or an error ocurred
+    :return: the SQL script used to create the view, or 'None' if the view does not exist, or an error ocurred
     """
     #initialize the return variable
     result: str | None = None
@@ -335,11 +335,11 @@ def db_get_view_script(errors: list[str],
             sel_stmt: str = (f"SELECT DBMS_METADATA.GET_DDL("
                              f"'{vw_type}', '{view_name.upper()}', '{schema_name.upper()}') "
                              "FROM dual WHERE EXISTS "
-                             f"(SELECT * FROM {vw_table} "
+                             f"(SELECT NULL FROM {vw_table} "
                              f"WHERE {vw_column} = '{view_name.upper()}' "
                              f"AND owner = '{schema_name.upper()}')")
 
-        elif view_type == "M":  # materialized view
+        elif view_type == "M":  # materialized view (postgres, sqlserver)
             if curr_engine == "postgres":
                 sel_stmt: str = ("SELECT definition FROM pg_matviews "
                                  f"WHERE matviewname = '{view_name.lower()}'")
