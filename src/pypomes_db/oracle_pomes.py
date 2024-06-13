@@ -133,7 +133,11 @@ def select(errors: list[str] | None,
                                    max_count=max_count,
                                    require_count=require_count):
                 # yes, retrieve the returned tuples
-                result = rows
+                if sel_stmt.upper().startswith("SELECT DBMS_METADATA.GET_DDL"):
+                    # in this instance, a 'oracledb.LOB' may be returned
+                    result = [(str(rows[0][0]),)]
+                else:
+                    result = rows
         # commit the transaction, if appropriate
         if committable or not conn:
             curr_conn.commit()

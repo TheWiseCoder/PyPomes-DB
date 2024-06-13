@@ -369,10 +369,7 @@ def db_get_view_script(errors: list[str] | None,
                                            logger=logger)
         # process the query result
         if not op_errors and recs:
-            result = recs[0][0]
-            if not isinstance(result, str):
-                # HAZARD: Oracle's 'DBMS_METADATA.GET_DDL()' might return a 'CLOB'
-                result = str(result)
+            result = recs[0][0].strip()
 
     # acknowledge eventual local errors, if applicable
     if isinstance(errors, list):
