@@ -85,17 +85,21 @@ def db_get_views(errors: list[str] | None,
     if result and tables:
         omitted_views: list[str] = []
         for view_name in result:
+            op_errors = []
             dependencies: list[str] = \
-                db_get_view_dependencies(errors=errors,
+                db_get_view_dependencies(errors=op_errors,
                                          view_name=view_name,
                                          engine=curr_engine,
                                          connection=connection,
                                          committable=committable,
-                                         logger=logger)
+                                         logger=logger) or []
             for dependency in dependencies:
                 if dependency not in tables:
                     omitted_views.append(view_name)
                     break
+            # acknowledge eventual local errors, if appropriate
+            if isinstance(errors, list):
+                errors.extend(op_errors)
         for omitted_view in omitted_views:
             result.remove(omitted_view)
 
