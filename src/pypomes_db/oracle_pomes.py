@@ -134,7 +134,7 @@ def select(errors: list[str] | None,
                                    require_count=require_count):
                 # yes, retrieve the returned tuples
                 if sel_stmt.upper().startswith("SELECT DBMS_METADATA.GET_DDL"):
-                    # in this instance, a 'oracledb.LOB' may be returned
+                    # in this instance, a CLOB may be returned
                     result = [(str(rows[0][0]),)]
                 else:
                     result = rows

@@ -51,9 +51,9 @@ def db_get_views(errors: list[str] | None,
                 sel_stmt += f" WHERE owner = '{schema.upper()}'"
         elif view_type == "M":  # materialized views (postgres, sqlserver)
             if curr_engine == "postgres":
-                sel_stmt = "SELECT schemaname || '.' || matviewname FROM pg_matview "
+                sel_stmt = "SELECT schemaname || '.' || matviewname FROM pg_matviews "
                 if schema:
-                    sel_stmt += f" WHERE LOWER(schemaname) = {schema}"
+                    sel_stmt += f" WHERE LOWER(schemaname) = '{schema.lower()}'"
             else:  # sqlserver
                 sel_stmt = ("SELECT SCHEMA_NAME(v.schema_id) || '.' || table_name FROM sys.views v "
                             "INNER JOIN sys.indexes i ON i.object_id = v.object_id "
@@ -115,7 +115,7 @@ def db_view_exists(errors: list[str] | None,
     If *view_name* is schema-qualified, then the search will be restricted to that schema.
 
     :param errors: incidental error messages
-    :param view_name: the name of the view to look for
+    :param view_name: the, possibly schema-qualified, name of the view to look for
     :param view_type: the type of view to search for ("P": standard, "M": materialized, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
