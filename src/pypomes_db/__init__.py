@@ -13,10 +13,10 @@ from .index_pomes import (
     db_get_indexes
 )
 from .table_pomes import (
-    db_get_tables, db_table_exists
+    db_get_tables, db_table_exists, db_drop_table
 )
 from .view_pomes import (
-    db_get_views, db_view_exists,
+    db_get_views, db_view_exists, db_drop_view,
     db_get_view_dependencies, db_get_view_script
 )
 
@@ -33,9 +33,9 @@ __all__ = [
     # index_pomes
     "db_get_indexes",
     # table_pomes
-    "db_get_tables", "db_table_exists",
+    "db_get_tables", "db_table_exists", "db_drop_table",
     # view_pomes
-    "db_get_views", "db_view_exists",
+    "db_get_views", "db_view_exists", "db_drop_view",
     "db_get_view_dependencies", "db_get_view_script",
 ]
 

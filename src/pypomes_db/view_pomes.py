@@ -1,7 +1,7 @@
 from logging import Logger
 from typing import Any, Literal
 
-from .db_pomes import db_select
+from .db_pomes import db_execute, db_select
 from .db_common import _assert_engine
 
 
@@ -21,7 +21,7 @@ def db_get_views(errors: list[str] | None,
     the views whose table dependencies are all included therein are returned.
 
     :param errors: incidental error messages
-    :param view_type: the type of views to search for ("P": standard; "M": materialized, defaults to "P")
+    :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param schema: optional name of the schema to restrict the search to
     :param tables: optional list of, possibly schema-qualified, table names containing all views' dependencies
     :param engine: the database engine to use (uses the default engine, if not provided)
@@ -120,7 +120,7 @@ def db_view_exists(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param view_name: the, possibly schema-qualified, name of the view to look for
-    :param view_type: the type of view to search for ("P": standard, "M": materialized, defaults to "P")
+    :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
@@ -193,6 +193,78 @@ def db_view_exists(errors: list[str] | None,
     return result
 
 
+def db_drop_view(errors: list[str] | None,
+                 view_name: str,
+                 view_type: Literal["M", "P"] = "P",
+                 engine: str = None,
+                 connection: Any = None,
+                 committable: bool = True,
+                 logger: Logger = None) -> None:
+    """
+    Drop the view given by the, possibly schema-qualified, *view_name*.
+
+    Tis is a silent *DDL* operation. Whether commits or rollbacks are applicable,
+    and what their use would entail, depends on the response of the *engine* to the
+    mixing of *DDL* and *DML* statements in a transaction.
+
+    :param errors: incidental error messages
+    :param view_name: the, possibly schema-qualified, name of the view to drop
+    :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param logger: optional logger
+    """
+    # initialize the local errors list
+    op_errors: list[str] = []
+
+    # determine the database engine
+    curr_engine: str = _assert_engine(errors=op_errors,
+                                      engine=engine)
+    # proceed, if no errors
+    if not op_errors:
+        # build the DROP statement
+        tag: str = "MATERIALIZED VIEW" if view_type == "M" else "VIEW"
+        if curr_engine == "oracle":
+            # oracle has no 'IF EXISTS' clause
+            drop_stmt: str = \
+                (f"BEGIN"
+                 f" EXECUTE IMMEDIATE 'DROP {tag} {view_name}'; "
+                 "EXCEPTION"
+                 " WHEN OTHERS THEN NULL; "
+                 "END;")
+        elif curr_engine == "postgres":
+            drop_stmt: str = \
+                ("DO $$"
+                 "BEGIN" 
+                 f" EXECUTE 'DROP {tag} IF EXISTS {view_name}'; "
+                 "EXCEPTION"
+                 " WHEN OTHERS THEN NULL; "
+                 "END $$;")
+        elif curr_engine == "sqlserver":
+            # in SQLServer, materialized views are regular views with indexes
+            drop_stmt: str = \
+                ("BEGIN TRY" 
+                 f" EXEC('DROP VIEW IF EXISTS {view_name};'); "
+                 "END TRY "
+                 "BEGIN CATCH "
+                 "END CATCH;")
+        else:
+            drop_stmt: str = f"DROP {tag} IF EXISTS {view_name}"
+
+        # drop the view
+        db_execute(errors=op_errors,
+                   exc_stmt=drop_stmt,
+                   engine=curr_engine,
+                   connection=connection,
+                   committable=committable,
+                   logger=logger)
+
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
+
+
 def db_get_view_dependencies(errors: list[str] | None,
                              view_name: str,
                              view_type: Literal["M", "P"] = "P",
@@ -208,7 +280,7 @@ def db_get_view_dependencies(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param view_name: the name of the view
-    :param view_type: the type of the view ("P": standard, "M": materialized, defaults to "P")
+    :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
@@ -305,7 +377,7 @@ def db_get_view_script(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param view_name: the name of the view
-    :param view_type: the type of the view ("P": standard, "M": materialized, defaults to "P")
+    :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)

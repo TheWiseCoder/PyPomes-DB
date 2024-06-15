@@ -1,7 +1,7 @@
 from logging import Logger
 from typing import Any
 
-from .db_pomes import db_select
+from .db_pomes import db_execute, db_select
 from .db_common import _assert_engine
 
 
@@ -117,18 +117,86 @@ def db_table_exists(errors: list[str] | None,
                 sel_stmt += f" AND LOWER(table_schema) = '{schema_name.lower()}'"
 
         # execute the query
-        reply: list[tuple[int]] = db_select(errors=op_errors,
-                                            sel_stmt=sel_stmt,
-                                            engine=curr_engine,
-                                            connection=connection,
-                                            committable=committable,
-                                             logger=logger)
+        recs: list[tuple[int]] = db_select(errors=op_errors,
+                                           sel_stmt=sel_stmt,
+                                           engine=curr_engine,
+                                           connection=connection,
+                                           committable=committable,
+                                           logger=logger)
         # process the query result
         if not op_errors:
-            result = reply[0][0] > 0
+            result = recs[0][0] > 0
 
     # acknowledge eventual local errors, if appropriate
     if isinstance(errors, list):
         errors.extend(op_errors)
 
     return result
+
+
+def db_drop_table(errors: list[str] | None,
+                  table_name: str,
+                  engine: str = None,
+                  connection: Any = None,
+                  committable: bool = True,
+                  logger: Logger = None) -> None:
+    """
+    Drop the table given by the, possibly schema-qualified, *table_name*.
+
+    Tis is a silent *DDL* operation. Whether commits or rollbacks are applicable,
+    and what their use would entail, depends on the response of the *engine* to the
+    mixing of *DDL* and *DML* statements in a transaction.
+
+    :param errors: incidental error messages
+    :param table_name: the, possibly schema-qualified, name of the table to drop
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param logger: optional logger
+    """
+    # initialize the local errors list
+    op_errors: list[str] = []
+
+    # determine the database engine
+    curr_engine: str = _assert_engine(errors=op_errors,
+                                      engine=engine)
+    # proceed, if no errors
+    if not op_errors:
+        # build the DROP statement
+        if curr_engine == "oracle":
+            # oracle has no 'IF EXISTS' clause
+            drop_stmt: str = \
+                (f"BEGIN"
+                 f" EXECUTE IMMEDIATE 'DROP TABLE {table_name} CASCADE CONSTRAINTS'; "
+                 "EXCEPTION"
+                 " WHEN OTHERS THEN NULL; "
+                 "END;")
+        elif curr_engine == "postgres":
+            drop_stmt: str = \
+                ("DO $$"
+                 "BEGIN" 
+                 f" EXECUTE 'DROP TABLE IF EXISTS {table_name} CASCADE'; "
+                 "EXCEPTION"
+                 " WHEN OTHERS THEN NULL; "
+                 "END $$;")
+        elif curr_engine == "sqlserver":
+            drop_stmt: str = \
+                ("BEGIN TRY" 
+                 f" EXEC('DROP TABLE IF EXISTS {table_name} CASCADE;'); "
+                 "END TRY "
+                 "BEGIN CATCH "
+                 "END CATCH;")
+        else:
+            drop_stmt: str = f"DROP TABLE IF EXISTS {table_name}"
+
+        # drop the table
+        db_execute(errors=op_errors,
+                   exc_stmt=drop_stmt,
+                   engine=curr_engine,
+                   connection=connection,
+                   committable=committable,
+                   logger=logger)
+
+    # acknowledge eventual local errors, if appropriate
+    if isinstance(errors, list):
+        errors.extend(op_errors)
