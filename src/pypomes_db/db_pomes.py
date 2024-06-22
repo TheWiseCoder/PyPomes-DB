@@ -23,8 +23,8 @@ def db_setup(engine: Literal["mysql", "oracle", "postgres", "sqlserver"],
 
     The meaning of some parameters may vary between different database engines.
     All parameters, with the exception of *db_client* and *db_driver*, are required.
-    *db_client* may be provided for *oracle*, but not for the other engines.
-    *db_driver* is required for *sqlserver*, but is not accepted for the other engines.
+    *db_client* may be provided for *oracle*, but is otherwise ignored.
+    *db_driver* is required for *sqlserver*, but is otherwise ignored.
 
     :param engine: the database engine (one of [mysql, oracle, postgres, sqlserver])
     :param db_name: the database or service name
@@ -34,7 +34,7 @@ def db_setup(engine: Literal["mysql", "oracle", "postgres", "sqlserver"],
     :param db_port: the connection port (a positive integer)
     :param db_driver: the database driver (SQLServer only)
     :param db_client: the path to the client software (optional, Oracle only)
-    :return: True if the data was accepted, False otherwise
+    :return: 'True' if the data was accepted, 'False' otherwise
     """
     # initialize the return variable
     result: bool = False
@@ -146,7 +146,7 @@ def db_assert_connection(errors: list[str] | None,
     :param errors: incidental errors
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param logger: optional logger
-    :return: True if the trial connection succeeded, False otherwise
+    :return: 'True' if the trial connection succeeded, 'False' otherwise
     """
     # initialize the return variable
     result: bool = False
@@ -340,8 +340,8 @@ def db_select(errors: list[str] | None,
     """
     Search the database and return all tuples that satisfy the *sel_stmt* search command.
 
-    The command can optionally contain search criteria, with respective values given in
-    *where_vals*. The list of values for an attribute with the *IN* clause must be contained in a
+    The command can optionally contain search criteria, with respective values given in *where_vals*.
+    For PostgreSQL, the list of values for an attribute with the *IN* clause must be contained in a
     specific tuple. If not positive integers, *min_count*, *max_count*, and *require_count" are ignored.
     If *require_count* is specified, then exactly that number of touples must be
     returned by the query. If the search is empty, an empty list is returned.
@@ -432,7 +432,7 @@ def db_insert(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: the number of inserted tuples (0 ou 1), or None if an error occurred
+    :return: the number of inserted tuples (0 ou 1), or 'None' if an error occurred
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -475,7 +475,7 @@ def db_update(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: the number of updated tuples, or None if an error occurred
+    :return: the number of updated tuples, or 'None' if an error occurred
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -522,7 +522,7 @@ def db_delete(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: the number of deleted tuples, or None if an error occurred
+    :return: the number of deleted tuples, or 'None' if an error occurred
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -567,7 +567,7 @@ def db_bulk_insert(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: the number of inserted tuples (1 for postgres), or None if an error occurred
+    :return: the number of inserted tuples (1 for postgres), or 'None' if an error occurred
     """
     # initialize the return variable
     result: int | None = None
@@ -641,7 +641,7 @@ def db_bulk_update(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: the number of updated tuples, or None if an error occurred
+    :return: the number of updated tuples, or 'None' if an error occurred
     """
     # initialize the return variable
     result: int | None = None
@@ -711,7 +711,7 @@ def db_update_lob(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: number of LOBs effectively copied
+    :return: number of LOBs effectively copied, or 'None' if an error occurred
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -788,7 +788,7 @@ def db_execute(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: the return value from the command execution
+    :return: the return value from the command execution, or 'None' if an error occurred
     """
     # initialize the return variable
     result: int | None = None
@@ -852,7 +852,7 @@ def db_call_function(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: the data returned by the function
+    :return: the data returned by the function, or 'None' if an error occurred
     """
     # initialize the return variable
     result: Any = None
@@ -916,7 +916,7 @@ def db_call_procedure(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
     :param logger: optional logger
-    :return: the data returned by the procedure
+    :return: the data returned by the procedure, or 'None' if an error occurred
     """
     # initialize the return variable
     result: Any = None

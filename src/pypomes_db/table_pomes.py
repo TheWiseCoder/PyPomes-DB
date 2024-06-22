@@ -143,7 +143,7 @@ def db_drop_table(errors: list[str] | None,
     """
     Drop the table given by the, possibly schema-qualified, *table_name*.
 
-    Tis is a silent *DDL* operation. Whether commits or rollbacks are applicable,
+    This is a silent *DDL* operation. Whether commits or rollbacks are applicable,
     and what their use would entail, depends on the response of the *engine* to the
     mixing of *DDL* and *DML* statements in a transaction.
 

@@ -78,9 +78,8 @@ def select(errors: list[str] | None,
     """
     Search the database and return all tuples that satisfy the *sel_stmt* search command.
 
-    The command can optionally contain search criteria, with respective values given in
-    *where_vals*. The list of values for an attribute with the *IN* clause must be contained in a
-    specific tuple. If not positive integers, *min_count*, *max_count*, and *require_count" are ignored.
+    The command can optionally contain search criteria, with respective values given in *where_vals*.
+    If not positive integers, *min_count*, *max_count*, and *require_count" are ignored.
     If *require_count* is specified, then exactly that number of touples must be
     returned by the query. If the search is empty, an empty list is returned.
     If the search is empty, an empty list is returned.

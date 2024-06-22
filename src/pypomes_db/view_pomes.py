@@ -203,7 +203,7 @@ def db_drop_view(errors: list[str] | None,
     """
     Drop the view given by the, possibly schema-qualified, *view_name*.
 
-    Tis is a silent *DDL* operation. Whether commits or rollbacks are applicable,
+    This is a silent *DDL* operation. Whether commits or rollbacks are applicable,
     and what their use would entail, depends on the response of the *engine* to the
     mixing of *DDL* and *DML* statements in a transaction.
 
