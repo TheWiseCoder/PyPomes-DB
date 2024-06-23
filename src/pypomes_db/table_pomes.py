@@ -174,14 +174,14 @@ def db_drop_table(errors: list[str] | None,
         elif curr_engine == "postgres":
             drop_stmt: str = \
                 ("DO $$"
-                 "BEGIN" 
+                 "BEGIN"
                  f" EXECUTE 'DROP TABLE IF EXISTS {table_name} CASCADE'; "
                  "EXCEPTION"
                  " WHEN OTHERS THEN NULL; "
                  "END $$;")
         elif curr_engine == "sqlserver":
             drop_stmt: str = \
-                ("BEGIN TRY" 
+                ("BEGIN TRY"
                  f" EXEC('DROP TABLE IF EXISTS {table_name} CASCADE;'); "
                  "END TRY "
                  "BEGIN CATCH "

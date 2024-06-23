@@ -1,3 +1,6 @@
+from .db_common import (
+    DB_BIND_META_TAG
+)
 from .db_pomes import (
     db_setup, db_get_engines, db_get_param, db_get_params,
     db_get_connection_string, db_assert_connection,
@@ -21,6 +24,8 @@ from .view_pomes import (
 )
 
 __all__ = [
+    # db_common
+    "DB_BIND_META_TAG",
     # db_pomes
     "db_setup", "db_get_engines", "db_get_param", "db_get_params",
     "db_get_connection_string", "db_assert_connection",
@@ -36,7 +41,7 @@ __all__ = [
     "db_get_tables", "db_table_exists", "db_drop_table",
     # view_pomes
     "db_get_views", "db_view_exists", "db_drop_view",
-    "db_get_view_dependencies", "db_get_view_script",
+    "db_get_view_dependencies", "db_get_view_script"
 ]
 
 from importlib.metadata import version

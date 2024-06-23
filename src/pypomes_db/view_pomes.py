@@ -57,7 +57,7 @@ def db_get_views(errors: list[str] | None,
             else:  # sqlserver
                 sel_stmt = ("SELECT SCHEMA_NAME(v.schema_id) || '.' || table_name FROM sys.views v "
                             "INNER JOIN sys.indexes i ON i.object_id = v.object_id "
-                            f"WHERE i.index_id < 2")
+                            "WHERE i.index_id < 2")
                 if schema:
                     sel_stmt +=  f" AND LOWER(SCHEMA_NAME(v.schema_id)) = '{schema.lower()}'"
         else:  # standard views (postgres, sqlserver)
@@ -236,7 +236,7 @@ def db_drop_view(errors: list[str] | None,
         elif curr_engine == "postgres":
             drop_stmt: str = \
                 ("DO $$"
-                 "BEGIN" 
+                 "BEGIN"
                  f" EXECUTE 'DROP {tag} IF EXISTS {view_name}'; "
                  "EXCEPTION"
                  " WHEN OTHERS THEN NULL; "
@@ -244,7 +244,7 @@ def db_drop_view(errors: list[str] | None,
         elif curr_engine == "sqlserver":
             # in SQLServer, materialized views are regular views with indexes
             drop_stmt: str = \
-                ("BEGIN TRY" 
+                ("BEGIN TRY"
                  f" EXEC('DROP VIEW IF EXISTS {view_name};'); "
                  "END TRY "
                  "BEGIN CATCH "

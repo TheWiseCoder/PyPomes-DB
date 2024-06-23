@@ -1,9 +1,15 @@
+from collections.abc import Iterable
 from logging import DEBUG, Logger
 from pypomes_core import (
     APP_PREFIX,
     env_get_int, env_get_str, str_sanitize, str_get_positional
 )
-from typing import Any, Iterable
+from typing import Any, Final
+
+# the bind meta-tag to use in DML statements
+# (guarantees cross-engine compatilitiy, as this is replaced by the engine's bind tag)
+DB_BIND_META_TAG: Final[str] = env_get_str(key="DB_BIND_META_TAG",
+                                           def_value="%?")
 
 # the preferred way to specify database connection parameters is dynamically with 'db_setup_params'
 # specifying database connection parameters with environment variables can be done in two ways:
@@ -267,7 +273,6 @@ def _bind_columns(engine: str,
     :param start_index: the index to start the enumeration (relevant to oracle, only)
     :return: the concatenated string
     """
-
     # initialize the return variable
     result: str | None = None
 
@@ -297,7 +302,6 @@ def _bind_marks(engine: str,
     :param finish: the number to finish at, exclusive
     :return: the concatenated string
     """
-
     # initialize the return variable
     result: str | None = None
 

@@ -6,7 +6,8 @@ from typing import Any, Literal
 from pypomes_core import str_sanitize
 
 from .db_common import (
-    _DB_ENGINES, _DB_CONN_DATA, _assert_engine, _get_param
+    DB_BIND_META_TAG, _DB_ENGINES, _DB_CONN_DATA,
+    _assert_engine, _get_param
 )
 
 
@@ -76,6 +77,7 @@ def db_get_engines() -> list[str]:
     return _DB_ENGINES
 
 
+
 def db_get_param(key: Literal["name", "user", "pwd", "host", "port", "client", "driver"],
                  engine: str = None) -> str:
     """
@@ -86,10 +88,12 @@ def db_get_param(key: Literal["name", "user", "pwd", "host", "port", "client", "
     might be used, respectively.
 
     :param key: the reference parameter
-    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param engine: the reference database engine (the default engine, if not provided)
     :return: the current value of the connection parameter
     """
+    # determine the database engine
     curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+
     return _get_param(curr_engine, key)
 
 def db_get_params(engine: str = None) -> dict:
@@ -102,10 +106,12 @@ def db_get_params(engine: str = None) -> dict:
     The meaning of these parameters may vary between different database engines.
     Note that the value of the *pwd* parameter is not returned.
 
-    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param engine: the reference database engine (the default engine, if not provided)
     :return: the current connection parameters for the engine
     """
+    # determine the database engine
     curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+
     return copy(x=_DB_CONN_DATA.get(curr_engine))
 
 
@@ -113,7 +119,7 @@ def db_get_connection_string(engine: str = None) -> str:
     """
     Build and return the connection string for connecting to the database.
 
-    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param engine: the reference database engine (the default engine, if not provided)
     :return: the connection string
     """
     # initialize the return variable
@@ -133,6 +139,37 @@ def db_get_connection_string(engine: str = None) -> str:
     elif curr_engine == "sqlserver":
         from . import sqlserver_pomes
         result = sqlserver_pomes.get_connection_string()
+
+    return result
+
+
+def db_bind_stmt(stmt: str,
+                 engine: str = None) -> str:
+    """
+    Replace the occurrences of bind meta-tag in *stmt*, with the appropriate bind tag for *engine*.
+
+    The bind meta-tag is defined by *DB_BIND_META_TAG*, an environment variable with the default value *%?*.
+
+    :param stmt: the statement for which to replace the bind meta-tags with the proper bind tags
+    :param engine: the reference database engine (the default engine, if not provided)
+    :return: the statement with the proper bind tags, or 'None' if the engine is not known
+    """
+    # initialize the return variable
+    result: str | None = None
+
+    # determine the database engine
+    curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+
+    match curr_engine:
+        case "mysql" | "postgres":
+            result = stmt.replace(DB_BIND_META_TAG, "%s")
+        case "oracle":
+            pos: int = 0
+            while result != stmt:
+                pos += 1
+                result = stmt.replace(DB_BIND_META_TAG, f":{pos}", 1)
+        case "sqlserver":
+            result = stmt.replace(DB_BIND_META_TAG, "?")
 
     return result
 
@@ -366,6 +403,11 @@ def db_select(errors: list[str] | None,
     curr_engine: str = _assert_engine(errors=op_errors,
                                       engine=engine)
 
+    # make sure statement has the correct bind tags
+    if where_vals and DB_BIND_META_TAG in sel_stmt:
+        sel_stmt = db_bind_stmt(stmt=sel_stmt,
+                                engine=curr_engine)
+
     reply: list[tuple] | None = None
     if curr_engine == "mysql":
         pass
@@ -577,7 +619,12 @@ def db_bulk_insert(errors: list[str] | None,
 
     # determine the database engine
     curr_engine: str = _assert_engine(op_errors, engine)
-    
+
+    # make sure statement has the correct bind tags
+    if insert_vals and DB_BIND_META_TAG in insert_stmt:
+        insert_stmt = db_bind_stmt(stmt=insert_stmt,
+                                   engine=curr_engine)
+
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":
@@ -652,6 +699,11 @@ def db_bulk_update(errors: list[str] | None,
     # determine the database engine
     curr_engine: str = _assert_engine(op_errors, engine)
 
+    # make sure statement has the correct bind tags
+    if update_vals and DB_BIND_META_TAG in update_stmt:
+        update_stmt = db_bind_stmt(stmt=update_stmt,
+                                   engine=curr_engine)
+
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":
@@ -718,7 +770,7 @@ def db_update_lob(errors: list[str] | None,
 
     # determine the database engine
     curr_engine: str = _assert_engine(op_errors, engine)
-    
+
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":
@@ -798,7 +850,12 @@ def db_execute(errors: list[str] | None,
 
     # determine the database engine
     curr_engine: str = _assert_engine(op_errors, engine)
-    
+
+    # make sure statement has the correct bind tags
+    if bind_vals and DB_BIND_META_TAG in exc_stmt:
+        exc_stmt = db_bind_stmt(stmt=exc_stmt,
+                                engine=curr_engine)
+
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":
@@ -862,7 +919,7 @@ def db_call_function(errors: list[str] | None,
 
     # determine the database engine
     curr_engine: str = _assert_engine(op_errors, engine)
-    
+
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":
@@ -926,7 +983,7 @@ def db_call_procedure(errors: list[str] | None,
 
     # determine the database engine
     curr_engine: str = _assert_engine(op_errors, engine)
-    
+
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":

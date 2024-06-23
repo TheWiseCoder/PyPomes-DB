@@ -6,7 +6,7 @@ from .db_common import (
 )
 from .db_pomes import db_connect
 
-
+# ruff: noqa: C901, PLR0912, PLR0915
 def db_migrate_data(errors: list[str] | None,
                     source_engine: str,
                     source_table: str,
@@ -243,6 +243,7 @@ def db_migrate_data(errors: list[str] | None,
 
     return result
 
+# ruff: noqa: C901, PLR0915
 def db_migrate_lobs(errors: list[str] | None,
                     source_engine: str,
                     source_table: str,
