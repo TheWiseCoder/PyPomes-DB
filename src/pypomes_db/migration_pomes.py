@@ -87,7 +87,7 @@ def db_migrate_data(errors: list[str] | None,
     if target_engine == "postgres":
         values: str = "VALUES %s"
         if identity_column:
-            values += "OVERRIDING SYSTEM VALUES " + values
+            values = " OVERRIDING SYSTEM VALUE " + values
     else:
         raw_row: str = _bind_marks(engine=target_engine,
                                    start=1,
