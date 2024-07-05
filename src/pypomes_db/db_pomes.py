@@ -313,25 +313,71 @@ def db_rollback(errors: list[str] | None,
         logger.debug(f"Transaction rolled back on {connection}")
 
 
-def db_exists(errors: list[str] | None,
-              table: str,
-              where_attrs: list[str] = None,
-              where_vals: tuple = None,
-              engine: str = None,
-              connection: Any = None,
-              committable: bool = True,
-              logger: Logger = None) -> bool:
+def db_count(errors: list[str] | None,
+             table: str,
+             where_data: dict[str, Any] = None,
+             engine: str = None,
+             connection: Any = None,
+             committable: bool = True,
+             logger: Logger = None) -> int:
     """
-    Determine whether the table *table* in the database contains at least one tuple.
+    Obtain and return the number of tuples in *table* meeting the criteria defined in *where_data*.
 
-    For this determination, *where_attrs* are made equal to *where_values* in the query, respectively.
+    The attributes and corresponding values for the query's WHERE clause are held in *where_data*.
     If more than one, the attributes are concatenated by the *AND* logical connector.
     The targer database engine, specified or default, must have been previously configured.
 
     :param errors: incidental error messages
     :param table: the table to be searched
-    :param where_attrs: the search attributes
-    :param where_vals: the values for the search attributes
+    :param where_data: the search criteria
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param logger: optional logger
+    :return: 'True' if at least one tuple was found, 'False' otherwise, 'None' if an error ocurred
+    """
+    # initialize the return variable
+    result: int | None = None
+
+    # initialize the local errors list
+    op_errors: list[str] = []
+
+    # noinspection PyDataSource
+    sel_stmt: str = "SELECT COUNT(*) FROM " + table
+    if where_data:
+        sel_stmt += " WHERE " + "".join(f"{attr} = %s AND " for attr in where_data.keys())[0:-5]
+    recs: list[tuple[int]] = db_select(errors=op_errors,
+                                       sel_stmt=sel_stmt,
+                                       where_vals=tuple(where_data.values()),
+                                       engine = engine,
+                                       connection=connection,
+                                       committable=committable,
+                                       logger=logger)
+    if not op_errors:
+        result = recs[0][0]
+    elif isinstance(errors, list):
+        errors.extend(op_errors)
+
+    return result
+
+
+def db_exists(errors: list[str] | None,
+              table: str,
+              where_data: dict[str, Any] = None,
+              engine: str = None,
+              connection: Any = None,
+              committable: bool = True,
+              logger: Logger = None) -> bool:
+    """
+    Determine whether at least one tuple in *table* meets the criteria defined in *where_data*.
+
+    The attributes and corresponding values for the query's WHERE clause are held in *where_data*.
+    If more than one, the attributes are concatenated by the *AND* logical connector.
+    The targer database engine, specified or default, must have been previously configured.
+
+    :param errors: incidental error messages
+    :param table: the table to be searched
+    :param where_data: the search criteria
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
@@ -346,18 +392,18 @@ def db_exists(errors: list[str] | None,
 
     # noinspection PyDataSource
     sel_stmt: str = "SELECT * FROM " + table
-    if where_attrs:
-        sel_stmt += " WHERE " + "".join(f"{attr} = %s AND " for attr in where_attrs)[0:-5]
-    rec: list[tuple] = db_select(errors=op_errors,
-                                 sel_stmt=sel_stmt,
-                                 where_vals=where_vals,
-                                 max_count=1,
-                                 engine = engine,
-                                 connection=connection,
-                                 committable=committable,
-                                 logger=logger)
+    if where_data:
+        sel_stmt += " WHERE " + "".join(f"{attr} = %s AND " for attr in where_data.keys())[0:-5]
+    recs: list[tuple] = db_select(errors=op_errors,
+                                  sel_stmt=sel_stmt,
+                                  where_vals=tuple(where_data.values()),
+                                  max_count=1,
+                                  engine = engine,
+                                  connection=connection,
+                                  committable=committable,
+                                  logger=logger)
     if not op_errors:
-        result = rec is not None and len(rec) > 0
+        result = recs is not None and len(recs) > 0
     elif isinstance(errors, list):
         errors.extend(op_errors)
 
