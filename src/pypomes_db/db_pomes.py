@@ -345,7 +345,7 @@ def db_count(errors: list[str] | None,
     # noinspection PyDataSource
     sel_stmt: str = "SELECT COUNT(*) FROM " + table
     if where_data:
-        sel_stmt += " WHERE " + "".join(f"{attr} = %s AND " for attr in where_data.keys())[0:-5]
+        sel_stmt += " WHERE " + "".join(f"{attr} = %? AND " for attr in where_data.keys())[0:-5]
     recs: list[tuple[int]] = db_select(errors=op_errors,
                                        sel_stmt=sel_stmt,
                                        where_vals=tuple(where_data.values()),
@@ -394,7 +394,7 @@ def db_exists(errors: list[str] | None,
     sel_stmt: str = "SELECT * FROM " + table
     where_vals: tuple | None = None
     if where_data:
-        sel_stmt += " WHERE " + "".join(f"{attr} = %s AND " for attr in where_data.keys())[0:-5]
+        sel_stmt += " WHERE " + "".join(f"{attr} = %? AND " for attr in where_data.keys())[0:-5]
         where_vals = tuple(where_data.values())
     recs: list[tuple] = db_select(errors=op_errors,
                                   sel_stmt=sel_stmt,
