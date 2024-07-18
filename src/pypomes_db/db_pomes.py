@@ -1,9 +1,8 @@
 from copy import copy
 from logging import Logger
 from pathlib import Path
-from typing import Any, Literal
-
 from pypomes_core import str_sanitize
+from typing import Any, Literal
 
 from .db_common import (
     DB_BIND_META_TAG, _DB_ENGINES, _DB_CONN_DATA,

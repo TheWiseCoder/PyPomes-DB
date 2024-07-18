@@ -8,10 +8,10 @@ from typing import Any, Final
 
 # the bind meta-tag to use in DML statements
 # (guarantees cross-engine compatilitiy, as this is replaced by the engine's bind tag)
-DB_BIND_META_TAG: Final[str] = env_get_str(key="DB_BIND_META_TAG",
+DB_BIND_META_TAG: Final[str] = env_get_str(key=f"{APP_PREFIX}_DB_BIND_META_TAG",
                                            def_value="%?")
 
-# the preferred way to specify database connection parameters is dynamically with 'db_setup_params'
+# the preferred way to specify database connection parameters is dynamically with 'db_setup()'
 # specifying database connection parameters with environment variables can be done in two ways:
 # 1. specify the set
 #   {APP_PREFIX}_DB_ENGINE (one of 'mysql', 'oracle', 'postgres', 'sqlserver')

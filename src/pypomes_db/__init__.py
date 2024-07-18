@@ -20,7 +20,7 @@ from .table_pomes import (
 )
 from .view_pomes import (
     db_get_views, db_view_exists, db_drop_view,
-    db_get_view_dependencies, db_get_view_script
+    db_get_view_ddl, db_get_view_dependencies
 )
 
 __all__ = [
@@ -41,7 +41,7 @@ __all__ = [
     "db_get_tables", "db_table_exists", "db_drop_table",
     # view_pomes
     "db_get_views", "db_view_exists", "db_drop_view",
-    "db_get_view_dependencies", "db_get_view_script"
+    "db_get_view_ddl", "db_get_view_dependencies"
 ]
 
 from importlib.metadata import version

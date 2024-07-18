@@ -265,6 +265,98 @@ def db_drop_view(errors: list[str] | None,
         errors.extend(op_errors)
 
 
+def db_get_view_ddl(errors: list[str] | None,
+                    view_name: str,
+                    view_type: Literal["M", "P"] = "P",
+                    engine: str = None,
+                    connection: Any = None,
+                    committable: bool = True,
+                    logger: Logger = None) -> str:
+    """
+    Retrieve and return the SQL DDL script used to create the view *view_name*.
+
+    If *view_name* is schema-qualified, then the search will be pointed to the view in that schema.
+    For Oracle databases, if the schema qualification is not provided, the search will fail.
+
+    :param errors: incidental error messages
+    :param view_name: the name of the view
+    :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param logger: optional logger
+    :return: the SQL script used to create the view, or 'None' if the view does not exist, or an error ocurred
+    """
+    #initialize the return variable
+    result: str | None = None
+
+    # initialize the local errors list
+    op_errors: list[str] = []
+
+    # determine the database engine
+    curr_engine: str = _assert_engine(errors=op_errors,
+                                      engine=engine)
+
+    # proceed, if no errors
+    if not op_errors:
+        # extract the schema, if possible
+        schema_name: str = ""
+        splits: list[str] = view_name.split(".")
+        if len(splits) > 1:
+            schema_name = splits[0]
+            view_name = splits[1]
+
+        # build the query
+        if curr_engine == "oracle":
+            vw_type: str = "MATERIALIZED_VIEW" if view_type == "M" else "VIEW"
+            vw_table: str = "all_mviews"  if view_type == "M" else "all_views"
+            vw_column: str = "mview_name"  if view_type == "M" else "view_name"
+            sel_stmt: str = (f"SELECT DBMS_METADATA.GET_DDL("
+                             f"'{vw_type}', '{view_name.upper()}', '{schema_name.upper()}') "
+                             "FROM dual WHERE EXISTS "
+                             f"(SELECT NULL FROM {vw_table} "
+                             f"WHERE {vw_column} = '{view_name.upper()}' "
+                             f"AND owner = '{schema_name.upper()}')")
+
+        elif view_type == "M":  # materialized view (postgres, sqlserver)
+            if curr_engine == "postgres":
+                sel_stmt: str = ("SELECT definition FROM pg_matviews "
+                                 f"WHERE matviewname = '{view_name.lower()}'")
+                if schema_name:
+                    sel_stmt += f" AND schemaname = {schema_name.lower()}"
+            else:  # sqlserver
+                sel_stmt: str = ("SELECT view_definition "
+                                 "FROM information_schema.views AS v "
+                                 "INNER JOIN sys.indexes AS i ON OBJECT_NAME(i.object_id) = v.table_name "
+                                 f"WHERE i.index_id < 2 AND LOWER(v.table_name) = '{view_name.lower()}'")
+                if schema_name:
+                    sel_stmt += f" AND v.table_schema = '{schema_name.lower()}'"
+
+        else:  # standard view (postgres, sqlserver)
+            sel_stmt: str = ("SELECT view_definition "
+                             "FROM information_schema.views "
+                             f"WHERE LOWER(table_name) = '{view_name.lower()}'")
+            if schema_name:
+                sel_stmt += f" AND LOWER(table_schema) = '{schema_name.lower()}'"
+
+        # execute the query
+        recs: list[tuple[str]] = db_select(errors=op_errors,
+                                           sel_stmt=sel_stmt,
+                                           engine=curr_engine,
+                                           connection=connection,
+                                           committable=committable,
+                                           logger=logger)
+        # process the query result
+        if not op_errors and recs:
+            result = recs[0][0].strip()
+
+    # acknowledge eventual local errors, if applicable
+    if isinstance(errors, list):
+        errors.extend(op_errors)
+
+    return result
+
+
 def db_get_view_dependencies(errors: list[str] | None,
                              view_name: str,
                              view_type: Literal["M", "P"] = "P",
@@ -273,7 +365,7 @@ def db_get_view_dependencies(errors: list[str] | None,
                              committable: bool = True,
                              logger: Logger = None) -> list[str]:
     """
-    Retrieve and return the names of the tables *view_name* depends on.
+    Retrieve and return the schema-qualified names of the tables *view_name* depends on.
 
     If *view_name* is schema-qualified, then the search will be pointed to the view in that schema.
     The returned table names will be qualified with the schema they belong to.
@@ -356,98 +448,6 @@ def db_get_view_dependencies(errors: list[str] | None,
             result = [rec[0] for rec in recs]
 
     # acknowledge eventual local errors, if appropriate
-    if isinstance(errors, list):
-        errors.extend(op_errors)
-
-    return result
-
-
-def db_get_view_script(errors: list[str] | None,
-                       view_name: str,
-                       view_type: Literal["M", "P"] = "P",
-                       engine: str = None,
-                       connection: Any = None,
-                       committable: bool = True,
-                       logger: Logger = None) -> str:
-    """
-    Retrieve and return the SQL script used to create the view *view_name*.
-
-    If *view_name* is schema-qualified, then the search will be pointed to the view in that schema.
-    For Oracle databases, if the schema qualification is not provided, the search will fail.
-
-    :param errors: incidental error messages
-    :param view_name: the name of the view
-    :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
-    :param engine: the database engine to use (uses the default engine, if not provided)
-    :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
-    :param logger: optional logger
-    :return: the SQL script used to create the view, or 'None' if the view does not exist, or an error ocurred
-    """
-    #initialize the return variable
-    result: str | None = None
-
-    # initialize the local errors list
-    op_errors: list[str] = []
-
-    # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
-
-    # proceed, if no errors
-    if not op_errors:
-        # extract the schema, if possible
-        schema_name: str = ""
-        splits: list[str] = view_name.split(".")
-        if len(splits) > 1:
-            schema_name = splits[0]
-            view_name = splits[1]
-
-        # build the query
-        if curr_engine == "oracle":
-            vw_type: str = "MATERIALIZED_VIEW" if view_type == "M" else "VIEW"
-            vw_table: str = "all_mviews"  if view_type == "M" else "all_views"
-            vw_column: str = "mview_name"  if view_type == "M" else "view_name"
-            sel_stmt: str = (f"SELECT DBMS_METADATA.GET_DDL("
-                             f"'{vw_type}', '{view_name.upper()}', '{schema_name.upper()}') "
-                             "FROM dual WHERE EXISTS "
-                             f"(SELECT NULL FROM {vw_table} "
-                             f"WHERE {vw_column} = '{view_name.upper()}' "
-                             f"AND owner = '{schema_name.upper()}')")
-
-        elif view_type == "M":  # materialized view (postgres, sqlserver)
-            if curr_engine == "postgres":
-                sel_stmt: str = ("SELECT definition FROM pg_matviews "
-                                 f"WHERE matviewname = '{view_name.lower()}'")
-                if schema_name:
-                    sel_stmt += f" AND schemaname = {schema_name.lower()}"
-            else:  # sqlserver
-                sel_stmt: str = ("SELECT view_definition "
-                                 "FROM information_schema.views AS v "
-                                 "INNER JOIN sys.indexes AS i ON OBJECT_NAME(i.object_id) = v.table_name "
-                                 f"WHERE i.index_id < 2 AND LOWER(v.table_name) = '{view_name.lower()}'")
-                if schema_name:
-                    sel_stmt += f" AND v.table_schema = '{schema_name.lower()}'"
-
-        else:  # standard view (postgres, sqlserver)
-            sel_stmt: str = ("SELECT view_definition "
-                             "FROM information_schema.views "
-                             f"WHERE LOWER(table_name) = '{view_name.lower()}'")
-            if schema_name:
-                sel_stmt += f" AND LOWER(table_schema) = '{schema_name.lower()}'"
-
-        # execute the query
-        recs: list[tuple[str]] = db_select(errors=op_errors,
-                                           sel_stmt=sel_stmt,
-                                           engine=curr_engine,
-                                           connection=connection,
-                                           committable=committable,
-                                           logger=logger)
-        # process the query result
-        if not op_errors and recs:
-            result = recs[0][0].strip()
-
-    # acknowledge eventual local errors, if applicable
     if isinstance(errors, list):
         errors.extend(op_errors)
 
