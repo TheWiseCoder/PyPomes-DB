@@ -230,7 +230,6 @@ def db_get_table_ddl(errors: list[str] | None,
     # determine the database engine
     curr_engine: str = _assert_engine(errors=op_errors,
                                       engine=engine)
-
     # is 'table_name' schema-qualified ?
     splits: list[str] = table_name.split(".")
     if len(splits) != 2:

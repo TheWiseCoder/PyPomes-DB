@@ -103,8 +103,7 @@ def select(errors: list[str] | None,
     curr_conn: Connection = conn or connect(errors=errors,
                                             autocommit=False,
                                             logger=logger)
-
-    # make sure to establish the right query cardinality
+    # establish the right query cardinality
     if isinstance(require_count, int) and require_count > 0:
         min_count = require_count
         max_count = require_count + 1
@@ -193,7 +192,6 @@ def execute(errors: list[str] | None,
     curr_conn: Connection = conn or connect(errors=errors,
                                             autocommit=False,
                                             logger=logger)
-
     err_msg: str | None = None
     try:
         # obtain a cursor and execute the operation
@@ -259,7 +257,6 @@ def bulk_execute(errors: list[str] | None,
     curr_conn: Connection = conn or connect(errors=errors,
                                             autocommit=False,
                                             logger=logger)
-
     err_msg: str | None = None
     try:
         # obtain a cursor and perform the operation
@@ -321,7 +318,6 @@ def update_lob(errors: list[str],
     curr_conn: Connection = conn or connect(errors=errors,
                                             autocommit=False,
                                             logger=logger)
-
     # make sure to have a data file
     data_file: Path = Path(lob_file) if isinstance(lob_file, str) else lob_file
 
@@ -395,7 +391,6 @@ def call_procedure(errors: list[str] | None,
     curr_conn: Connection = conn or connect(errors=errors,
                                             autocommit=False,
                                             logger=logger)
-
     # build the command
     proc_stmt: str | None = None
 

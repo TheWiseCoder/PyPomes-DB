@@ -39,7 +39,6 @@ def db_get_views(errors: list[str] | None,
     # determine the database engine
     curr_engine: str = _assert_engine(errors=op_errors,
                                       engine=engine)
-
     # proceed, if no errors
     if not op_errors:
         # build the query

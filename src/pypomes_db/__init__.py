@@ -10,7 +10,7 @@ from .db_pomes import (
     db_execute, db_call_function, db_call_procedure
 )
 from .migration_pomes import (
-    db_migrate_data, db_migrate_lobs
+    db_migrate_data, db_migrate_lobs, db_stream_lobs
 )
 from .index_pomes import (
     db_get_indexes, db_get_index_ddl
@@ -35,7 +35,7 @@ __all__ = [
     "db_bulk_insert", "db_bulk_update", "db_update_lob",
     "db_execute", "db_call_function", "db_call_procedure",
     # migration_pomes
-    "db_migrate_data", "db_migrate_lobs",
+    "db_migrate_data", "db_migrate_lobs", "db_stream_lobs",
     # index_pomes
     "db_get_indexes", "db_get_index_ddl",
     # table_pomes
