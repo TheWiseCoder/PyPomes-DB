@@ -12,9 +12,7 @@ def db_get_tables(errors: list[str] | None,
                   committable: bool = True,
                   logger: Logger = None) -> list[str]:
     """
-    Retrieve and return the list of tables in the database.
-
-    The returned table names will be qualified with the schema they belong to.
+    Retrieve and return the list of schema-qualified tables in the database.
 
     :param errors: incidental error messages
     :param schema: optional name of the schema to restrict the search to
@@ -200,3 +198,80 @@ def db_drop_table(errors: list[str] | None,
     # acknowledge eventual local errors, if appropriate
     if isinstance(errors, list):
         errors.extend(op_errors)
+
+
+def db_get_table_ddl(errors: list[str] | None,
+                     table_name: str,
+                     engine: str = None,
+                     connection: Any = None,
+                     committable: bool = True,
+                     logger: Logger = None) -> str:
+    """
+    Retrieve and return the DDL script used to create the table *table_name*.
+
+    Note that *table_name* must be schema-qualified, or else the invocation will fail.
+    For *postgres* databases, make sure that the function *pg_get_tabledef* is installed and accessible.
+    This function is freely available at https://github.com/MichaelDBA/pg_get_tabledef.
+
+    :param errors: incidental error messages
+    :param table_name: the schema-qualified name of the table
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param logger: optional logger
+    :return: the DDL script used to create the index, or 'None' if the index does not exist, or an error ocurred
+    """
+    #initialize the return variable
+    result: str | None = None
+
+    # initialize the local errors list
+    op_errors: list[str] = []
+
+    # determine the database engine
+    curr_engine: str = _assert_engine(errors=op_errors,
+                                      engine=engine)
+
+    # is 'table_name' schema-qualified ?
+    splits: list[str] = table_name.split(".")
+    if len(splits) != 2:
+        # no, report the problem
+        op_errors.append(f"Index name '{table_name}' not properly schema-qualified")
+
+    # proceed, if no errors
+    if not op_errors:
+        # extract the schema and table names
+        schema_name: str = splits[0]
+        table_name: str = splits[1]
+
+        # build the query
+        sel_stmt: str | None = None
+        if curr_engine == "mysql":
+            pass
+        if curr_engine == "oracle":
+            sel_stmt = ("SELECT DBMS_METADATA.GET_DDL('TABLE', "
+                        f"'{table_name.upper()}', '{schema_name.upper()}') "
+                        "FROM DUAL")
+        elif curr_engine == "postgres":
+            sel_stmt = ("SELECT * FROM public.pg_get_table_def("
+                        f"'{schema_name.lower()}', '{table_name.lower()}', false)")
+        elif curr_engine == "sqlserver":
+            # sel_stmt = f"EXEC sp_help '{schema_name}.{table_name}'"
+            sel_stmt = ("SELECT OBJECT_DEFINITION (OBJECT_ID("
+                        f"'{schema_name.lower()}.{table_name.upper()}'))")
+
+        # execute the query
+        recs: list[tuple[str]] = db_select(errors=op_errors,
+                                           sel_stmt=sel_stmt,
+                                           engine=curr_engine,
+                                           connection=connection,
+                                           committable=committable,
+                                           logger=logger)
+        # process the query result
+        if not op_errors and recs:
+            result = recs[0][0].strip()
+
+    # acknowledge local errors
+    if isinstance(errors, list):
+        errors.extend(op_errors)
+
+    return result

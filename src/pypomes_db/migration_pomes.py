@@ -253,7 +253,7 @@ def db_migrate_data(errors: list[str] | None,
                   f"from {source_engine}.{source_table} "
                   f"to {target_engine}.{target_table}"))
 
-    # acknowledge eventual local errors
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -476,7 +476,7 @@ def db_migrate_lobs(errors: list[str] | None,
                   f"from {source_engine}.{source_table}.{source_lob_column} "
                   f"to {target_engine}.{target_table}.{target_lob_column}"))
 
-    # acknowledge eventual local errors
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 

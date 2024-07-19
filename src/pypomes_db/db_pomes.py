@@ -1,4 +1,3 @@
-from copy import copy
 from logging import Logger
 from pathlib import Path
 from pypomes_core import str_sanitize
@@ -26,7 +25,7 @@ def db_setup(engine: Literal["mysql", "oracle", "postgres", "sqlserver"],
     *db_client* may be provided for *oracle*, but is otherwise ignored.
     *db_driver* is required for *sqlserver*, but is otherwise ignored.
 
-    :param engine: the database engine (one of [mysql, oracle, postgres, sqlserver])
+    :param engine: the database engine (one of ['mysql', 'oracle', 'postgres', 'sqlserver'])
     :param db_name: the database or service name
     :param db_user: the logon user
     :param db_pwd: the logon password
@@ -111,7 +110,8 @@ def db_get_params(engine: str = None) -> dict:
     # determine the database engine
     curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
 
-    return copy(x=_DB_CONN_DATA.get(curr_engine))
+    # SANITY-CHECK: return a cloned 'dict'
+    return dict(_DB_CONN_DATA.get(curr_engine))
 
 
 def db_get_connection_string(engine: str = None) -> str:
@@ -206,7 +206,7 @@ def db_assert_connection(errors: list[str] | None,
             conn.close()
             result = True
 
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -254,8 +254,7 @@ def db_connect(errors: list[str] | None,
         result = sqlserver_pomes.connect(errors=op_errors,
                                          autocommit=autocommit,
                                          logger=logger)
-
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -445,46 +444,36 @@ def db_select(errors: list[str] | None,
     :param logger: optional logger
     :return: list of tuples containing the search result, '[]' if the search was empty, or 'None' if there was an error
     """
+    # initialize the return variable
+    result: list[tuple] | None = None
+
     # initialize the local errors list
     op_errors: list[str] = []
 
     # determine the database engine
     curr_engine: str = _assert_engine(errors=op_errors,
                                       engine=engine)
-
-    # make sure statement has the correct bind tags
+    # establish the correct bind tags
     if where_vals and DB_BIND_META_TAG in sel_stmt:
         sel_stmt = db_bind_stmt(stmt=sel_stmt,
                                 engine=curr_engine)
 
-    reply: list[tuple] | None = None
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":
         from . import oracle_pomes
-        reply = oracle_pomes.select(errors=op_errors,
-                                    sel_stmt=sel_stmt,
-                                    where_vals=where_vals,
-                                    min_count=min_count,
-                                    max_count=max_count,
-                                    require_count=require_count,
-                                    conn=connection,
-                                    committable=committable,
-                                    logger=logger)
+        result = oracle_pomes.select(errors=op_errors,
+                                     sel_stmt=sel_stmt,
+                                     where_vals=where_vals,
+                                     min_count=min_count,
+                                     max_count=max_count,
+                                     require_count=require_count,
+                                     conn=connection,
+                                     committable=committable,
+                                     logger=logger)
     elif curr_engine == "postgres":
         from . import postgres_pomes
-        reply = postgres_pomes.select(errors=op_errors,
-                                      sel_stmt=sel_stmt,
-                                      where_vals=where_vals,
-                                      min_count=min_count,
-                                      max_count=max_count,
-                                      require_count=require_count,
-                                      conn=connection,
-                                      committable=committable,
-                                      logger=logger)
-    elif curr_engine == "sqlserver":
-        from . import sqlserver_pomes
-        reply = sqlserver_pomes.select(errors=op_errors,
+        result = postgres_pomes.select(errors=op_errors,
                                        sel_stmt=sel_stmt,
                                        where_vals=where_vals,
                                        min_count=min_count,
@@ -493,12 +482,19 @@ def db_select(errors: list[str] | None,
                                        conn=connection,
                                        committable=committable,
                                        logger=logger)
-
-    # return the query result/acknowledge eventual local errors
-    result: list[tuple] | None = None
-    if not op_errors:
-        result = reply
-    elif isinstance(errors, list):
+    elif curr_engine == "sqlserver":
+        from . import sqlserver_pomes
+        result = sqlserver_pomes.select(errors=op_errors,
+                                        sel_stmt=sel_stmt,
+                                        where_vals=where_vals,
+                                        min_count=min_count,
+                                        max_count=max_count,
+                                        require_count=require_count,
+                                        conn=connection,
+                                        committable=committable,
+                                        logger=logger)
+    # acknowledge local errors
+    if isinstance(errors, list):
         errors.extend(op_errors)
 
     return result
@@ -535,8 +531,7 @@ def db_insert(errors: list[str] | None,
                              connection=connection,
                              committable=committable,
                              logger=logger)
-
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -585,8 +580,7 @@ def db_update(errors: list[str] | None,
                              connection=connection,
                              committable=committable,
                              logger=logger)
-
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -625,8 +619,7 @@ def db_delete(errors: list[str] | None,
                              connection=connection,
                              committable=committable,
                              logger=logger)
-
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -667,13 +660,12 @@ def db_bulk_insert(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(op_errors, engine)
-
-    # make sure statement has the correct bind tags
+    curr_engine: str = _assert_engine(errors=op_errors,
+                                      engine=engine)
+    # establish the correct bind tags
     if insert_vals and DB_BIND_META_TAG in insert_stmt:
         insert_stmt = db_bind_stmt(stmt=insert_stmt,
                                    engine=curr_engine)
-
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":
@@ -700,8 +692,7 @@ def db_bulk_insert(errors: list[str] | None,
                                               conn=connection,
                                               committable=committable,
                                               logger=logger)
-
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -746,9 +737,9 @@ def db_bulk_update(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(op_errors, engine)
-
-    # make sure statement has the correct bind tags
+    curr_engine: str = _assert_engine(errors=op_errors,
+                                      engine=engine)
+    # establish the correct bind tags
     if update_vals and DB_BIND_META_TAG in update_stmt:
         update_stmt = db_bind_stmt(stmt=update_stmt,
                                    engine=curr_engine)
@@ -779,8 +770,7 @@ def db_bulk_update(errors: list[str] | None,
                                               conn=connection,
                                               committable=committable,
                                               logger=logger)
-
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -818,8 +808,8 @@ def db_update_lob(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(op_errors, engine)
-
+    curr_engine: str = _assert_engine(errors=op_errors,
+                                      engine=engine)
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":
@@ -858,8 +848,7 @@ def db_update_lob(errors: list[str] | None,
                                    conn=connection,
                                    committable=committable,
                                    logger=logger)
-
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -898,13 +887,12 @@ def db_execute(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(op_errors, engine)
-
-    # make sure statement has the correct bind tags
+    curr_engine: str = _assert_engine(errors=op_errors,
+                                      engine=engine)
+    # establish the correct bind tags
     if bind_vals and DB_BIND_META_TAG in exc_stmt:
         exc_stmt = db_bind_stmt(stmt=exc_stmt,
                                 engine=curr_engine)
-
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":
@@ -931,8 +919,7 @@ def db_execute(errors: list[str] | None,
                                          conn=connection,
                                          committable=committable,
                                          logger=logger)
-
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -967,8 +954,8 @@ def db_call_function(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(op_errors, engine)
-
+    curr_engine: str = _assert_engine(errors=op_errors,
+                                      engine=engine)
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":
@@ -995,8 +982,7 @@ def db_call_function(errors: list[str] | None,
                                                 conn=connection,
                                                 committable=committable,
                                                 logger=logger)
-
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -1031,8 +1017,8 @@ def db_call_procedure(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(op_errors, engine)
-
+    curr_engine: str = _assert_engine(errors=op_errors,
+                                      engine=engine)
     if curr_engine == "mysql":
         pass
     elif curr_engine == "oracle":
@@ -1059,8 +1045,7 @@ def db_call_procedure(errors: list[str] | None,
                                                 conn=connection,
                                                 committable=committable,
                                                 logger=logger)
-
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
