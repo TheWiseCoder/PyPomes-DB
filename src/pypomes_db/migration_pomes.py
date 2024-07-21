@@ -581,9 +581,6 @@ def db_stream_lobs(errors: list[str] | None,
                      stmt=(f"Streamed {lob_count} LOBs, "
                            f"from {engine}.{table}.{lob_column}"))
 
-        # signal that streaming is finished
-        yield None
-
         # close the cursors and commit the transactions
         source_cursor.close()
         if committable or not connection:

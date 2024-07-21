@@ -72,7 +72,8 @@ def db_get_engines() -> list[str]:
 
     :return: the list of configured engines
     """
-    return _DB_ENGINES
+    # SANITY-CHECK: return a cloned 'list'
+    return _DB_ENGINES.copy()
 
 
 def db_get_param(key: Literal["name", "user", "pwd", "host", "port", "client", "driver"],
