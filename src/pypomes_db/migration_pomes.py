@@ -480,12 +480,12 @@ def db_migrate_lobs(errors: list[str] | None,
     return result
 
 def db_stream_lobs(errors: list[str] | None,
-                   source_engine: str,
-                   source_table: str,
-                   source_lob_column: str,
-                   source_pk_columns: list[str],
-                   source_conn: Any = None,
-                   source_committable: bool = True,
+                   table: str,
+                   lob_column: str,
+                   pk_columns: list[str],
+                   engine: str,
+                   connection: Any = None,
+                   committable: bool = True,
                    where_clause: tuple = None,
                    chunk_size: int = None,
                    logger: Logger = None) -> None:
@@ -497,12 +497,12 @@ def db_stream_lobs(errors: list[str] | None,
     row identifier, must exist on *source_table*, and be provided in *source_pk_columns*.
 
     :param errors: incidental error messages
-    :param source_engine: the source database engine type
-    :param source_table: the table holding the LOBs
-    :param source_lob_column: the column holding the LOB
-    :param source_pk_columns: columns making up a primary key, or a unique identifier for a tuple, in source database
-    :param source_conn: the connection to the source database (obtains a new one, if not provided)
-    :param source_committable: whether to commit upon errorless completion ('False' needs 'source_conn' to be provided)
+    :param table: the table holding the LOBs
+    :param lob_column: the column holding the LOB
+    :param pk_columns: columns making up a primary key, or a unique identifier for a tuple, in database
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion ('False' needs 'connection' to be provided)
     :param where_clause: the criteria for tuple selection
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param logger: optional logger
@@ -511,32 +511,32 @@ def db_stream_lobs(errors: list[str] | None,
     op_errors: list[str] = []
 
     # make sure to have connections to the source and destination databases
-    curr_source_conn: Any = source_conn or db_connect(errors=op_errors,
-                                                      engine=source_engine,
-                                                      logger=logger)
+    curr_conn: Any = connection or db_connect(errors=op_errors,
+                                              engine=engine,
+                                              logger=logger)
     # normalize the chunk size
     if not chunk_size:
         chunk_size = -1
 
     # buid the SELECT query
-    source_pks: str = ", ".join(source_pk_columns)
-    sel_stmt: str = f"SELECT {source_pks}, {source_lob_column} FROM {source_table}"
+    source_pks: str = ", ".join(pk_columns)
+    sel_stmt: str = f"SELECT {source_pks}, {lob_column} FROM {table}"
     if where_clause:
         sel_stmt += f" WHERE {where_clause}"
-    lob_index: int = len(source_pk_columns)
+    lob_index: int = len(pk_columns)
 
     # log the migration start
     _log(logger=logger,
-         engine=source_engine,
+         engine=engine,
          stmt=(f"Started migrating LOBs, "
-               f"from {source_engine}.{source_table}.{source_lob_column}"))
+               f"from {engine}.{table}.{lob_column}"))
 
     # stream the LOBs
     log_step: int = 10000
     lob_count: int = 0
     err_msg: str | None = None
     try:
-        source_cursor: Any = curr_source_conn.cursor()
+        source_cursor: Any = curr_conn.cursor()
 
         # execute the query
         # (parameter is 'statement' for oracle, 'query' for postgres, 'sql' for sqlserver)
@@ -549,7 +549,7 @@ def db_stream_lobs(errors: list[str] | None,
             pk_vals: tuple = tuple([row[inx] for inx in range(lob_index)])
             identifier: dict[str, Any] = {}
             for inx, pk_val in enumerate(pk_vals):
-                identifier[source_pk_columns[inx]] = pk_val
+                identifier[pk_columns[inx]] = pk_val
             # send the row identifier
             yield identifier
 
@@ -577,35 +577,35 @@ def db_stream_lobs(errors: list[str] | None,
             # log partial result at each 'count_step' LOBs migrated
             if lob_count % log_step == 0:
                 _log(logger=logger,
-                     engine=source_engine,
+                     engine=engine,
                      stmt=(f"Streamed {lob_count} LOBs, "
-                           f"from {source_engine}.{source_table}.{source_lob_column}"))
+                           f"from {engine}.{table}.{lob_column}"))
 
         # signal that streaming is finished
         yield None
 
         # close the cursors and commit the transactions
         source_cursor.close()
-        if source_committable or not source_conn:
-            curr_source_conn.commit()
+        if committable or not connection:
+            curr_conn.commit()
     except Exception as e:
         # rollback the transactions
-        if curr_source_conn:
-            curr_source_conn.rollback()
+        if curr_conn:
+            curr_conn.rollback()
         err_msg = _except_msg(exception=e,
-                              engine=source_engine)
+                              engine=engine)
     finally:
         # close the connections, if locally acquired
-        if curr_source_conn and not source_conn:
-            curr_source_conn.close()
+        if curr_conn and not connection:
+            curr_conn.close()
 
     # log the stream finish
     _log(logger=logger,
-         engine=source_engine,
+         engine=engine,
          err_msg=err_msg,
          errors=op_errors,
          stmt=(f"Migrated {lob_count} LOBs, "
-                  f"from {source_engine}.{source_table}.{source_lob_column}"))
+               f"from {engine}.{table}.{lob_column}"))
 
     # acknowledge local errors
     if isinstance(errors, list):

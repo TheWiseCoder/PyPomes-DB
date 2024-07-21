@@ -21,9 +21,9 @@ def db_setup(engine: Literal["mysql", "oracle", "postgres", "sqlserver"],
     Establish the provided parameters for access to *engine*.
 
     The meaning of some parameters may vary between different database engines.
-    All parameters, with the exception of *db_client* and *db_driver*, are required.
-    *db_client* may be provided for *oracle*, but is otherwise ignored.
-    *db_driver* is required for *sqlserver*, but is otherwise ignored.
+    All parameters, are required, with these exceptions:
+        - *db_client* may be provided for *oracle*, only
+        - *db_driver* is required for *sqlserver*, only
 
     :param engine: the database engine (one of ['mysql', 'oracle', 'postgres', 'sqlserver'])
     :param db_name: the database or service name
@@ -75,7 +75,6 @@ def db_get_engines() -> list[str]:
     return _DB_ENGINES
 
 
-
 def db_get_param(key: Literal["name", "user", "pwd", "host", "port", "client", "driver"],
                  engine: str = None) -> str:
     """
@@ -94,13 +93,14 @@ def db_get_param(key: Literal["name", "user", "pwd", "host", "port", "client", "
 
     return _get_param(curr_engine, key)
 
-def db_get_params(engine: str = None) -> dict:
+
+def db_get_params(engine: str = None) -> dict[str: Any]:
     """
     Return the connection parameters as a *dict*.
 
     The returned *dict* contains the keys *name*, *user*, *pwd*, *host*, and *port*.
     For *oracle* engines, the returned *dict* contains the extra key *client*.
-    For *sqlserver* engines, the  returned *dict* contains the extra key *driver*.
+    For *sqlserver* engines, the returned *dict* contains the extra key *driver*.
     The meaning of these parameters may vary between different database engines.
     Note that the value of the *pwd* parameter is not returned.
 
