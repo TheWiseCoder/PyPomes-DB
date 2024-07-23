@@ -9,16 +9,19 @@ def db_get_tables(errors: list[str] | None,
                   schema: str = None,
                   engine: str = None,
                   connection: Any = None,
-                  committable: bool = True,
+                  committable: bool = None,
                   logger: Logger = None) -> list[str]:
     """
     Retrieve and return the list of schema-qualified tables in the database.
+
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
 
     :param errors: incidental error messages
     :param schema: optional name of the schema to restrict the search to
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the schema-qualified table names found, or 'None' if an error ocurred
     """
@@ -67,18 +70,21 @@ def db_table_exists(errors: list[str] | None,
                     table_name: str,
                     engine: str = None,
                     connection: Any = None,
-                    committable: bool = True,
+                    committable: bool = None,
                     logger: Logger = None) -> bool:
     """
     Determine whether the table *table_name* exists in the database.
 
     If *table_name* is schema-qualified, then the search will be restricted to that schema.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param table_name: the, possibly schema-qualified, name of the table to look for
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: 'True' if the table was found, 'False' otherwise, or 'None' if an error ocurred
     """
@@ -136,7 +142,7 @@ def db_drop_table(errors: list[str] | None,
                   table_name: str,
                   engine: str = None,
                   connection: Any = None,
-                  committable: bool = True,
+                  committable: bool = None,
                   logger: Logger = None) -> None:
     """
     Drop the table given by the, possibly schema-qualified, *table_name*.
@@ -145,11 +151,14 @@ def db_drop_table(errors: list[str] | None,
     and what their use would entail, depends on the response of the *engine* to the
     mixing of *DDL* and *DML* statements in a transaction.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param table_name: the, possibly schema-qualified, name of the table to drop
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     """
     # initialize the local errors list
@@ -204,7 +213,7 @@ def db_get_table_ddl(errors: list[str] | None,
                      table_name: str,
                      engine: str = None,
                      connection: Any = None,
-                     committable: bool = True,
+                     committable: bool = None,
                      logger: Logger = None) -> str:
     """
     Retrieve and return the DDL script used to create the table *table_name*.
@@ -213,11 +222,14 @@ def db_get_table_ddl(errors: list[str] | None,
     For *postgres* databases, make sure that the function *pg_get_tabledef* is installed and accessible.
     This function is freely available at https://github.com/MichaelDBA/pg_get_tabledef.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param table_name: the schema-qualified name of the table
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the DDL script used to create the index, or 'None' if the index does not exist, or an error ocurred
     """

@@ -12,7 +12,7 @@ def db_get_indexes(errors: list[str] | None,
                    tables: list[str] = None,
                    engine: str = None,
                    connection: Any = None,
-                   committable: bool = True,
+                   committable: bool = None,
                    logger: Logger = None) -> list[str]:
     """
     Retrieve and return the list of schema-qualified indexes in the database.
@@ -22,13 +22,16 @@ def db_get_indexes(errors: list[str] | None,
     If *omit_pks* is set to 'True' (its default value),
     indexes created on primary key columns will not be included.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param schema: optional name of the schema to restrict the search to
     :param omit_pks: omit indexes on primary key columns (defaults to 'True')
     :param tables: optional list of possibly schema-qualified tables whose columns the indexes were created on
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the list of schema-qualified indexes in the database
     """
@@ -140,18 +143,21 @@ def db_get_index_ddl(errors: list[str] | None,
                      index_name: str,
                      engine: str = None,
                      connection: Any = None,
-                     committable: bool = True,
+                     committable: bool = None,
                      logger: Logger = None) -> str:
     """
     Retrieve and return the DDL script used to create the index *index_name*.
 
     Note that *index_name* must be schema-qualified, or else the invocation will fail.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param index_name: the schema-qualified name of the index
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the DDL script used to create the index, or 'None' if the index does not exist, or an error ocurred
     """

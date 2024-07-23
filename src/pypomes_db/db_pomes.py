@@ -317,7 +317,7 @@ def db_count(errors: list[str] | None,
              where_data: dict[str, Any] = None,
              engine: str = None,
              connection: Any = None,
-             committable: bool = True,
+             committable: bool = None,
              logger: Logger = None) -> int:
     """
     Obtain and return the number of tuples in *table* meeting the criteria defined in *where_data*.
@@ -326,12 +326,15 @@ def db_count(errors: list[str] | None,
     If more than one, the attributes are concatenated by the *AND* logical connector.
     The targer database engine, specified or default, must have been previously configured.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param table: the table to be searched
     :param where_data: the search criteria
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: 'True' if at least one tuple was found, 'False' otherwise, 'None' if an error ocurred
     """
@@ -366,7 +369,7 @@ def db_exists(errors: list[str] | None,
               where_data: dict[str, Any] = None,
               engine: str = None,
               connection: Any = None,
-              committable: bool = True,
+              committable: bool = None,
               logger: Logger = None) -> bool:
     """
     Determine whether at least one tuple in *table* meets the criteria defined in *where_data*.
@@ -375,12 +378,15 @@ def db_exists(errors: list[str] | None,
     If more than one, the attributes are concatenated by the *AND* logical connector.
     The targer database engine, specified or default, must have been previously configured.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param table: the table to be searched
     :param where_data: the search criteria
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: 'True' if at least one tuple was found, 'False' otherwise, 'None' if an error ocurred
     """
@@ -421,7 +427,7 @@ def db_select(errors: list[str] | None,
               require_count: int = None,
               engine: str = None,
               connection: Any = None,
-              committable: bool = True,
+              committable: bool = None,
               logger: Logger = None) -> list[tuple]:
     """
     Search the database and return all tuples that satisfy the *sel_stmt* search command.
@@ -433,6 +439,9 @@ def db_select(errors: list[str] | None,
     returned by the query. If the search is empty, an empty list is returned.
     The target database engine, specified or default, must have been previously configured.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the search criteria
@@ -441,7 +450,7 @@ def db_select(errors: list[str] | None,
     :param require_count: number of touples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: list of tuples containing the search result, '[]' if the search was empty, or 'None' if there was an error
     """
@@ -506,19 +515,22 @@ def db_insert(errors: list[str] | None,
               insert_vals: tuple,
               engine: str = None,
               connection: Any = None,
-              committable: bool = True,
+              committable: bool = None,
               logger: Logger = None) -> int:
     """
     Insert a tuple, with values defined in *insert_vals*, into the database.
 
     The target database engine, specified or default, must have been previously configured.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param insert_stmt: the INSERT command
     :param insert_vals: the values to be inserted
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the number of inserted tuples (0 ou 1), or 'None' if an error occurred
     """
@@ -545,7 +557,7 @@ def db_update(errors: list[str] | None,
               where_vals: tuple = None,
               engine: str = None,
               connection: Any = None,
-              committable: bool = True,
+              committable: bool = None,
               logger: Logger = None) -> int:
     """
     Update one or more tuples in the database, as defined by the command *update_stmt*.
@@ -554,13 +566,16 @@ def db_update(errors: list[str] | None,
     The values for selecting the tuples to be updated are in *where_vals*.
     The target database engine, specified or default, must have been previously configured.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param update_stmt: the UPDATE command
     :param update_vals: the values for the update operation
     :param where_vals: the values to be associated with the search criteria
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the number of updated tuples, or 'None' if an error occurred
     """
@@ -593,7 +608,7 @@ def db_delete(errors: list[str] | None,
               where_vals: tuple = None,
               engine: str = None,
               connection: Any = None,
-              committable: bool = True,
+              committable: bool = None,
               logger: Logger = None) -> int:
     """
     Delete one or more tuples in the database, as defined by the *delete_stmt* command.
@@ -601,12 +616,15 @@ def db_delete(errors: list[str] | None,
     The values for selecting the tuples to be deleted are in *where_vals*.
     The target database engine, specified or default, must have been previously configured.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param delete_stmt: the DELETE command
     :param where_vals: the values to be associated with the search criteria
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the number of deleted tuples, or 'None' if an error occurred
     """
@@ -632,7 +650,7 @@ def db_bulk_insert(errors: list[str] | None,
                    insert_vals: list[tuple],
                    engine: str = None,
                    connection: Any = None,
-                   committable: bool = True,
+                   committable: bool = None,
                    logger: Logger = None) -> int:
     """
     Insert the tuples, with values defined in *insert_vals*, into the database.
@@ -645,12 +663,15 @@ def db_bulk_insert(errors: list[str] | None,
     placeholders are '%VARn%, ':n', and '?', respectively, and 'n' is the 1-based position of the
     data in the tuple. In the specific case of *postgres*, the *VALUES* clause must be simply *VALUES %s*.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param insert_stmt: the INSERT command
     :param insert_vals: the list of values to be inserted
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the number of inserted tuples (1 for postgres), or 'None' if an error occurred
     """
@@ -705,7 +726,7 @@ def db_bulk_update(errors: list[str] | None,
                    update_vals: list[tuple],
                    engine: str = None,
                    connection: Any = None,
-                   committable: bool = True,
+                   committable: bool = None,
                    logger: Logger = None) -> int:
     """
     Insert the tuples, with values defined in *insert_vals*, into the database.
@@ -722,12 +743,15 @@ def db_bulk_update(errors: list[str] | None,
     *VALUES %s*, and it is used in both *INSERT* and *UPDATE* operations. In the latter case,
     there is also a *FROM* clause to go along with it.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param update_stmt: the UPDATE command
     :param update_vals: the list of values to update the database with, and to locate the tuple
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the number of updated tuples, or 'None' if an error occurred
     """
@@ -787,10 +811,13 @@ def db_update_lob(errors: list[str] | None,
                   chunk_size: int,
                   engine: str = None,
                   connection: Any = None,
-                  committable: bool = True,
+                  committable: bool = None,
                   logger: Logger = None) -> None:
     """
     Update a large binary objects (LOB) in the given table and column.
+
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
 
     :param errors: incidental error messages
     :param lob_table: the table to be update with the new LOB
@@ -801,7 +828,7 @@ def db_update_lob(errors: list[str] | None,
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: number of LOBs effectively copied, or 'None' if an error occurred
     """
@@ -859,7 +886,7 @@ def db_execute(errors: list[str] | None,
                bind_vals: tuple = None,
                engine: str = None,
                connection: Any = None,
-               committable: bool = True,
+               committable: bool = None,
                logger: Logger = None) -> int:
     """
     Execute the command *exc_stmt* on the database.
@@ -872,12 +899,15 @@ def db_execute(errors: list[str] | None,
     It might be the number of inserted, modified, or deleted tuples,
     ou None if an error occurred.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the return value from the command execution, or 'None' if an error occurred
     """
@@ -932,19 +962,22 @@ def db_call_function(errors: list[str] | None,
                      func_vals: tuple = None,
                      engine: str = None,
                      connection: Any = None,
-                     committable: bool = True,
+                     committable: bool = None,
                      logger: Logger = None) -> list[tuple]:
     """
     Execute the stored function *func_name* in the database, with the parameters given in *func_vals*.
 
     The target database engine, specified or default, must have been previously configured.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param func_name: name of the stored function
     :param func_vals: parameters for the stored function
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the data returned by the function, or 'None' if an error occurred
     """
@@ -995,19 +1028,22 @@ def db_call_procedure(errors: list[str] | None,
                       proc_vals: tuple = None,
                       engine: str = None,
                       connection: Any = None,
-                      committable: bool = True,
+                      committable: bool = None,
                       logger: Logger = None) -> list[tuple]:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 
     The target database engine, specified or default, must have been previously configured.
 
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param proc_name: name of the stored procedure
     :param proc_vals: parameters for the stored procedure
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'connection' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the data returned by the procedure, or 'None' if an error occurred
     """

@@ -85,6 +85,9 @@ def select(errors: list[str] | None,
     returned by the query. If the search is empty, an empty list is returned.
     If the search is empty, an empty list is returned.
 
+    The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the search criteria
@@ -92,7 +95,7 @@ def select(errors: list[str] | None,
     :param max_count: optionally defines the maximum number of tuples to be returned
     :param require_count: number of touples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: list of tuples containing the search result, '[]' if the search was empty, or 'None' if there was an error
     """
@@ -177,11 +180,14 @@ def execute(errors: list[str] | None,
     It might be the number of inserted, modified, or deleted tuples,
     ou None if an error occurred.
 
+    The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the return value from the command execution
     """
@@ -242,11 +248,14 @@ def bulk_execute(errors: list[str] | None,
     Note that, in *UPDATE* operations, the placeholders in the *WHERE* clause will follow
     the ones in the *SET* clause.
 
+    The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param exc_stmt: the command to update the database with
     :param exc_vals: the list of values for tuple identification, and to update the database with
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the number of inserted or updated tuples, or None if an error occurred
     """
@@ -303,6 +312,9 @@ def update_lob(errors: list[str],
     """
     Update a large binary objects (LOB) in the given table and column.
 
+    The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
     :param errors: incidental error messages
     :param lob_table: the table to be update with the new LOB
     :param lob_column: the column to be updated with the new LOB
@@ -311,7 +323,7 @@ def update_lob(errors: list[str],
     :param lob_file: file holding the LOB (a file object or a valid path)
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     """
     # make sure to have a connection
@@ -375,12 +387,15 @@ def call_procedure(errors: list[str] | None,
                    logger: Logger | None) -> list[tuple]:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
+    
+    The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
 
     :param errors: incidental error messages
     :param proc_name: name of the stored procedure
     :param proc_vals: parameters for the stored procedure
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion ('False' requires 'conn' to be provided)
+    :param committable: whether to commit upon errorless completion
     :param logger: optional logger
     :return: the data returned by the procedure
     """
