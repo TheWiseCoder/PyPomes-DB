@@ -81,8 +81,7 @@ def select(errors: list[str] | None,
 
     The command can optionally contain search criteria, with respective values given in *where_vals*.
     If not positive integers, *min_count*, *max_count*, and *require_count" are ignored.
-    If *require_count* is specified, then exactly that number of touples must be
-    returned by the query. If the search is empty, an empty list is returned.
+    If *require_count* is specified, then exactly that number of tuples must be returned by the query.
     If the search is empty, an empty list is returned.
 
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
@@ -93,7 +92,7 @@ def select(errors: list[str] | None,
     :param where_vals: the values to be associated with the search criteria
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
-    :param require_count: number of touples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
+    :param require_count: number of tuples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
     :param logger: optional logger

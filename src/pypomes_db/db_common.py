@@ -104,7 +104,7 @@ def _assert_query_quota(errors: list[str],
     :param count: the number of tuples returned
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
-    :param require_count: number of touples that must exactly satisfy the query
+    :param require_count: number of tuples that must exactly satisfy the query
     :return: whether or not the number of tuples returned is compliant
     """
     # initialize the control message variable
@@ -316,6 +316,58 @@ def _bind_marks(engine: str,
             result = ",".join(["?" for _inx in range(start, finish)])
 
     return result
+
+
+def _combine_search_criteria(stmt: str,
+                             where_vals: tuple,
+                             where_data: dict[str, Any],
+                             engine: str) -> tuple[str, tuple]:
+    """
+    Rebuild the query statement *stmt* and the list of bind values *where_vals* by adding to them
+    the search criteria specified by the key-value pairs in *where_data*.
+
+    :param stmt: the query statement to add to
+    :param where_vals: the bind values list to add to
+    :param where_data: the search criteria specified as key-value pairs
+    :return: the modified query statement and bind values list
+    """
+    if where_vals:
+        where_vals = list(where_vals)
+        stmt = stmt.replace("WHERE ", "WHERE (") + ")"
+        for key, value in where_data.items():
+            if isinstance(value, list | tuple):
+                if engine == "postgres":
+                    where_vals.append(value)
+                    stmt += f" AND {key} IN {DB_BIND_META_TAG}"
+                else:
+                    where_vals.extend(value)
+                    stmt += f" AND {key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
+                    stmt = f"{stmt[:-2]})"
+            else:
+                where_vals.append(value)
+                stmt += f" AND {key} = {DB_BIND_META_TAG}"
+    else:
+        if "WHERE" in stmt:
+            stmt = stmt.replace("WHERE ", "WHERE (") + ") AND "
+        else:
+            stmt += " WHERE "
+        where_vals = []
+        for key, value in where_data.items():
+            if isinstance(value, list | tuple):
+                if engine == "postgres":
+                    where_vals.append(value)
+                    stmt += f"{key} IN {DB_BIND_META_TAG} AND "
+                else:
+                    where_vals.extend(value)
+                    stmt += f"{key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
+                    stmt = f"{stmt[:-2]}) AND "
+            else:
+                where_vals.append(value)
+                stmt += f"{key} = {DB_BIND_META_TAG} AND "
+        stmt = stmt[:-5]
+    where_vals = tuple(where_vals)
+
+    return stmt, where_vals
 
 
 def _remove_nulls(row: Iterable) -> list[Any]:

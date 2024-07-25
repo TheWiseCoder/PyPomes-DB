@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from .db_common import (
     DB_BIND_META_TAG, _DB_ENGINES, _DB_CONN_DATA,
-    _assert_engine, _get_param
+    _assert_engine, _get_param, _combine_search_criteria
 )
 
 
@@ -331,7 +331,7 @@ def db_count(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param table: the table to be searched
-    :param where_data: the search criteria
+    :param where_data: the search criteria specified as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -344,15 +344,11 @@ def db_count(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # noinspection PyDataSource
-    sel_stmt: str = "SELECT COUNT(*) FROM " + table
-    if where_data:
-        sel_stmt += " WHERE " + "".join(f"{attr} = {DB_BIND_META_TAG} AND "
-                    for attr in where_data.keys())[0:-5]
+    sel_stmt: str = f"SELECT COUNT(*) FROM {table}"
     recs: list[tuple[int]] = db_select(errors=op_errors,
                                        sel_stmt=sel_stmt,
-                                       where_vals=tuple(where_data.values()),
-                                       engine = engine,
+                                       where_data=where_data,
+                                       engine=engine,
                                        connection=connection,
                                        committable=committable,
                                        logger=logger)
@@ -383,7 +379,7 @@ def db_exists(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param table: the table to be searched
-    :param where_data: the search criteria
+    :param where_data: the search criteria specified as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -397,15 +393,10 @@ def db_exists(errors: list[str] | None,
     op_errors: list[str] = []
 
     # noinspection PyDataSource
-    sel_stmt: str = "SELECT * FROM " + table
-    where_vals: tuple | None = None
-    if where_data:
-        sel_stmt += " WHERE " + "".join(f"{attr} = {DB_BIND_META_TAG} AND "
-                    for attr in where_data.keys())[0:-5]
-        where_vals = tuple(where_data.values())
+    sel_stmt: str = f"SELECT * FROM {table}"
     recs: list[tuple] = db_select(errors=op_errors,
                                   sel_stmt=sel_stmt,
-                                  where_vals=where_vals,
+                                  where_data=where_data,
                                   max_count=1,
                                   engine = engine,
                                   connection=connection,
@@ -422,6 +413,7 @@ def db_exists(errors: list[str] | None,
 def db_select(errors: list[str] | None,
               sel_stmt: str,
               where_vals: tuple = None,
+              where_data: dict[str, Any] = None,
               min_count: int = None,
               max_count: int = None,
               require_count: int = None,
@@ -432,10 +424,11 @@ def db_select(errors: list[str] | None,
     """
     Search the database and return all tuples that satisfy the *sel_stmt* search command.
 
-    The command can optionally contain search criteria, with respective values given in *where_vals*.
+    The command can optionally contain search criteria, with respective values given in *where_vals*,
+    or specified additionally by key-value pairs in *where_data*.
     For PostgreSQL, the list of values for an attribute with the *IN* clause must be contained in a
     specific tuple. If not positive integers, *min_count*, *max_count*, and *require_count" are ignored.
-    If *require_count* is specified, then exactly that number of touples must be
+    If *require_count* is specified, then exactly that number of tuples must be
     returned by the query. If the search is empty, an empty list is returned.
     The target database engine, specified or default, must have been previously configured.
 
@@ -445,9 +438,10 @@ def db_select(errors: list[str] | None,
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the search criteria
+    :param where_data: search criteria specified as key-value pairs
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
-    :param require_count: number of touples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
+    :param require_count: number of tuples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -463,6 +457,13 @@ def db_select(errors: list[str] | None,
     # determine the database engine
     curr_engine: str = _assert_engine(errors=op_errors,
                                       engine=engine)
+
+    # process search criteria provided as key-value pairs
+    if where_data:
+        sel_stmt, where_vals = _combine_search_criteria(stmt=sel_stmt,
+                                                        where_vals=where_vals,
+                                                        where_data=where_data,
+                                                        engine=curr_engine)
     # establish the correct bind tags
     if where_vals and DB_BIND_META_TAG in sel_stmt:
         sel_stmt = db_bind_stmt(stmt=sel_stmt,
@@ -555,6 +556,7 @@ def db_update(errors: list[str] | None,
               update_stmt: str,
               update_vals: tuple = None,
               where_vals: tuple = None,
+              where_data: dict[str, Any] = None,
               engine: str = None,
               connection: Any = None,
               committable: bool = None,
@@ -563,7 +565,8 @@ def db_update(errors: list[str] | None,
     Update one or more tuples in the database, as defined by the command *update_stmt*.
 
     The values for this update are in *update_vals*.
-    The values for selecting the tuples to be updated are in *where_vals*.
+    The values for selecting the tuples to be updated are in *where_vals*, or specified additionally
+    by key-value pairs in *where_data*.
     The target database engine, specified or default, must have been previously configured.
 
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
@@ -573,6 +576,7 @@ def db_update(errors: list[str] | None,
     :param update_stmt: the UPDATE command
     :param update_vals: the values for the update operation
     :param where_vals: the values to be associated with the search criteria
+    :param where_data: search criteria as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -589,6 +593,15 @@ def db_update(errors: list[str] | None,
         bind_vals = update_vals
     elif where_vals:
         bind_vals = where_vals
+
+    # process search criteria provided as key-value pairs
+    if where_data:
+        curr_engine: str = _assert_engine(errors=[],
+                                          engine=engine)
+        update__stmt, bind_vals = _combine_search_criteria(stmt=update_stmt,
+                                                           where_vals=bind_vals,
+                                                           where_data=where_data,
+                                                           engine=curr_engine)
     result: int = db_execute(errors=op_errors,
                              exc_stmt=update_stmt,
                              bind_vals=bind_vals,
@@ -606,6 +619,7 @@ def db_update(errors: list[str] | None,
 def db_delete(errors: list[str] | None,
               delete_stmt: str,
               where_vals: tuple = None,
+              where_data: dict[str, Any] = None,
               engine: str = None,
               connection: Any = None,
               committable: bool = None,
@@ -613,7 +627,8 @@ def db_delete(errors: list[str] | None,
     """
     Delete one or more tuples in the database, as defined by the *delete_stmt* command.
 
-    The values for selecting the tuples to be deleted are in *where_vals*.
+    The values for selecting the tuples to be deleted are in *where_vals*, or specified additionally
+    by key-value pairs in *where_data*.
     The target database engine, specified or default, must have been previously configured.
 
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
@@ -622,6 +637,7 @@ def db_delete(errors: list[str] | None,
     :param errors: incidental error messages
     :param delete_stmt: the DELETE command
     :param where_vals: the values to be associated with the search criteria
+    :param where_data: search criteria as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -631,6 +647,14 @@ def db_delete(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
+    # process search criteria provided as key-value pairs
+    if where_data:
+        curr_engine: str = _assert_engine(errors=[],
+                                          engine=engine)
+        delete_stmt, where_vals = _combine_search_criteria(stmt=delete_stmt,
+                                                           where_vals=where_vals,
+                                                           where_data=where_data,
+                                                           engine=curr_engine)
     result: int = db_execute(errors=op_errors,
                              exc_stmt=delete_stmt,
                              bind_vals=where_vals,
