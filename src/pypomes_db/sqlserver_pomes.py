@@ -386,7 +386,7 @@ def call_procedure(errors: list[str] | None,
                    logger: Logger | None) -> list[tuple]:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
-    
+
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 

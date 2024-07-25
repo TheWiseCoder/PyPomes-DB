@@ -498,7 +498,10 @@ def db_stream_lobs(errors: list[str] | None,
                    chunk_size: int = None,
                    logger: Logger = None) -> None:
     """
-    A *generator* function to stream data in large binary objects (LOBs) from a database.
+    Stream data in large binary objects (LOBs) from a database.
+
+    This is accomplished with the implementation of the *generator* pattern, whereby an *iterator*
+    is returned, allowing the invoker to iterate over the values being streamed.
 
     The origin database must be in the list of databases configured and
     supported by this package. One or more columns making up a primary key, or a unique

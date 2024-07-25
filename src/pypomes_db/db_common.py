@@ -323,17 +323,29 @@ def _combine_search_criteria(stmt: str,
                              where_data: dict[str, Any],
                              engine: str) -> tuple[str, tuple]:
     """
-    Rebuild the query statement *stmt* and the list of bind values *where_vals* by adding to them
-    the search criteria specified by the key-value pairs in *where_data*.
+    Rebuild the query statement *stmt* and the list of bind values *where_vals*.
+
+    This is done by adding to them the search criteria specified by the key-value pairs in *where_data*.
 
     :param stmt: the query statement to add to
     :param where_vals: the bind values list to add to
     :param where_data: the search criteria specified as key-value pairs
     :return: the modified query statement and bind values list
     """
+    # use 'WHERE' as found in 'stmt'
+    pos: int = f"{stmt.lower()} where ".index(" where ")
+    where: str = f"{stmt} WHERE "[pos+1:pos+6]
+
+    # extract 'ORDER BY' clause
+    order_by: str | None = None
+    if " order by " in stmt.lower():
+        pos = stmt.lower().index("order by")
+        order_by = stmt[pos:]
+        stmt = stmt[:pos]
+
     if where_vals:
         where_vals = list(where_vals)
-        stmt = stmt.replace("WHERE ", "WHERE (") + ")"
+        stmt = stmt.replace(f"{where} ", f"{where} (") + ")"
         for key, value in where_data.items():
             if isinstance(value, list | tuple):
                 if engine == "postgres":
@@ -347,10 +359,10 @@ def _combine_search_criteria(stmt: str,
                 where_vals.append(value)
                 stmt += f" AND {key} = {DB_BIND_META_TAG}"
     else:
-        if "WHERE" in stmt:
-            stmt = stmt.replace("WHERE ", "WHERE (") + ") AND "
+        if where in stmt:
+            stmt = stmt.replace(f"{where} ", f"{where} (") + ") AND "
         else:
-            stmt += " WHERE "
+            stmt += f" {where} "
         where_vals = []
         for key, value in where_data.items():
             if isinstance(value, list | tuple):
@@ -366,6 +378,10 @@ def _combine_search_criteria(stmt: str,
                 stmt += f"{key} = {DB_BIND_META_TAG} AND "
         stmt = stmt[:-5]
     where_vals = tuple(where_vals)
+
+    # put back 'ORDER BY' clause
+    if order_by:
+        stmt = f"{stmt} {order_by}"
 
     return stmt, where_vals
 
