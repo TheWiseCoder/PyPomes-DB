@@ -2,6 +2,7 @@ import oracledb
 from logging import Logger
 from oracledb import Connection, init_oracle_client, makedsn
 from pathlib import Path
+from typing import BinaryIO
 
 from .db_common import (
     _DB_CONN_DATA,
@@ -83,7 +84,6 @@ def select(errors: list[str] | None,
     If *require_count* is specified, then exactly that number of tuples must be
     returned by the query. If the search is empty, an empty list is returned.
     If the search is empty, an empty list is returned.
-
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -180,7 +180,6 @@ def execute(errors: list[str] | None,
     The value returned is the value obtained from the execution of *exc_stmt*.
     It might be the number of inserted, modified, or deleted tuples,
     ou None if an error occurred.
-
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -246,7 +245,6 @@ def bulk_execute(errors: list[str] | None,
     *execute_vals*, where 'n' is the 1-based position of the data in the tuple.
     Note that, in *UPDATE* operations, the placeholders in the *WHERE* clause will follow
     the ones in the *SET* clause.
-
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -303,14 +301,16 @@ def update_lob(errors: list[str],
                lob_column: str,
                pk_columns: list[str],
                pk_vals: tuple,
-               lob_file: str | Path,
+               lob_data: bytes | str | Path | BinaryIO,
                chunk_size: int,
                conn: Connection | None,
                committable: bool | None,
                logger: Logger | None) -> None:
     """
-    Update a large binary objects (LOB) in the given table and column.
+    Update a large binary object (LOB) in the given table and column.
 
+    The data for the update may come from *bytes*, from a *Path* or its string representation,
+    or from a pointer obtained from *BytesIO* or *Path.open()* in binary mode.
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -319,7 +319,7 @@ def update_lob(errors: list[str],
     :param lob_column: the column to be updated with the new LOB
     :param pk_columns: columns making up a primary key, or a unique identifier for the tuple
     :param pk_vals: values with which to locate the tuple to be updated
-    :param lob_file: file holding the LOB (a file object or a valid path)
+    :param lob_data: the LOB data (bytes, a file path, or a file pointer)
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -329,8 +329,8 @@ def update_lob(errors: list[str],
     curr_conn: Connection = conn or connect(errors=errors,
                                             autocommit=False,
                                             logger=logger)
-    # make sure to have a data file
-    data_file: Path = Path(lob_file) if isinstance(lob_file, str) else lob_file
+    if isinstance(lob_data, str):
+        lob_data = Path(lob_data)
 
     # normalize the chunk size
     if not chunk_size:
@@ -349,14 +349,26 @@ def update_lob(errors: list[str],
         # obtain a cursor and execute the operation
         with curr_conn.cursor() as cursor:
 
-            # retrieve the lob data from file in chunks and write to the file
-            lob_data : bytes
-            with data_file.open("rb") as file:
-                lob_data = file.read(chunk_size)
-                while lob_data:
+            # retrieve the lob data and write to the database
+            if isinstance(lob_data, bytes):
+                cursor.execute(statement=update_stmt,
+                               parameters=(lob_data, *pk_vals))
+            elif isinstance(lob_data, Path):
+                data_bytes: bytes
+                with lob_data.open("rb") as file:
+                    data_bytes = file.read(chunk_size)
+                    while data_bytes:
+                        cursor.execute(statement=update_stmt,
+                                       parameters=(data_bytes, *pk_vals))
+                        data_bytes = file.read(chunk_size)
+            else:
+                data_bytes: bytes = lob_data.read(chunk_size)
+                while data_bytes:
                     cursor.execute(statement=update_stmt,
-                                   parameters=(lob_data, *pk_vals))
-                    lob_data = file.read(chunk_size)
+                                   parameters=(data_bytes, *pk_vals))
+                    data_bytes = lob_data.read(chunk_size)
+                lob_data.close()
+
 
         # commit the transaction, if appropriate
         if committable or not conn:

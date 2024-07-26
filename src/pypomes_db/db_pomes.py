@@ -1,11 +1,12 @@
 from logging import Logger
 from pathlib import Path
 from pypomes_core import str_sanitize
-from typing import Any, Literal
+from typing import Any, Literal, BinaryIO
 
 from .db_common import (
     DB_BIND_META_TAG, _DB_ENGINES, _DB_CONN_DATA,
-    _assert_engine, _get_param, _combine_search_criteria
+    _assert_engine, _get_param,
+    _combine_update_data, _combine_search_data
 )
 
 
@@ -325,7 +326,6 @@ def db_count(errors: list[str] | None,
     The attributes and corresponding values for the query's WHERE clause are held in *where_data*.
     If more than one, the attributes are concatenated by the *AND* logical connector.
     The targer database engine, specified or default, must have been previously configured.
-
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -373,7 +373,6 @@ def db_exists(errors: list[str] | None,
     The attributes and corresponding values for the query's WHERE clause are held in *where_data*.
     If more than one, the attributes are concatenated by the *AND* logical connector.
     The targer database engine, specified or default, must have been previously configured.
-
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -431,7 +430,6 @@ def db_select(errors: list[str] | None,
     If *require_count* is specified, then exactly that number of tuples must be
     returned by the query. If the search is empty, an empty list is returned.
     The target database engine, specified or default, must have been previously configured.
-
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -458,12 +456,12 @@ def db_select(errors: list[str] | None,
     curr_engine: str = _assert_engine(errors=op_errors,
                                       engine=engine)
 
-    # process search criteria provided as key-value pairs
+    # process search data provided as key-value pairs
     if where_data:
-        sel_stmt, where_vals = _combine_search_criteria(stmt=sel_stmt,
-                                                        where_vals=where_vals,
-                                                        where_data=where_data,
-                                                        engine=curr_engine)
+        sel_stmt, where_vals = _combine_search_data(query_stmt=sel_stmt,
+                                                    where_vals=where_vals,
+                                                    where_data=where_data,
+                                                    engine=curr_engine)
     # establish the correct bind tags
     if where_vals and DB_BIND_META_TAG in sel_stmt:
         sel_stmt = db_bind_stmt(stmt=sel_stmt,
@@ -522,7 +520,6 @@ def db_insert(errors: list[str] | None,
     Insert a tuple, with values defined in *insert_vals*, into the database.
 
     The target database engine, specified or default, must have been previously configured.
-
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -565,11 +562,10 @@ def db_update(errors: list[str] | None,
     """
     Update one or more tuples in the database, as defined by the command *update_stmt*.
 
-    The values for this update are in *update_vals*.
-    The values for selecting the tuples to be updated are in *where_vals*, or specified additionally
-    by key-value pairs in *where_data*.
-    The target database engine, specified or default, must have been previously configured.
-
+    The values for this update are in *update_vals*, and/or specified by key-value pairs in *update_data*.
+    The values for selecting the tuples to be updated are in *where_vals*, and/ar specified
+    by key-value pairs in *where_data*. The target database engine, specified or default,
+    must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -590,38 +586,17 @@ def db_update(errors: list[str] | None,
 
     # process update data provided as key-value pairs
     if update_data:
-        # extract 'WHERE' clause
-        where_clause: str | None = None
-        if " where " in update_stmt.lower():
-            pos = update_stmt.lower().index(" where ")
-            where_clause = update_stmt[pos+1:]
-            update_stmt = update_stmt[:pos]
-
-        # account for existence of 'SET' keyword
-        if " set " in update_stmt.lower():
-            update_stmt += ", "
-        else:
-            update_stmt += " SET "
-
-        # add the key-value pairs
-        update_stmt += f" = {DB_BIND_META_TAG}, ".join(update_data.keys()) + f" = {DB_BIND_META_TAG}"
-        if update_vals:
-            update_vals += tuple(update_data.values())
-        else:
-            update_vals = tuple(update_data.values())
-
-        # put back 'WHERE' clause
-        if where_clause:
-            update_stmt = f"{update_stmt} {where_clause}"
-
-    # process search criteria provided as key-value pairs
+        update_stmt, update_vals = _combine_update_data(update_stmt=update_stmt,
+                                                        update_vals=update_vals,
+                                                        update_data=update_data)
+    # process search data provided as key-value pairs
     if where_data:
         curr_engine: str = _assert_engine(errors=[],
                                           engine=engine)
-        update_stmt, where_vals = _combine_search_criteria(stmt=update_stmt,
-                                                           where_vals=where_vals,
-                                                           where_data=where_data,
-                                                           engine=curr_engine)
+        update_stmt, where_vals = _combine_search_data(query_stmt=update_stmt,
+                                                       where_vals=where_vals,
+                                                       where_data=where_data,
+                                                       engine=curr_engine)
     # combine 'update' and 'where' bind values
     bind_vals: tuple | None = None
     if update_vals and where_vals:
@@ -659,7 +634,6 @@ def db_delete(errors: list[str] | None,
     The values for selecting the tuples to be deleted are in *where_vals*, or specified additionally
     by key-value pairs in *where_data*.
     The target database engine, specified or default, must have been previously configured.
-
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -676,14 +650,14 @@ def db_delete(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # process search criteria provided as key-value pairs
+    # process search data provided as key-value pairs
     if where_data:
         curr_engine: str = _assert_engine(errors=[],
                                           engine=engine)
-        delete_stmt, where_vals = _combine_search_criteria(stmt=delete_stmt,
-                                                           where_vals=where_vals,
-                                                           where_data=where_data,
-                                                           engine=curr_engine)
+        delete_stmt, where_vals = _combine_search_data(query_stmt=delete_stmt,
+                                                       where_vals=where_vals,
+                                                       where_data=where_data,
+                                                       engine=curr_engine)
     result: int = db_execute(errors=op_errors,
                              exc_stmt=delete_stmt,
                              bind_vals=where_vals,
@@ -708,14 +682,12 @@ def db_bulk_insert(errors: list[str] | None,
     """
     Insert the tuples, with values defined in *insert_vals*, into the database.
 
-    The target database engine, specified or default, must have been previously configured.
-
     The binding is done by position. Thus, the *VALUES* clause in *insert_stmt* must contain
     as many placeholders as there are elements in the tuples found in the list provided in
     *insert_vals*. This is applicable for *mysql*, *oracle*, and *sqlserver*, where the
     placeholders are '%VARn%, ':n', and '?', respectively, and 'n' is the 1-based position of the
     data in the tuple. In the specific case of *postgres*, the *VALUES* clause must be simply *VALUES %s*.
-
+    The target database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -782,26 +754,23 @@ def db_bulk_update(errors: list[str] | None,
                    committable: bool = None,
                    logger: Logger = None) -> int:
     """
-    Insert the tuples, with values defined in *insert_vals*, into the database.
-
-    The target database engine, specified or default, must have been previously configured.
+    Update the tuples, with values defined in *update_vals*, in the database.
 
     The binding is done by position. Thus, the binding clauses in *update_stmt* must contain as many
     placeholders as there are elements in the tuples found in the list provided in *update_vals*.
     This is applicable for *mysql*, *oracle*, and *sqlserver*, where the placeholders are
-    '%VARn%, ':n', and '?', respectively, and 'n' is the 1-based position of the data in the tuple.
+    '%', ':n', and '?', respectively, and 'n' is the 1-based position of the data in the tuple.
     Note that the placeholders in the *WHERE* clause will follow the ones in the *SET* clause.
-
     In the specific case of *postgres*, a unique syntax applies. The *VALUES* clause must be simply
     *VALUES %s*, and it is used in both *INSERT* and *UPDATE* operations. In the latter case,
     there is also a *FROM* clause to go along with it.
-
+    The target database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
     :param errors: incidental error messages
     :param update_stmt: the UPDATE command
-    :param update_vals: the list of values to update the database with, and to locate the tuple
+    :param update_vals: the list of values to update the database with
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -860,15 +829,18 @@ def db_update_lob(errors: list[str] | None,
                   lob_column: str,
                   pk_columns: list[str],
                   pk_vals: tuple,
-                  lob_file: str | Path,
+                  lob_data: bytes | str | Path | BinaryIO,
                   chunk_size: int,
                   engine: str = None,
                   connection: Any = None,
                   committable: bool = None,
                   logger: Logger = None) -> None:
     """
-    Update a large binary objects (LOB) in the given table and column.
+    Update a large binary object (LOB) in the given table and column.
 
+    The data for the update may come from *bytes*, from a *Path* or its string representation,
+    or from a pointer obtained from *BytesIO* or *Path.open()* in binary mode.
+    The target database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -877,7 +849,7 @@ def db_update_lob(errors: list[str] | None,
     :param lob_column: the column to be updated with the new LOB
     :param pk_columns: columns making up a primary key, or a unique identifier for the tuple
     :param pk_vals: values with which to locate the tuple to be updated
-    :param lob_file: file holding the LOB (a file object or a valid path)
+    :param lob_data: the LOB data (bytes, a file path, or a file pointer)
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
@@ -900,7 +872,7 @@ def db_update_lob(errors: list[str] | None,
                                 lob_column=lob_column,
                                 pk_columns=pk_columns,
                                 pk_vals=pk_vals,
-                                lob_file=lob_file,
+                                lob_data=lob_data,
                                 chunk_size=chunk_size,
                                 conn=connection,
                                 committable=committable,
@@ -912,7 +884,7 @@ def db_update_lob(errors: list[str] | None,
                                   lob_column=lob_column,
                                   pk_columns=pk_columns,
                                   pk_vals=pk_vals,
-                                  lob_file=lob_file,
+                                  lob_data=lob_data,
                                   chunk_size=chunk_size,
                                   conn=connection,
                                   committable=committable,
@@ -924,7 +896,7 @@ def db_update_lob(errors: list[str] | None,
                                    lob_column=lob_column,
                                    pk_columns=pk_columns,
                                    pk_vals=pk_vals,
-                                   lob_file=lob_file,
+                                   lob_data=lob_data,
                                    chunk_size=chunk_size,
                                    conn=connection,
                                    committable=committable,
@@ -948,6 +920,7 @@ def db_execute(errors: list[str] | None,
     inserting, updating or deleting tuples, or it might be a DDL statement,
     or it might even be an environment-related command.
     The optional bind values for this operation are in *bind_vals*.
+    The target database engine, specified or default, must have been previously configured.
     The value returned is the value obtained from the execution of *exc_stmt*.
     It might be the number of inserted, modified, or deleted tuples,
     ou None if an error occurred.
@@ -1021,7 +994,6 @@ def db_call_function(errors: list[str] | None,
     Execute the stored function *func_name* in the database, with the parameters given in *func_vals*.
 
     The target database engine, specified or default, must have been previously configured.
-
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -1087,7 +1059,6 @@ def db_call_procedure(errors: list[str] | None,
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 
     The target database engine, specified or default, must have been previously configured.
-
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 

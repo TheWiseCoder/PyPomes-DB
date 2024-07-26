@@ -318,72 +318,113 @@ def _bind_marks(engine: str,
     return result
 
 
-def _combine_search_criteria(stmt: str,
-                             where_vals: tuple,
-                             where_data: dict[str, Any],
-                             engine: str) -> tuple[str, tuple]:
+def _combine_search_data(query_stmt: str,
+                         where_vals: tuple,
+                         where_data: dict[str, Any],
+                         engine: str) -> tuple[str, tuple]:
     """
     Rebuild the query statement *stmt* and the list of bind values *where_vals*.
 
     This is done by adding to them the search criteria specified by the key-value pairs in *where_data*.
 
-    :param stmt: the query statement to add to
+    :param query_stmt: the query statement to add to
     :param where_vals: the bind values list to add to
     :param where_data: the search criteria specified as key-value pairs
+    :param engine: the reference database engine
     :return: the modified query statement and bind values list
     """
     # use 'WHERE' as found in 'stmt'
-    pos: int = f"{stmt.lower()} where ".index(" where ")
-    where: str = f"{stmt} WHERE "[pos+1:pos+6]
+    pos: int = f"{query_stmt.lower()} where ".index(" where ")
+    where: str = f"{query_stmt} WHERE "[pos + 1:pos + 6]
 
     # extract 'ORDER BY' clause
     order_by: str | None = None
-    if " order by " in stmt.lower():
-        pos = stmt.lower().index(" order by ")
-        order_by = stmt[pos+1:]
-        stmt = stmt[:pos]
+    if " order by " in query_stmt.lower():
+        pos = query_stmt.lower().index(" order by ")
+        order_by = query_stmt[pos+1:]
+        query_stmt = query_stmt[:pos]
 
     if where_vals:
         where_vals = list(where_vals)
-        stmt = stmt.replace(f"{where} ", f"{where} (") + ")"
+        query_stmt = query_stmt.replace(f"{where} ", f"{where} (") + ")"
         for key, value in where_data.items():
             if isinstance(value, list | tuple):
                 if engine == "postgres":
                     where_vals.append(value)
-                    stmt += f" AND {key} IN {DB_BIND_META_TAG}"
+                    query_stmt += f" AND {key} IN {DB_BIND_META_TAG}"
                 else:
                     where_vals.extend(value)
-                    stmt += f" AND {key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
-                    stmt = f"{stmt[:-2]})"
+                    query_stmt += f" AND {key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
+                    query_stmt = f"{query_stmt[:-2]})"
             else:
                 where_vals.append(value)
-                stmt += f" AND {key} = {DB_BIND_META_TAG}"
+                query_stmt += f" AND {key} = {DB_BIND_META_TAG}"
     else:
-        if where in stmt:
-            stmt = stmt.replace(f"{where} ", f"{where} (") + ") AND "
+        if where in query_stmt:
+            query_stmt = query_stmt.replace(f"{where} ", f"{where} (") + ") AND "
         else:
-            stmt += f" {where} "
+            query_stmt += f" {where} "
         where_vals = []
         for key, value in where_data.items():
             if isinstance(value, list | tuple):
                 if engine == "postgres":
                     where_vals.append(value)
-                    stmt += f"{key} IN {DB_BIND_META_TAG} AND "
+                    query_stmt += f"{key} IN {DB_BIND_META_TAG} AND "
                 else:
                     where_vals.extend(value)
-                    stmt += f"{key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
-                    stmt = f"{stmt[:-2]}) AND "
+                    query_stmt += f"{key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
+                    query_stmt = f"{query_stmt[:-2]}) AND "
             else:
                 where_vals.append(value)
-                stmt += f"{key} = {DB_BIND_META_TAG} AND "
-        stmt = stmt[:-5]
+                query_stmt += f"{key} = {DB_BIND_META_TAG} AND "
+        query_stmt = query_stmt[:-5]
     where_vals = tuple(where_vals)
 
     # put back 'ORDER BY' clause
     if order_by:
-        stmt = f"{stmt} {order_by}"
+        query_stmt = f"{query_stmt} {order_by}"
 
-    return stmt, where_vals
+    return query_stmt, where_vals
+
+
+def _combine_update_data(update_stmt: str,
+                         update_vals: tuple,
+                         update_data: dict[str, Any]) -> tuple[str, tuple]:
+    """
+    Rebuild the update statement *update_stmt* and the list of bind values *update_vals*.
+
+    This is done by adding to them the data specified by the key-value pairs in *update_data*.
+
+    :param update_stmt: the update statement to add to
+    :param update_vals: the update values list to add to
+    :param update_data: the update data specified as key-value pairs
+    :return: the modified update statement and bind values list
+    """
+    # extract 'WHERE' clause
+    where_clause: str | None = None
+    if " where " in update_stmt.lower():
+        pos = update_stmt.lower().index(" where ")
+        where_clause = update_stmt[pos + 1:]
+        update_stmt = update_stmt[:pos]
+
+    # account for existence of 'SET' keyword
+    if " set " in update_stmt.lower():
+        update_stmt += ", "
+    else:
+        update_stmt += " SET "
+
+    # add the key-value pairs
+    update_stmt += f" = {DB_BIND_META_TAG}, ".join(update_data.keys()) + f" = {DB_BIND_META_TAG}"
+    if update_vals:
+        update_vals += tuple(update_data.values())
+    else:
+        update_vals = tuple(update_data.values())
+
+    # put back 'WHERE' clause
+    if where_clause:
+        update_stmt = f"{update_stmt} {where_clause}"
+
+    return update_stmt, update_vals
 
 
 def _remove_nulls(row: Iterable) -> list[Any]:
