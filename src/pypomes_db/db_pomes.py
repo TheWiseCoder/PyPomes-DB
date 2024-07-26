@@ -590,7 +590,7 @@ def db_update(errors: list[str] | None,
 
     # process update data provided as key-value pairs
     if update_data:
-        if " set " not in update_stmt.lower():
+        if " set " in update_stmt.lower():
             update_stmt += ","
         else:
             update_stmt += " SET"
