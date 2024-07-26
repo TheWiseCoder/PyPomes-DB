@@ -222,7 +222,6 @@ def db_migrate_data(errors: list[str] | None,
     if identity_column and not err_msg and \
        result > 0 and target_engine in ["postgres", "sqlserver"]:
         # obtain the maximum value inserted
-        # HAZARD: MAX() returns 'None' if table is empty or column has only nulls
         recs: list[tuple[int]] = db_select(errors=op_errors,
                                            sel_stmt=(f"SELECT MAX({identity_column}) "
                                                      f"FROM {target_table}"),
@@ -230,7 +229,7 @@ def db_migrate_data(errors: list[str] | None,
                                            connection=target_conn,
                                            committable=target_committable,
                                            logger=logger)
-        if not op_errors and recs[0][0]:
+        if not op_errors:
             # establish the commands to execute
             seq_value: int = recs[0][0]
             set_stmts: list[str] = []

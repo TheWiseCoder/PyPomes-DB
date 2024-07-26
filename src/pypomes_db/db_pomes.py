@@ -437,7 +437,7 @@ def db_select(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
-    :param where_vals: the values to be associated with the search criteria
+    :param where_vals: values to be associated with the search criteria
     :param where_data: search criteria specified as key-value pairs
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
@@ -555,6 +555,7 @@ def db_insert(errors: list[str] | None,
 def db_update(errors: list[str] | None,
               update_stmt: str,
               update_vals: tuple = None,
+              update_data: dict[str, Any] = None,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
               engine: str = None,
@@ -574,8 +575,9 @@ def db_update(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param update_stmt: the UPDATE command
-    :param update_vals: the values for the update operation
-    :param where_vals: the values to be associated with the search criteria
+    :param update_vals: values for the update operation
+    :param update_data: update data as key-value pairs
+    :param where_vals: values to be associated with the search criteria
     :param where_data: search criteria as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
@@ -585,6 +587,15 @@ def db_update(errors: list[str] | None,
     """
     # initialize the local errors list
     op_errors: list[str] = []
+
+    # process update data provided as key-value pairs
+    if update_data:
+        if " set " not in update_stmt.lower():
+            update_stmt += ","
+        else:
+            update_stmt += " SET"
+        update_stmt += f" {' = %?, '.join(update_data.keys())} = %?"
+        update_vals += tuple(update_data.values())
 
     bind_vals: tuple | None = None
     if update_vals and where_vals:
@@ -636,7 +647,7 @@ def db_delete(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param delete_stmt: the DELETE command
-    :param where_vals: the values to be associated with the search criteria
+    :param where_vals: values to be associated with the search criteria
     :param where_data: search criteria as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
