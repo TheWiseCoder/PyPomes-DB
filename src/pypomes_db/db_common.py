@@ -339,8 +339,8 @@ def _combine_search_criteria(stmt: str,
     # extract 'ORDER BY' clause
     order_by: str | None = None
     if " order by " in stmt.lower():
-        pos = stmt.lower().index("order by")
-        order_by = stmt[pos:]
+        pos = stmt.lower().index(" order by ")
+        order_by = stmt[pos+1:]
         stmt = stmt[:pos]
 
     if where_vals:

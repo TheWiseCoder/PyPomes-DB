@@ -590,13 +590,39 @@ def db_update(errors: list[str] | None,
 
     # process update data provided as key-value pairs
     if update_data:
-        if " set " in update_stmt.lower():
-            update_stmt += ","
-        else:
-            update_stmt += " SET"
-        update_stmt += f" {' = %?, '.join(update_data.keys())} = %?"
-        update_vals += tuple(update_data.values())
+        # extract 'WHERE' clause
+        where_clause: str | None = None
+        if " where " in update_stmt.lower():
+            pos = update_stmt.lower().index(" where ")
+            where_clause = update_stmt[pos+1:]
+            update_stmt = update_stmt[:pos]
 
+        # account for existence of 'SET' keyword
+        if " set " in update_stmt.lower():
+            update_stmt += ", "
+        else:
+            update_stmt += " SET "
+
+        # add the key-value pairs
+        update_stmt += f" = {DB_BIND_META_TAG}, ".join(update_data.keys()) + f" = {DB_BIND_META_TAG}"
+        if update_vals:
+            update_vals += tuple(update_data.values())
+        else:
+            update_vals = tuple(update_data.values())
+
+        # put back 'WHERE' clause
+        if where_clause:
+            update_stmt = f"{update_stmt} {where_clause}"
+
+    # process search criteria provided as key-value pairs
+    if where_data:
+        curr_engine: str = _assert_engine(errors=[],
+                                          engine=engine)
+        update_stmt, where_vals = _combine_search_criteria(stmt=update_stmt,
+                                                           where_vals=where_vals,
+                                                           where_data=where_data,
+                                                           engine=curr_engine)
+    # combine 'update' and 'where' bind values
     bind_vals: tuple | None = None
     if update_vals and where_vals:
         bind_vals = update_vals + where_vals
@@ -605,14 +631,6 @@ def db_update(errors: list[str] | None,
     elif where_vals:
         bind_vals = where_vals
 
-    # process search criteria provided as key-value pairs
-    if where_data:
-        curr_engine: str = _assert_engine(errors=[],
-                                          engine=engine)
-        update__stmt, bind_vals = _combine_search_criteria(stmt=update_stmt,
-                                                           where_vals=bind_vals,
-                                                           where_data=where_data,
-                                                           engine=curr_engine)
     result: int = db_execute(errors=op_errors,
                              exc_stmt=update_stmt,
                              bind_vals=bind_vals,
