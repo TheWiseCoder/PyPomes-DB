@@ -6,7 +6,7 @@ from typing import Any, Literal, BinaryIO
 from .db_common import (
     DB_BIND_META_TAG, _DB_ENGINES, _DB_CONN_DATA,
     _assert_engine, _get_param,
-    _combine_update_data, _combine_search_data
+    _combine_insert_data, _combine_update_data, _combine_search_data
 )
 
 
@@ -511,7 +511,8 @@ def db_select(errors: list[str] | None,
 
 def db_insert(errors: list[str] | None,
               insert_stmt: str,
-              insert_vals: tuple,
+              insert_vals: tuple = None,
+              insert_data: dict[str, Any] = None,
               engine: str = None,
               connection: Any = None,
               committable: bool = None,
@@ -525,7 +526,8 @@ def db_insert(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param insert_stmt: the INSERT command
-    :param insert_vals: the values to be inserted
+    :param insert_vals: values to be inserted
+    :param insert_data: data to be inserted as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -534,6 +536,12 @@ def db_insert(errors: list[str] | None,
     """
     # initialize the local errors list
     op_errors: list[str] = []
+
+    # process insert data provided as key-value pairs
+    if insert_data:
+        insert_stmt, insert_data = _combine_insert_data(insert_stmt=insert_stmt,
+                                                        insert_vals=insert_vals,
+                                                        insert_data=insert_data)
 
     result: int = db_execute(errors=op_errors,
                              exc_stmt=insert_stmt,

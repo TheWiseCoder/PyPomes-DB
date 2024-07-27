@@ -427,6 +427,37 @@ def _combine_update_data(update_stmt: str,
     return update_stmt, update_vals
 
 
+def _combine_insert_data(insert_stmt: str,
+                         insert_vals: tuple,
+                         insert_data: dict[str, Any]) -> tuple[str, tuple]:
+    """
+    Rebuild the insert statement *insert_stmt* and the list of bind values *insert_vals*.
+
+    This is done by adding to them the data specified by the key-value pairs in *update_data*.
+
+    :param insert_stmt: the insert statement to add to
+    :param insert_vals: the insert values list to add to
+    :param insert_data: the insert data specified as key-value pairs
+    :return: the modified insert statement and bind values list
+    """
+    # handle the 'VALUES' clause
+    if " values(" in insert_stmt.lower():
+        pos = insert_stmt.lower().index(" values(")
+        values_clause: str = insert_stmt[pos + 1:].rstrip()[:-1]
+        insert_stmt = insert_stmt[:pos].rstrip()[:-1]
+    else:
+        values_clause: str = "VALUES("
+        insert_stmt += " ("
+        insert_vals = ()
+
+    # add the key-value pairs
+    insert_stmt += (f"{', '.join(insert_data.keys())})" +
+                    values_clause + f"{DB_BIND_META_TAG}, " * len(insert_data))[:-2] + ")"
+    insert_vals += insert_vals + tuple(insert_data.values())
+
+    return insert_stmt, insert_vals
+
+
 def _remove_nulls(row: Iterable) -> list[Any]:
     """
     Remove all occurrences of *NULL* (char(0)) values from the elements in *row*.

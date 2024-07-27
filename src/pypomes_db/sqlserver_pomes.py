@@ -332,9 +332,6 @@ def update_lob(errors: list[str],
     if isinstance(lob_data, str):
         lob_data = Path(lob_data)
 
-    # make sure to have a data file
-    data_file: Path = Path(lob_data) if isinstance(lob_data, str) else lob_data
-
     # normalize the chunk size
     if not chunk_size:
         chunk_size = -1
@@ -352,8 +349,8 @@ def update_lob(errors: list[str],
 
             # retrieve the lob data and write to the database
             if isinstance(lob_data, bytes):
-                        cursor.execute(update_stmt,
-                                       (Binary(lob_data), *pk_vals))
+                cursor.execute(update_stmt,
+                               (Binary(lob_data), *pk_vals))
             elif isinstance(lob_data, Path):
                 data_bytes: bytes
                 with lob_data.open("rb") as file:
