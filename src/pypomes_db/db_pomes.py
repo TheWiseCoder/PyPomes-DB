@@ -539,10 +539,9 @@ def db_insert(errors: list[str] | None,
 
     # process insert data provided as key-value pairs
     if insert_data:
-        insert_stmt, insert_data = _combine_insert_data(insert_stmt=insert_stmt,
+        insert_stmt, insert_vals = _combine_insert_data(insert_stmt=insert_stmt,
                                                         insert_vals=insert_vals,
                                                         insert_data=insert_data)
-
     result: int = db_execute(errors=op_errors,
                              exc_stmt=insert_stmt,
                              bind_vals=insert_vals,
