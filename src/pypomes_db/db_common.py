@@ -344,6 +344,13 @@ def _combine_search_data(query_stmt: str,
         order_by = query_stmt[pos+1:]
         query_stmt = query_stmt[:pos]
 
+    # extract 'GROUP BY' clause
+    group_by: str | None = None
+    if " group by " in query_stmt.lower():
+        pos = query_stmt.lower().index(" group by ")
+        group_by = query_stmt[pos+1:]
+        query_stmt = query_stmt[:pos]
+
     if where_vals:
         where_vals = list(where_vals)
         query_stmt = query_stmt.replace(f"{where} ", f"{where} (") + ")"
@@ -379,6 +386,10 @@ def _combine_search_data(query_stmt: str,
                 query_stmt += f"{key} = {DB_BIND_META_TAG} AND "
         query_stmt = query_stmt[:-5]
     where_vals = tuple(where_vals)
+
+    # put back 'GROUP BY' clause
+    if group_by:
+        query_stmt = f"{query_stmt} {group_by}"
 
     # put back 'ORDER BY' clause
     if order_by:

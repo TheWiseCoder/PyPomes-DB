@@ -2,7 +2,7 @@ import pyodbc
 from logging import Logger
 from pyodbc import Binary, Connection, Row
 from pathlib import Path
-from typing import  BinaryIO
+from typing import BinaryIO
 
 from .db_common import (
     _assert_query_quota, _get_params, _log, _except_msg
