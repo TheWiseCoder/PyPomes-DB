@@ -1,4 +1,3 @@
-from collections.abc import Iterable
 from logging import DEBUG, Logger
 from pypomes_core import (
     APP_PREFIX,
@@ -469,31 +468,29 @@ def _combine_insert_data(insert_stmt: str,
     return insert_stmt, insert_vals
 
 
-def _remove_nulls(row: Iterable) -> list[Any]:
+def _remove_nulls(rows: list[tuple]) -> list[tuple]:
     """
-    Remove all occurrences of *NULL* (char(0)) values from the elements in *row*.
+    Remove all occurrences of *NULL* (char(0)) values from the rows in *rows*.
 
     :param row: the row to be cleaned
     :return: a row with cleaned data, or None if no cleaning was necessary
     """
     # initialize the return variable
-    result: list[Any] | None = None
+    result: list[tuple] = []
 
-    cleaned_row: list[Any] = []
-    was_cleaned: bool = False
-    for val in row:
-        # is 'val' a string containing NULLs ?
-        if isinstance(val, str) and val.count(chr(0)) > 0:
-            # yes, clean it up and mark the row as having been cleaned
-            clean_val: str = val.replace(chr(0), "")
-            was_cleaned = True
-        else:
-            clean_val: str = val
-        cleaned_row.append(clean_val)
+    # traverse the rows
+    for row in rows:
+        cleaned_row: list[Any] = []
 
-    # was the row cleaned ?
-    if was_cleaned:
-        # yes, return it
-        result =  cleaned_row
+        #traverse the values
+        for val in row:
+            # is 'val' a string containing NULLs ?
+            if isinstance(val, str) and val.count(chr(0)) > 0:
+                # yes, clean it up
+                cleaned_row.append(val.replace(chr(0), ""))
+            else:
+                # no, use it as is
+                cleaned_row.append(val)
+        result.append(tuple(cleaned_row))
 
     return result
