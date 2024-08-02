@@ -78,7 +78,7 @@ def db_get_engines() -> list[str]:
 
 
 def db_get_param(key: Literal["name", "user", "pwd", "host", "port", "client", "driver"],
-                 engine: str = None) -> str:
+                 engine: str = None) -> Any:
     """
     Return the connection parameter value for *key*.
 

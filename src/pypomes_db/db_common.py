@@ -143,7 +143,7 @@ def _assert_query_quota(errors: list[str],
 
 
 def _get_param(engine: str,
-               param: str) -> str:
+               param: str) -> Any:
     """
     Return the current value of *param* being used by *engine*.
 
