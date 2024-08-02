@@ -1,15 +1,14 @@
 import psycopg2
-from logging import WARNING, Logger
+from logging import Logger
 from pathlib import Path
 from psycopg2 import Binary
 from psycopg2.extras import execute_values
 # noinspection PyProtectedMember
 from psycopg2._psycopg import connection
-from typing import Any, BinaryIO
+from typing import BinaryIO
 
 from .db_common import (
-    _assert_query_quota, _get_params,
-    _log, _except_msg, _remove_nulls
+    _assert_query_quota, _get_params, _log, _except_msg
 )
 
 
@@ -272,33 +271,6 @@ def bulk_execute(errors: list[str],
         # commit the transaction, if appropriate
         if committable or not conn:
             curr_conn.commit()
-    except ValueError as e:
-        curr_conn.rollback()
-        # is the exception ValueError("A string literal cannot contain NUL (0x00) characters.") ?
-        if "contain NUL" in e.args[0]:
-            # yes, log the occurrence, remove the NULLs, and try again
-            _log(logger=logger,
-                 engine="postgres",
-                 level=WARNING,
-                 stmt=f"Found NULLs in values for {exc_stmt}")
-            # search for NULLs in input data
-            cleaned_rows: list[tuple[int, list]] = []
-            for inx, vals in enumerate(exc_vals):
-                cleaned_row: list[Any] = _remove_nulls(vals)
-                # has the row been cleaned ?
-                if cleaned_row:
-                    # yes, register it
-                    cleaned_rows.append((inx, cleaned_row))
-            # replace the cleaned rows
-            for cleaned_row in cleaned_rows:
-                exc_vals[cleaned_row[0]] = tuple(cleaned_row[1])
-            # bulk insert the cleaned data
-            bulk_execute(errors=errors,
-                         exc_stmt=exc_stmt,
-                         exc_vals=exc_vals,
-                         conn=conn,
-                         committable=committable,
-                         logger=logger)
     except Exception as e:
         if curr_conn:
             curr_conn.rollback()

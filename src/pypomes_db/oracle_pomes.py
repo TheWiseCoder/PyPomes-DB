@@ -502,9 +502,9 @@ def initialize(errors: list[str],
     global __is_initialized
     if not __is_initialized:
         err_msg: str | None = None
-        client: str = _DB_CONN_DATA["oracle"]["client"]
+        client: Path = _DB_CONN_DATA["oracle"]["client"]
         try:
-            init_oracle_client(client)
+            init_oracle_client(client.as_posix())
             __is_initialized = True
         except Exception as e:
             result = False

@@ -1,7 +1,8 @@
 from logging import DEBUG, Logger
 from pypomes_core import (
     APP_PREFIX,
-    env_get_int, env_get_str, str_sanitize, str_get_positional
+    env_get_int, env_get_str, env_get_path,
+    str_sanitize, str_get_positional
 )
 from typing import Any, Final
 
@@ -53,7 +54,7 @@ for engine in _DB_ENGINES:
         "port": env_get_int(key=f"{APP_PREFIX}_{_tag}_PORT")
     }
     if engine == "oracle":
-        _db_data["client"] = env_get_str(key=f"{APP_PREFIX}_{_tag}_CLIENT")
+        _db_data["client"] = env_get_path(key=f"{APP_PREFIX}_{_tag}_CLIENT")
     elif engine == "sqlserver":
         _db_data["driver"] = env_get_str(key=f"{APP_PREFIX}_{_tag}_DRIVER")
     _DB_CONN_DATA[engine] = _db_data
@@ -472,7 +473,7 @@ def _remove_nulls(rows: list[tuple]) -> list[tuple]:
     """
     Remove all occurrences of *NULL* (char(0)) values from the rows in *rows*.
 
-    :param row: the row to be cleaned
+    :param rows: the rows to be cleaned
     :return: a row with cleaned data, or None if no cleaning was necessary
     """
     # initialize the return variable

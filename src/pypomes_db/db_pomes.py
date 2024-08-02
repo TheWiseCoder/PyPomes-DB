@@ -16,7 +16,7 @@ def db_setup(engine: Literal["mysql", "oracle", "postgres", "sqlserver"],
              db_pwd: str,
              db_host: str,
              db_port: int,
-             db_client: str = None,
+             db_client: str | Path = None,
              db_driver: str = None) -> bool:
     """
     Establish the provided parameters for access to *engine*.
@@ -54,7 +54,7 @@ def db_setup(engine: Literal["mysql", "oracle", "postgres", "sqlserver"],
             "port": db_port
         }
         if engine == "oracle":
-            _DB_CONN_DATA[engine]["client"] = db_client
+            _DB_CONN_DATA[engine]["client"] = Path(db_client)
         elif engine == "sqlserver":
             _DB_CONN_DATA[engine]["driver"] = db_driver
         if engine not in _DB_ENGINES:
