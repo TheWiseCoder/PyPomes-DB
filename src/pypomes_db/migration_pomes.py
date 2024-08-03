@@ -120,6 +120,7 @@ def db_migrate_data(errors: list[str] | None,
     # errors ?
     if not op_errors:
         # no, migrate the data
+        log_step: int = 10000
         try:
             source_cursor: Any = curr_source_conn.cursor()
             target_cursor: Any = curr_target_conn.cursor()
@@ -128,10 +129,6 @@ def db_migrate_data(errors: list[str] | None,
 
             # execute the query
             source_cursor.execute(statement=sel_stmt)
-
-            # establish the conditions for logging
-            count_step: int = 100000
-            count_mark = count_step
 
             # fetch rows in batches/all rows
             rows: list[tuple]
@@ -161,8 +158,7 @@ def db_migrate_data(errors: list[str] | None,
                 result += len(rows)
 
                 # log partial result
-                if result >= count_mark:
-                    count_mark = result + count_step
+                if result % log_step == 0:
                     _log(logger=logger,
                          engine=source_engine,
                          stmt=(f"Migrated {result} tuples, "
@@ -420,7 +416,7 @@ def db_migrate_lobs(errors: list[str] | None,
             if has_data:
                 result += 1
 
-            # log partial result at each 'count_step' LOBs migrated
+            # log partial result at each 'log_step' LOBs migrated
             if result % log_step == 0:
                 _log(logger=logger,
                      engine=source_engine,
@@ -540,7 +536,7 @@ def db_stream_lobs(errors: list[str] | None,
             identifier: dict[str, Any] = {}
             for inx, pk_val in enumerate(pk_vals):
                 identifier[pk_columns[inx]] = pk_val
-            # send the row identifier
+            # send the LOB's metadata
             yield identifier
 
             # access the LOB's bytes in chunks and stream them
@@ -550,6 +546,7 @@ def db_stream_lobs(errors: list[str] | None,
             lob_data: bytes | str = lob.read(offset=offset,
                                              amount=chunk_size) if lob else None
             while lob_data:
+                # send a data chunk
                 yield lob_data
                 size: int = len(lob_data)
                 has_data = True
@@ -561,10 +558,10 @@ def db_stream_lobs(errors: list[str] | None,
                 # increment the LOB migration counter, if applicable
                 lob_count += 1
 
-            # signal that sending chunks for the current row is finished
+            # signal that sending data chunks for the current LOB is finished
             yield None
 
-            # log partial result at each 'count_step' LOBs migrated
+            # log partial result at each 'log_step' LOBs migrated
             if lob_count % log_step == 0:
                 _log(logger=logger,
                      engine=engine,

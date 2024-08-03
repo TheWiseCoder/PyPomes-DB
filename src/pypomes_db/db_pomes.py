@@ -96,7 +96,7 @@ def db_get_param(key: Literal["name", "user", "pwd", "host", "port", "client", "
     return _get_param(curr_engine, key)
 
 
-def db_get_params(engine: str = None) -> dict[str: Any]:
+def db_get_params(engine: str = None) -> dict[str, Any]:
     """
     Return the connection parameters as a *dict*.
 
