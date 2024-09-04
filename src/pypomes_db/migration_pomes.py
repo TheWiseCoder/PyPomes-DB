@@ -252,6 +252,7 @@ def db_migrate_lobs(errors: list[str] | None,
                     source_committable: bool = None,
                     target_committable: bool = None,
                     where_clause: tuple = None,
+                    accept_empty: bool = False,
                     chunk_size: int = None,
                     logger: Logger = None) -> int:
     """
@@ -280,6 +281,7 @@ def db_migrate_lobs(errors: list[str] | None,
     :param source_committable: whether to commit on *source_conn* upon errorless completion
     :param target_committable: whether to commit on *target_conn* upon errorless completion
     :param where_clause: the criteria for tuple selection
+    :param accept_empty: account for migrated LOB, even if empty
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param logger: optional logger
     :return: the number of LOBs effectively migrated
@@ -372,9 +374,9 @@ def db_migrate_lobs(errors: list[str] | None,
                                       parameters=(*pk_vals, lob_var))
                 ora_lob = lob_var.getValue()
 
-            # access the blob in chunks and write it to database
+            # access the LOB in chunks and write it to database
             offset: int = 1
-            has_data: bool = False
+            has_data: bool = accept_empty
             lob: Any = row[lob_index]
             lob_data: bytes | str = lob.read(offset=offset,
                                              amount=chunk_size) if lob else None
@@ -469,6 +471,7 @@ def db_stream_lobs(errors: list[str] | None,
                    connection: Any = None,
                    committable: bool = None,
                    where_clause: tuple = None,
+                   accept_empty: bool = False,
                    chunk_size: int = None,
                    logger: Logger = None) -> None:
     """
@@ -490,6 +493,7 @@ def db_stream_lobs(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
     :param where_clause: the criteria for tuple selection
+    :param accept_empty: account for migrated LOB, even if empty
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param logger: optional logger
     """
@@ -541,7 +545,7 @@ def db_stream_lobs(errors: list[str] | None,
 
             # access the LOB's bytes in chunks and stream them
             offset: int = 1
-            has_data: bool = False
+            has_data: bool = accept_empty
             lob: Any = row[lob_index]
             lob_data: bytes | str = lob.read(offset=offset,
                                              amount=chunk_size) if lob else None
