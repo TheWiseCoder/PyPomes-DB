@@ -81,7 +81,7 @@ def select(errors: list[str] | None,
     Search the database and return all tuples that satisfy the *sel_stmt* search command.
 
     The command can optionally contain search criteria, with respective values given in *where_vals*.
-    If not positive integers, *min_count*, *max_count*, and *require_count" are ignored.
+    If not positive integers, *min_count*, *max_count*, and *require_count* are ignored.
     If *require_count* is specified, then exactly that number of tuples must be returned by the query.
     If the search is empty, an empty list is returned.
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.

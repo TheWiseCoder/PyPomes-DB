@@ -264,8 +264,8 @@ def _bind_columns(engine: str,
     """
     Concatenate a list of column names bindings, appropriate for the engine sepcified.
 
-    The concatenation term *concat* is typically *" AND "*, if the bindings are aimed at a
-    *WHERE* clause, or *", "* otherwise.
+    The concatenation term *concat* is typically *AND*, if the bindings are aimed at a
+    *WHERE* clause, or *,* otherwise.
 
     :param engine: the reference database engine
     :param columns: the columns to concatenate

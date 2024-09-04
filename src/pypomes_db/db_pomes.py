@@ -82,7 +82,7 @@ def db_get_param(key: Literal["name", "user", "pwd", "host", "port", "client", "
     """
     Return the connection parameter value for *key*.
 
-    The connection key should be one of *name*, *user*, *pwd", *host*, and *port*.
+    The connection key should be one of *name*, *user*, *pwd*, *host*, and *port*.
     For *oracle* and *sqlserver* engines, the extra keys *client* and *driver*
     might be used, respectively.
 
@@ -426,7 +426,7 @@ def db_select(errors: list[str] | None,
     The command can optionally contain search criteria, with respective values given in *where_vals*,
     or specified additionally by key-value pairs in *where_data*.
     For PostgreSQL, the list of values for an attribute with the *IN* clause must be contained in a
-    specific tuple. If not positive integers, *min_count*, *max_count*, and *require_count" are ignored.
+    specific tuple. If not positive integers, *min_count*, *max_count*, and *require_count* are ignored.
     If *require_count* is specified, then exactly that number of tuples must be
     returned by the query. If the search is empty, an empty list is returned.
     The target database engine, specified or default, must have been previously configured.
