@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from .db_common import (
-    _assert_query_quota, _get_params, _log, _except_msg
+    _assert_query_quota, _build_query_msg, _get_params, _except_msg
 )
 
 
@@ -57,13 +57,12 @@ def connect(errors: list[str],
     except Exception as e:
         err_msg = _except_msg(exception=e,
                               engine="sqlserver")
-
-    # log the results
-    _log(logger=logger,
-         engine="sqlserver",
-         err_msg=err_msg,
-         errors=errors,
-         stmt=f"Connecting to '{name}' at '{host}'")
+    # log eventual errors
+    if err_msg:
+        if isinstance(errors, list):
+            errors.append(err_msg)
+        if logger:
+            logger.error(msg=f"Error connecting to '{name}' at '{host}'")
 
     return result
 
@@ -105,60 +104,60 @@ def select(errors: list[str] | None,
     curr_conn: Connection = conn or connect(errors=errors,
                                             autocommit=False,
                                             logger=logger)
-    # establish the right query cardinality
-    if isinstance(require_count, int) and require_count > 0:
-        min_count = require_count
-        max_count = require_count + 1
+    if curr_conn:
+        # establish the right query cardinality
+        if isinstance(require_count, int) and require_count > 0:
+            min_count = require_count
+            max_count = require_count + 1
 
-    err_msg: str | None = None
-    if isinstance(max_count, int) and max_count > 0:
-        sel_stmt: str = sel_stmt.replace("SELECT", f"SELECT TOP {max_count}", 1)
+        err_msg: str | None = None
+        if isinstance(max_count, int) and max_count > 0:
+            sel_stmt: str = sel_stmt.replace("SELECT", f"SELECT TOP {max_count}", 1)
 
-    try:
-        # obtain a cursor and execute the operation
-        with curr_conn.cursor() as cursor:
-            if where_vals:
-                cursor.execute(sel_stmt, where_vals)
-            else:
-                cursor.execute(sel_stmt)
-            rows: list[Row] = cursor.fetchall()
-            # obtain the number of tuples returned
-            count: int = len(rows)
+        try:
+            # obtain a cursor and execute the operation
+            with curr_conn.cursor() as cursor:
+                if where_vals:
+                    cursor.execute(sel_stmt, where_vals)
+                else:
+                    cursor.execute(sel_stmt)
+                rows: list[Row] = cursor.fetchall()
+                # obtain the number of tuples returned
+                count: int = len(rows)
 
-            # has the query quota been satisfied ?
-            if _assert_query_quota(errors=errors,
-                                   engine="sqlserver",
-                                   query=sel_stmt,
-                                   where_vals=where_vals,
-                                   count=count,
-                                   min_count=min_count,
-                                   max_count=max_count,
-                                   require_count=require_count):
-                # yes, retrieve the returned tuples
-                result = [tuple(row) for row in rows]
+                # has the query quota been satisfied ?
+                if _assert_query_quota(errors=errors,
+                                       engine="sqlserver",
+                                       query=sel_stmt,
+                                       where_vals=where_vals,
+                                       count=count,
+                                       min_count=min_count,
+                                       max_count=max_count,
+                                       require_count=require_count):
+                    # yes, retrieve the returned tuples
+                    result = [tuple(row) for row in rows]
 
-        # commit the transaction, if appropriate
-        if committable or not conn:
-            curr_conn.commit()
-    except Exception as e:
-        if curr_conn:
-            curr_conn.rollback()
-        err_msg = _except_msg(exception=e,
-                              engine="sqlserver")
-    finally:
-        # close the connection, if locally acquired
-        if curr_conn and not conn:
-            curr_conn.close()
+            # commit the transaction, if appropriate
+            if committable or not conn:
+                curr_conn.commit()
+        except Exception as e:
+            if curr_conn:
+                curr_conn.rollback()
+            err_msg = _except_msg(exception=e,
+                                  engine="sqlserver")
+        finally:
+            # close the connection, if locally acquired
+            if curr_conn and not conn:
+                curr_conn.close()
 
-    # log eventual errors
-    if errors or err_msg:
-        _log(logger=logger,
-             engine="sqlserver",
-             err_msg=err_msg,
-             errors=errors,
-             stmt=sel_stmt,
-             bind_vals=where_vals)
-
+        # log eventual errors
+        if err_msg:
+            if isinstance(errors, list):
+                errors.append(err_msg)
+            if logger:
+                logger.error(msg=_build_query_msg(query_stmt=sel_stmt,
+                                                  engine="sqlserver",
+                                                  bind_vals=where_vals))
     return result
 
 
@@ -196,39 +195,39 @@ def execute(errors: list[str] | None,
     curr_conn: Connection = conn or connect(errors=errors,
                                             autocommit=False,
                                             logger=logger)
-    err_msg: str | None = None
-    try:
-        # obtain a cursor and execute the operation
-        with curr_conn.cursor() as cursor:
-            # SQLServer understands 'None' value as an effective bind value
-            if bind_vals:
-                cursor.execute(exc_stmt, bind_vals)
-            else:
-                cursor.execute(exc_stmt)
-            result = cursor.rowcount
+    if curr_conn:
+        err_msg: str | None = None
+        try:
+            # obtain a cursor and execute the operation
+            with curr_conn.cursor() as cursor:
+                # SQLServer understands 'None' value as an effective bind value
+                if bind_vals:
+                    cursor.execute(exc_stmt, bind_vals)
+                else:
+                    cursor.execute(exc_stmt)
+                result = cursor.rowcount
 
-        # commit the transaction, if appropriate
-        if committable or not conn:
-            curr_conn.commit()
-    except Exception as e:
-        if curr_conn:
-            curr_conn.rollback()
-        err_msg = _except_msg(exception=e,
-                              engine="sqlserver")
-    finally:
-        # close the connection, if locally acquired
-        if curr_conn and not conn:
-            curr_conn.close()
+            # commit the transaction, if appropriate
+            if committable or not conn:
+                curr_conn.commit()
+        except Exception as e:
+            if curr_conn:
+                curr_conn.rollback()
+            err_msg = _except_msg(exception=e,
+                                  engine="sqlserver")
+        finally:
+            # close the connection, if locally acquired
+            if curr_conn and not conn:
+                curr_conn.close()
 
-    # log eventual errors
-    if errors or err_msg:
-        _log(logger=logger,
-             engine="sqlserver",
-             err_msg=err_msg,
-             errors=errors,
-             stmt=exc_stmt,
-             bind_vals=bind_vals)
-
+        # log eventual errors
+        if err_msg:
+            if isinstance(errors, list):
+                errors.append(err_msg)
+            if logger:
+                logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
+                                                  engine="sqlserver",
+                                                  bind_vals=bind_vals))
     return result
 
 
@@ -263,36 +262,36 @@ def bulk_execute(errors: list[str] | None,
     curr_conn: Connection = conn or connect(errors=errors,
                                             autocommit=False,
                                             logger=logger)
-    err_msg: str | None = None
-    try:
-        # obtain a cursor and perform the operation
-        with curr_conn.cursor() as cursor:
-            cursor.fast_executemany = True
-            cursor.executemany(exc_stmt, exc_vals)
-            result = len(exc_vals)
+    if curr_conn:
+        err_msg: str | None = None
+        try:
+            # obtain a cursor and perform the operation
+            with curr_conn.cursor() as cursor:
+                cursor.fast_executemany = True
+                cursor.executemany(exc_stmt, exc_vals)
+                result = len(exc_vals)
 
-        # commit the transaction, if appropriate
-        if committable or not conn:
-            curr_conn.commit()
-    except Exception as e:
-        if curr_conn:
-            curr_conn.rollback()
-        err_msg = _except_msg(exception=e,
-                              engine="sqlserver")
-    finally:
-        # close the connection, if locally acquired
-        if curr_conn and not conn:
-            curr_conn.close()
+            # commit the transaction, if appropriate
+            if committable or not conn:
+                curr_conn.commit()
+        except Exception as e:
+            if curr_conn:
+                curr_conn.rollback()
+            err_msg = _except_msg(exception=e,
+                                  engine="sqlserver")
+        finally:
+            # close the connection, if locally acquired
+            if curr_conn and not conn:
+                curr_conn.close()
 
-    # log eventual errors
-    if errors or err_msg:
-        _log(logger=logger,
-             engine="sqlserver",
-             err_msg=err_msg,
-             errors=errors,
-             stmt=exc_stmt,
-             bind_vals=exc_vals[0])
-
+        # log eventual errors
+        if err_msg:
+            if isinstance(errors, list):
+                errors.append(err_msg)
+            if logger:
+                logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
+                                                  engine="sqlserver",
+                                                  bind_vals=exc_vals[0]))
     return result
 
 
@@ -329,65 +328,66 @@ def update_lob(errors: list[str],
     curr_conn: Connection = conn or connect(errors=errors,
                                             autocommit=False,
                                             logger=logger)
-    if isinstance(lob_data, str):
-        lob_data = Path(lob_data)
+    if curr_conn:
+        if isinstance(lob_data, str):
+            lob_data = Path(lob_data)
 
-    # normalize the chunk size
-    if not chunk_size:
-        chunk_size = -1
+        # normalize the chunk size
+        if not chunk_size:
+            chunk_size = -1
 
-    # build the UPDATE query
-    where_clause: str = " AND ".join([f"{column} = ?" for column in pk_columns])
-    update_stmt: str = (f"UPDATE {lob_table} "
-                        f"SET {lob_column} = ? "
-                        f"WHERE {where_clause}")
+        # build the UPDATE query
+        where_clause: str = " AND ".join([f"{column} = ?" for column in pk_columns])
+        update_stmt: str = (f"UPDATE {lob_table} "
+                            f"SET {lob_column} = ? "
+                            f"WHERE {where_clause}")
 
-    err_msg: str | None = None
-    try:
-        # obtain a cursor and execute the operation
-        with curr_conn.cursor() as cursor:
+        err_msg: str | None = None
+        try:
+            # obtain a cursor and execute the operation
+            with curr_conn.cursor() as cursor:
 
-            # retrieve the lob data and write to the database
-            if isinstance(lob_data, bytes):
-                cursor.execute(update_stmt,
-                               (Binary(lob_data), *pk_vals))
-            elif isinstance(lob_data, Path):
-                data_bytes: bytes
-                with lob_data.open("rb") as file:
-                    data_bytes = file.read(chunk_size)
+                # retrieve the lob data and write to the database
+                if isinstance(lob_data, bytes):
+                    cursor.execute(update_stmt,
+                                   (Binary(lob_data), *pk_vals))
+                elif isinstance(lob_data, Path):
+                    data_bytes: bytes
+                    with lob_data.open("rb") as file:
+                        data_bytes = file.read(chunk_size)
+                        while data_bytes:
+                            cursor.execute(update_stmt,
+                                           (Binary(data_bytes), *pk_vals))
+                            data_bytes = file.read(chunk_size)
+                else:
+                    data_bytes: bytes = lob_data.read(chunk_size)
                     while data_bytes:
                         cursor.execute(update_stmt,
                                        (Binary(data_bytes), *pk_vals))
-                        data_bytes = file.read(chunk_size)
-            else:
-                data_bytes: bytes = lob_data.read(chunk_size)
-                while data_bytes:
-                    cursor.execute(update_stmt,
-                                   (Binary(data_bytes), *pk_vals))
-                    data_bytes = lob_data.read(chunk_size)
-                lob_data.close()
+                        data_bytes = lob_data.read(chunk_size)
+                    lob_data.close()
 
-        # commit the transaction, if appropriate
-        if committable or not conn:
-            curr_conn.commit()
-    except Exception as e:
-        if curr_conn:
-            curr_conn.rollback()
-        err_msg = _except_msg(exception=e,
-                              engine="sqlserver")
-    finally:
-        # close the connection, if locally acquired
-        if curr_conn and not conn:
-            curr_conn.close()
+            # commit the transaction, if appropriate
+            if committable or not conn:
+                curr_conn.commit()
+        except Exception as e:
+            if curr_conn:
+                curr_conn.rollback()
+            err_msg = _except_msg(exception=e,
+                                  engine="sqlserver")
+        finally:
+            # close the connection, if locally acquired
+            if curr_conn and not conn:
+                curr_conn.close()
 
-    # log eventual errors
-    if errors or err_msg:
-        _log(logger=logger,
-             engine="sqlserver",
-             err_msg=err_msg,
-             errors=errors,
-             stmt=update_stmt,
-             bind_vals=pk_vals)
+        # log eventual errors
+        if err_msg:
+            if isinstance(errors, list):
+                errors.append(err_msg)
+            if logger:
+                logger.error(msg=_build_query_msg(query_stmt=update_stmt,
+                                                  engine="sqlserver",
+                                                  bind_vals=pk_vals))
 
 
 def call_procedure(errors: list[str] | None,
@@ -417,40 +417,40 @@ def call_procedure(errors: list[str] | None,
     curr_conn: Connection = conn or connect(errors=errors,
                                             autocommit=False,
                                             logger=logger)
-    # build the command
-    proc_stmt: str | None = None
+    if curr_conn:
+        # build the command
+        proc_stmt: str | None = None
 
-    # execute the stored procedure
-    err_msg: str | None = None
-    try:
-        # obtain a cursor and execute the operation
-        with curr_conn.cursor() as cursor:
-            proc_stmt = f"SET NOCOUNT ON; EXEC {proc_name} {','.join(('?',) * len(proc_vals))}"
-            cursor.execute(proc_stmt, proc_vals)
-            # retrieve the returned tuples
-            rows: list[Row] = cursor.fetchall()
-            result = [tuple(row) for row in rows]
+        # execute the stored procedure
+        err_msg: str | None = None
+        try:
+            # obtain a cursor and execute the operation
+            with curr_conn.cursor() as cursor:
+                proc_stmt = f"SET NOCOUNT ON; EXEC {proc_name} {','.join(('?',) * len(proc_vals))}"
+                cursor.execute(proc_stmt, proc_vals)
+                # retrieve the returned tuples
+                rows: list[Row] = cursor.fetchall()
+                result = [tuple(row) for row in rows]
 
-        # commit the transaction, if appropriate
-        if committable or not conn:
-            curr_conn.commit()
-    except Exception as e:
-        if curr_conn:
-            curr_conn.rollback()
-        err_msg = _except_msg(exception=e,
-                              engine="sqlserver")
-    finally:
-        # close the connection, if locally acquired
-        if curr_conn and not conn:
-            curr_conn.close()
+            # commit the transaction, if appropriate
+            if committable or not conn:
+                curr_conn.commit()
+        except Exception as e:
+            if curr_conn:
+                curr_conn.rollback()
+            err_msg = _except_msg(exception=e,
+                                  engine="sqlserver")
+        finally:
+            # close the connection, if locally acquired
+            if curr_conn and not conn:
+                curr_conn.close()
 
-    # log eventual errors
-    if errors or err_msg:
-        _log(logger=logger,
-             engine="sqlserver",
-             err_msg=err_msg,
-             errors=errors,
-             stmt=proc_stmt,
-             bind_vals=proc_vals)
-
+        # log eventual errors
+        if err_msg:
+            if isinstance(errors, list):
+                errors.append(err_msg)
+            if logger:
+                logger.error(msg=_build_query_msg(query_stmt=proc_stmt,
+                                                  engine="sqlserver",
+                                                  bind_vals=proc_vals))
     return result

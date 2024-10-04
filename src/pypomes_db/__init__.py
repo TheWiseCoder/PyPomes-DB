@@ -4,16 +4,19 @@ from .db_common import (
 from .db_pomes import (
     db_setup, db_get_engines, db_get_param, db_get_params,
     db_get_connection_string, db_assert_connection,
-    db_connect, db_commit, db_rollback, db_count,
-    db_exists, db_select, db_insert, db_update, db_delete,
-    db_bulk_insert, db_bulk_update, db_update_lob,
-    db_execute, db_call_function, db_call_procedure
+    db_connect, db_commit, db_rollback, db_exists,
+    db_count, db_select, db_insert, db_update, db_delete,
+    db_bulk_insert, db_bulk_update, db_bulk_delete,
+    db_execute, db_update_lob, db_call_function, db_call_procedure
 )
 from .migration_pomes import (
     db_migrate_data, db_migrate_lobs, db_stream_lobs
 )
 from .index_pomes import (
     db_get_indexes, db_get_index_ddl
+)
+from .sync_pomes import (
+    db_sync_data
 )
 from .table_pomes import (
     db_get_tables, db_table_exists,
@@ -30,14 +33,16 @@ __all__ = [
     # db_pomes
     "db_setup", "db_get_engines", "db_get_param", "db_get_params",
     "db_get_connection_string", "db_assert_connection",
-    "db_connect", "db_commit", "db_rollback", "db_count",
-    "db_exists", "db_select", "db_insert", "db_update", "db_delete",
-    "db_bulk_insert", "db_bulk_update", "db_update_lob",
-    "db_execute", "db_call_function", "db_call_procedure",
+    "db_connect", "db_commit", "db_rollback", "db_exists",
+    "db_count", "db_select", "db_insert", "db_update", "db_delete",
+    "db_bulk_insert", "db_bulk_update", "db_bulk_delete",
+    "db_execute", "db_update_lob", "db_call_function", "db_call_procedure",
     # migration_pomes
     "db_migrate_data", "db_migrate_lobs", "db_stream_lobs",
     # index_pomes
     "db_get_indexes", "db_get_index_ddl",
+    # sync_pomes
+    "db_sync_data",
     # table_pomes
     "db_get_tables", "db_table_exists",
     "db_drop_table", "db_get_table_ddl",

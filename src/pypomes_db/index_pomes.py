@@ -1,5 +1,5 @@
 from logging import Logger
-from pypomes_core import str_get_positional
+from pypomes_core import str_positional
 from typing import Any
 
 from .db_pomes import db_select
@@ -47,13 +47,13 @@ def db_get_indexes(errors: list[str] | None,
     # proceed, if no errors
     if not op_errors:
         # process table names
-        tbl_name = str_get_positional(source=curr_engine,
-                                      list_origin=["oracle", "postgres", "sqlserver"],
-                                      list_dest=["table_name", "LOWER(t.relname)", "LOWER(t.name)"])
-        sch_name = str_get_positional(source=curr_engine,
-                                      list_origin=["oracle", "postgres", "sqlserver"],
-                                      list_dest=["aic.table_name",
-                                                 "LOWER(ns.nspname)", "SCHEMA_NAME(t.schema_id)"])
+        tbl_name = str_positional(source=curr_engine,
+                                  list_origin=["oracle", "postgres", "sqlserver"],
+                                  list_dest=["table_name", "LOWER(t.relname)", "LOWER(t.name)"])
+        sch_name = str_positional(source=curr_engine,
+                                  list_origin=["oracle", "postgres", "sqlserver"],
+                                  list_dest=["aic.table_name",
+                                             "LOWER(ns.nspname)", "SCHEMA_NAME(t.schema_id)"])
         in_tables: str = ""
         where_tables: str = ""
         for table in tables:

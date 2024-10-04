@@ -1,8 +1,7 @@
-from logging import DEBUG, Logger
 from pypomes_core import (
     APP_PREFIX,
     env_get_int, env_get_str, env_get_path,
-    str_sanitize, str_get_positional
+    str_sanitize, str_positional
 )
 from typing import Any, Final
 
@@ -43,9 +42,9 @@ for engine in _DB_ENGINES:
         _tag = "DB"
         _default_setup = False
     else:
-        _tag: str = str_get_positional(source=engine,
-                                       list_origin=["mysql", "oracle", "postgres", "sqlserver"],
-                                       list_dest=["MSQL", "ORCL", "PG", "SQLS"])
+        _tag: str = str_positional(source=engine,
+                                   list_origin=["mysql", "oracle", "postgres", "sqlserver"],
+                                   list_dest=["MSQL", "ORCL", "PG", "SQLS"])
     _db_data = {
         "name":  env_get_str(key=f"{APP_PREFIX}_{_tag}_NAME"),
         "user": env_get_str(key=f"{APP_PREFIX}_{_tag}_USER"),
@@ -196,36 +195,6 @@ def _except_msg(exception: Exception,
     name: str = _DB_CONN_DATA[engine].get("name")
     host: str = _DB_CONN_DATA[engine].get("host")
     return f"Error accessing '{name}' at '{host}': {str_sanitize(f'{exception}')}"
-
-
-def _log(logger: Logger,
-         engine: str,
-         err_msg: str = None,
-         level: int = DEBUG,
-         errors: list[str] = None,
-         stmt: str = None,
-         bind_vals: tuple = None) -> None:
-    """
-    Log *err_msg* and add it to *errors*, or else log the executed query, whichever is applicable.
-
-    :param logger: the logger object
-    :param engine: the reference database engine
-    :param err_msg: the error message to log
-    :param level: log level (defaults to DEBUG)
-    :param errors: optional incidental errors
-    :param stmt: optional query statement
-    :param bind_vals: optional bind values for the query statement
-    """
-    if err_msg:
-        if logger:
-            logger.log(level, err_msg)
-        if isinstance(errors, list):
-            errors.append(err_msg)
-    if logger and stmt:
-        log_msg: str = _build_query_msg(query_stmt=stmt,
-                                        engine=engine,
-                                        bind_vals=bind_vals)
-        logger.log(level, log_msg)
 
 
 def _build_query_msg(query_stmt: str,
