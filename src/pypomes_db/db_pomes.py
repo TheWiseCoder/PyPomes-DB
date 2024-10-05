@@ -1,6 +1,6 @@
 from logging import Logger
 from pathlib import Path
-from pypomes_core import str_between, str_sanitize
+from pypomes_core import str_sanitize
 from typing import Any, Literal, BinaryIO
 
 from .db_common import (
@@ -695,8 +695,9 @@ def db_bulk_insert(errors: list[str] | None,
     *insert_vals*. This is applicable for *mysql*, *oracle*, and *sqlserver*, where the
     placeholders are '%VARn%, ':n', and '?', respectively, and 'n' is the 1-based position of the
     data in the tuple. In the specific case of *postgres*, the *VALUES* clause must be simply *VALUES %s*.
-    Specific handling is required for identity columns (i.e., columns with values generated directly
-    by the database), and thus they must be identified by *identity_column*, and ommited from *insert_stmt*,
+    Specific handling is required for identity columns (i.e., columns whose values are generated directly
+    by the database engine - typically, they are also primary keys), and thus they must be identified
+    by *identity_column*, and ommited from *insert_stmt*,
     The target database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -735,53 +736,35 @@ def db_bulk_insert(errors: list[str] | None,
                                            committable=committable,
                                            logger=logger)
     elif curr_engine == "postgres":
+        from . import postgres_pomes
         # pre-insert handling of identity columns
         if identity_column and insert_stmt.find("OVERRIDING SYSTEM VALUE") < 0:
             insert_stmt = insert_stmt.replace(" VALUES %s", " OVERRIDING SYSTEM VALUE VALUES %s")
-        from . import postgres_pomes
         result = postgres_pomes.bulk_execute(errors=op_errors,
                                              exc_stmt=insert_stmt,
                                              exc_vals=insert_vals,
                                              conn=connection,
-                                             committable=committable,
+                                             committable=False if identity_column else committable,
                                              logger=logger)
-        # pos-insert handling of identity columns
+        # post-insert handling of identity columns
         if not op_errors and identity_column:
-            # obtain the maximum value inserted
-            table_name: str = str_between(source=insert_stmt.upper(),
-                                          from_str=" INTO ",
-                                          to_str=" ")
-            recs: list[tuple[int]] = db_select(errors=op_errors,
-                                               sel_stmt=(f"SELECT MAX({identity_column}) "
-                                                         f"FROM {table_name}"),
-                                               engine=engine,
-                                               connection=connection,
-                                               committable=False if identity_column else committable,
-                                               logger=logger)
-            if not op_errors:
-                sel_stmt: str = (f"SELECT setval("
-                                 f"pg_get_serial_sequence('{table_name}', '{identity_column}'), "
-                                 f"{recs[0][0]})")
-                db_execute(errors=op_errors,
-                           exc_stmt=sel_stmt,
-                           engine=engine,
-                           connection=connection,
-                           committable=committable,
-                           logger=logger)
+            # noinspection PyProtectedMember
+            postgres_pomes._identity_post_insert(errors=op_errors,
+                                                 insert_stmt=insert_stmt,
+                                                 conn=connection,
+                                                 committable=committable,
+                                                 identity_column=identity_column,
+                                                 logger=logger)
     elif curr_engine == "sqlserver":
+        from . import sqlserver_pomes
         # pre-insert handling of identity columns
         if identity_column:
-            table_name: str = str_between(source=insert_stmt.upper(),
-                                          from_str=" INTO ",
-                                          to_str=" ")
-            db_execute(errors=op_errors,
-                       exc_stmt=f"SET IDENTITY_INSERT {table_name.lower()} ON",
-                       engine=engine,
-                       connection=connection,
-                       committable=False,
-                       logger=logger)
+            # noinspection PyProtectedMember
+            sqlserver_pomes._identity_pre_insert(errors=op_errors,
+                                                 insert_stmt=insert_stmt,
+                                                 conn=connection,
+                                                 logger=logger)
         if not op_errors:
-            from . import sqlserver_pomes
             result = sqlserver_pomes.bulk_execute(errors=op_errors,
                                                   exc_stmt=insert_stmt,
                                                   exc_vals=insert_vals,
@@ -790,31 +773,14 @@ def db_bulk_insert(errors: list[str] | None,
                                                   logger=logger)
             # post-insert handling of identity columns
             if not op_errors and identity_column:
-                # obtain the maximum value inserted
-                table_name: str = str_between(source=insert_stmt.upper(),
-                                              from_str=" INTO ",
-                                              to_str=" ")
-                recs: list[tuple[int]] = db_select(errors=op_errors,
-                                                   sel_stmt=(f"SELECT MAX({identity_column}) "
-                                                             f"FROM {table_name}"),
-                                                   engine=engine,
-                                                   connection=connection,
-                                                   committable=False if identity_column else committable,
-                                                   logger=logger)
-                if not op_errors:
-                    db_execute(errors=op_errors,
-                               exc_stmt=f"SET IDENTITY_INSERT {table_name} OFF",
-                               engine=engine,
-                               connection=connection,
-                               committable=False if identity_column else committable,
-                               logger=logger)
-                    if not op_errors:
-                        db_execute(errors=op_errors,
-                                   exc_stmt=f"DBCC CHECKIDENT ('{table_name}', RESEED, {recs[0][0]})",
-                                   engine=engine,
-                                   connection=connection,
-                                   committable=committable,
-                                   logger=logger)
+                from . import sqlserver_pomes
+                # noinspection PyProtectedMember
+                sqlserver_pomes._identity_post_insert(errors=op_errors,
+                                                      insert_stmt=insert_stmt,
+                                                      conn=connection,
+                                                      committable=committable,
+                                                      identity_column=identity_column,
+                                                      logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
