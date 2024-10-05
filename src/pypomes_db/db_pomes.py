@@ -5,7 +5,7 @@ from typing import Any, Literal, BinaryIO
 
 from .db_common import (
     DB_BIND_META_TAG, _DB_ENGINES, _DB_CONN_DATA,
-    _assert_engine, _get_param,
+    _assert_engine, _get_param, _bind_columns, _bind_marks,
     _combine_insert_data, _combine_update_data, _combine_search_data
 )
 
@@ -680,7 +680,8 @@ def db_delete(errors: list[str] | None,
 
 
 def db_bulk_insert(errors: list[str] | None,
-                   insert_stmt: str,
+                   target_table: str,
+                   insert_attrs: list[str],
                    insert_vals: list[tuple],
                    engine: str = None,
                    connection: Any = None,
@@ -688,13 +689,10 @@ def db_bulk_insert(errors: list[str] | None,
                    identity_column: str = None,
                    logger: Logger = None) -> int:
     """
-    Insert the tuples, with values defined in *insert_vals*, into the database.
+    Insert into *target_table* the values defined in *insert_vals*, in the database.
 
-    The binding is done by position. Thus, the *VALUES* clause in *insert_stmt* must contain
-    as many placeholders as there are elements in the tuples found in the list provided in
-    *insert_vals*. This is applicable for *mysql*, *oracle*, and *sqlserver*, where the
-    placeholders are '%VARn%, ':n', and '?', respectively, and 'n' is the 1-based position of the
-    data in the tuple. In the specific case of *postgres*, the *VALUES* clause must be simply *VALUES %s*.
+    Bulk inserts may require non-standard syntax, depending on the database engine being targeted.
+    The number of attributes in *insert_attrs* must match the number of bind values in *insert_vals*.
     Specific handling is required for identity columns (i.e., columns whose values are generated directly
     by the database engine - typically, they are also primary keys), and thus they must be identified
     by *identity_column*, and ommited from *insert_stmt*,
@@ -703,7 +701,8 @@ def db_bulk_insert(errors: list[str] | None,
     A rollback is always attempted, if an error occurs.
 
     :param errors: incidental error messages
-    :param insert_stmt: the INSERT command
+    :param target_table: the possibly schema-qualified table to insert into
+    :param insert_attrs: the list of table attributes to insert values into
     :param insert_vals: the list of values to be inserted
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
@@ -721,25 +720,15 @@ def db_bulk_insert(errors: list[str] | None,
     # determine the database engine
     curr_engine: str = _assert_engine(errors=op_errors,
                                       engine=engine)
-    # establish the correct bind tags
-    if insert_vals and DB_BIND_META_TAG in insert_stmt:
-        insert_stmt = db_bind_stmt(stmt=insert_stmt,
-                                   engine=curr_engine)
     if curr_engine == "mysql":
         pass
-    elif curr_engine == "oracle":
-        from . import oracle_pomes
-        result = oracle_pomes.bulk_execute(errors=op_errors,
-                                           exc_stmt=insert_stmt,
-                                           exc_vals=insert_vals,
-                                           conn=connection,
-                                           committable=committable,
-                                           logger=logger)
     elif curr_engine == "postgres":
         from . import postgres_pomes
+        insert_stmt: str = f"INSERT INTO {target_table} ({', '.join(insert_attrs)})"
         # pre-insert handling of identity columns
         if identity_column and insert_stmt.find("OVERRIDING SYSTEM VALUE") < 0:
-            insert_stmt = insert_stmt.replace(" VALUES %s", " OVERRIDING SYSTEM VALUE VALUES %s")
+            insert_stmt += " OVERRIDING SYSTEM VALUE"
+        insert_stmt += " VALUES %s"
         result = postgres_pomes.bulk_execute(errors=op_errors,
                                              exc_stmt=insert_stmt,
                                              exc_vals=insert_vals,
@@ -755,32 +744,46 @@ def db_bulk_insert(errors: list[str] | None,
                                                  committable=committable,
                                                  identity_column=identity_column,
                                                  logger=logger)
-    elif curr_engine == "sqlserver":
-        from . import sqlserver_pomes
-        # pre-insert handling of identity columns
-        if identity_column:
-            # noinspection PyProtectedMember
-            sqlserver_pomes._identity_pre_insert(errors=op_errors,
-                                                 insert_stmt=insert_stmt,
-                                                 conn=connection,
-                                                 logger=logger)
-        if not op_errors:
-            result = sqlserver_pomes.bulk_execute(errors=op_errors,
-                                                  exc_stmt=insert_stmt,
-                                                  exc_vals=insert_vals,
-                                                  conn=connection,
-                                                  committable=False if identity_column else committable,
-                                                  logger=logger)
-            # post-insert handling of identity columns
-            if not op_errors and identity_column:
-                from . import sqlserver_pomes
+    elif curr_engine in ["oracle", "sqlserver"]:
+        bind_marks: str = _bind_marks(engine=engine,
+                                      start=1,
+                                      finish=len(insert_attrs)+1)
+        insert_stmt: str = (f"INSERT INTO {target_table} "
+                            f"({', '.join(insert_attrs)} VALUES({bind_marks})")
+        if curr_engine == "oracle":
+            from . import oracle_pomes
+            result = oracle_pomes.bulk_execute(errors=op_errors,
+                                               exc_stmt=insert_stmt,
+                                               exc_vals=insert_vals,
+                                               conn=connection,
+                                               committable=committable,
+                                               logger=logger)
+        elif curr_engine == "sqlserver":
+            from . import sqlserver_pomes
+            # pre-insert handling of identity columns
+            if identity_column:
                 # noinspection PyProtectedMember
-                sqlserver_pomes._identity_post_insert(errors=op_errors,
-                                                      insert_stmt=insert_stmt,
+                sqlserver_pomes._identity_pre_insert(errors=op_errors,
+                                                     insert_stmt=insert_stmt,
+                                                     conn=connection,
+                                                     logger=logger)
+            if not op_errors:
+                result = sqlserver_pomes.bulk_execute(errors=op_errors,
+                                                      exc_stmt=insert_stmt,
+                                                      exc_vals=insert_vals,
                                                       conn=connection,
-                                                      committable=committable,
-                                                      identity_column=identity_column,
+                                                      committable=False if identity_column else committable,
                                                       logger=logger)
+                # post-insert handling of identity columns
+                if not op_errors and identity_column:
+                    from . import sqlserver_pomes
+                    # noinspection PyProtectedMember
+                    sqlserver_pomes._identity_post_insert(errors=op_errors,
+                                                          insert_stmt=insert_stmt,
+                                                          conn=connection,
+                                                          committable=committable,
+                                                          identity_column=identity_column,
+                                                          logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -789,26 +792,29 @@ def db_bulk_insert(errors: list[str] | None,
 
 
 def db_bulk_update(errors: list[str] | None,
-                   update_stmt: str,
+                   target_table: str,
+                   set_attrs: list[str],
+                   where_attrs: list[str],
                    update_vals: list[tuple],
                    engine: str = None,
                    connection: Any = None,
                    committable: bool = None,
                    logger: Logger = None) -> int:
     """
-    Update the tuples, with values defined in *update_vals*, in the database.
+    Update *target_table* with values defined in *update_vals*, in the database.
 
-    The binding is done by position. Thus, the binding clauses in *update_stmt* must contain as many
-    placeholders as there are elements in the tuples found in the list provided in *update_vals*.
-    This is applicable for *mysql*, *postgres*, *oracle*, and *sqlserver*, where the placeholders are
-    '%', '%s', ':n', and '?', respectively, and 'n' is the 1-based position of the data in the tuple.
-    Note that the placeholders in the *WHERE* clause will follow the ones in the *SET* clause.
+    Bulk updates require non-standard syntax, specific for the database engine being targeted.
+    The number of attributes in *set_attrs*, plus the number of attributes in *where_attrs*,
+    must match the number of bind values in *update_vals*. Note that within *update_vals*,
+    the bind values for the *WHERE* clause will follow the ones for the *SET* clause.
     The target database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
     :param errors: incidental error messages
-    :param update_stmt: the UPDATE command
+    :param target_table: the possibly schema-qualified table to update
+    :param set_attrs: the list of table attributes to update
+    :param where_attrs: the list of table attributes identifying the tuples
     :param update_vals: the list of values to update the database with, and to identify the tuples
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
@@ -825,37 +831,52 @@ def db_bulk_update(errors: list[str] | None,
     # determine the database engine
     curr_engine: str = _assert_engine(errors=op_errors,
                                       engine=engine)
-    # establish the correct bind tags
-    if update_vals and DB_BIND_META_TAG in update_stmt:
-        update_stmt = db_bind_stmt(stmt=update_stmt,
-                                   engine=curr_engine)
-
     if curr_engine == "mysql":
         pass
-    elif curr_engine == "oracle":
-        from . import oracle_pomes
-        result = oracle_pomes.bulk_execute(errors=op_errors,
-                                           exc_stmt=update_stmt,
-                                           exc_vals=update_vals,
-                                           conn=connection,
-                                           committable=committable,
-                                           logger=logger)
     elif curr_engine == "postgres":
         from . import postgres_pomes
+        set_items: str = ""
+        for set_attr in set_attrs:
+            set_items += f"{set_attr} = data.{set_attr}, "
+        where_items: str = ""
+        for where_attr in where_attrs:
+            where_items += f"{target_table}.{where_attr} = data.{where_attr}"
+        update_stmt: str = (f"UPDATE {target_table}"
+                            f" SET {set_items[:-2]} "
+                            f"FROM (VALUES %s) AS data ({', '.join(set_attrs + where_attrs)}) "
+                            f"WHERE {where_items[:-2]}")
         result = postgres_pomes.bulk_execute(errors=op_errors,
                                              exc_stmt=update_stmt,
                                              exc_vals=update_vals,
                                              conn=connection,
                                              committable=committable,
                                              logger=logger)
-    elif curr_engine == "sqlserver":
-        from . import sqlserver_pomes
-        result = sqlserver_pomes.bulk_execute(errors=op_errors,
-                                              exc_stmt=update_stmt,
-                                              exc_vals=update_vals,
-                                              conn=connection,
-                                              committable=committable,
-                                              logger=logger)
+    elif curr_engine in ["oracle", "sqlserver"]:
+        set_items: str = _bind_columns(engine=engine,
+                                       columns=set_attrs,
+                                       concat=", ",
+                                       start_index=1)
+        where_items: str = _bind_columns(engine=engine,
+                                         columns=where_attrs,
+                                         concat=" AND ",
+                                         start_index=len(set_attrs)+1)
+        update_stmt: str = f"UPDATE {target_table} SET {set_items} WHERE {where_items}"
+        if curr_engine == "oracle":
+            from . import oracle_pomes
+            result = oracle_pomes.bulk_execute(errors=op_errors,
+                                               exc_stmt=update_stmt,
+                                               exc_vals=update_vals,
+                                               conn=connection,
+                                               committable=committable,
+                                               logger=logger)
+        else:
+            from . import sqlserver_pomes
+            result = sqlserver_pomes.bulk_execute(errors=op_errors,
+                                                  exc_stmt=update_stmt,
+                                                  exc_vals=update_vals,
+                                                  conn=connection,
+                                                  committable=committable,
+                                                  logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -864,26 +885,26 @@ def db_bulk_update(errors: list[str] | None,
 
 
 def db_bulk_delete(errors: list[str] | None,
-                   delete_stmt: str,
+                   target_table: str,
+                   where_attrs: list[str],
                    where_vals: list[tuple],
                    engine: str = None,
                    connection: Any = None,
                    committable: bool = None,
                    logger: Logger = None) -> int:
     """
-    Delete the tuples, with values defined in *where_vals*, from the database.
+    Delete from *target_table* with values defined in *where_vals*, in the database.
 
-    The binding is done by position. Thus, the *VALUES* clause in *delete_stmt* must contain
-    as many placeholders as there are elements in the tuples found in the list provided in *where_vals*.
-    This is applicable for *mysql*, *postgres*, *oracle*, and *sqlserver*, where the placeholders are
-    '%VARn%, '%s', ':n', and '?', respectively, and 'n' is the 1-based position of the data in the tuple.
+    Bulk deletes may require non-standard syntax, depending on the database engine being targeted.
+    The number of attributes in *where_attrs* must match the number of bind values in *where_vals*.
     The target database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
     :param errors: incidental error messages
-    :param delete_stmt: the INSERT command
-    :param where_vals: the list of values to be inserted
+    :param target_table: the possibly schema-qualified table to delete from
+    :param where_attrs: the list of attributes for identifying the tuples to be deleted
+    :param where_vals: the list of values to bind to the attributes
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -899,36 +920,40 @@ def db_bulk_delete(errors: list[str] | None,
     # determine the database engine
     curr_engine: str = _assert_engine(errors=op_errors,
                                       engine=engine)
-    # establish the correct bind tags
-    if where_vals and DB_BIND_META_TAG in delete_stmt:
-        delete_stmt = db_bind_stmt(stmt=delete_stmt,
-                                   engine=curr_engine)
     if curr_engine == "mysql":
         pass
-    elif curr_engine == "oracle":
-        from . import oracle_pomes
-        result = oracle_pomes.bulk_execute(errors=op_errors,
-                                           exc_stmt=delete_stmt,
-                                           exc_vals=where_vals,
-                                           conn=connection,
-                                           committable=committable,
-                                           logger=logger)
     elif curr_engine == "postgres":
         from . import postgres_pomes
+        delete_stmt: str = (f"DELETE FROM {target_table} "
+                            f"WHERE ({', '.join(where_attrs)}) IN (%s)")
         result = postgres_pomes.bulk_execute(errors=op_errors,
                                              exc_stmt=delete_stmt,
                                              exc_vals=where_vals,
                                              conn=connection,
                                              committable=committable,
                                              logger=logger)
-    elif curr_engine == "sqlserver":
-        from . import sqlserver_pomes
-        result = sqlserver_pomes.bulk_execute(errors=op_errors,
-                                              exc_stmt=delete_stmt,
-                                              exc_vals=where_vals,
-                                              conn=connection,
-                                              committable=committable,
-                                              logger=logger)
+    elif curr_engine in ["oracle", "sqlserver"]:
+        where_items: str = _bind_columns(engine=engine,
+                                         columns=where_attrs,
+                                         concat=" AND",
+                                         start_index=1)
+        delete_stmt: str = f"DELETE FROM {target_table} WHERE {where_items}"
+        if curr_engine == "oracle":
+            from . import oracle_pomes
+            result = oracle_pomes.bulk_execute(errors=op_errors,
+                                               exc_stmt=delete_stmt,
+                                               exc_vals=where_vals,
+                                               conn=connection,
+                                               committable=committable,
+                                               logger=logger)
+        elif curr_engine == "sqlserver":
+            from . import sqlserver_pomes
+            result = sqlserver_pomes.bulk_execute(errors=op_errors,
+                                                  exc_stmt=delete_stmt,
+                                                  exc_vals=where_vals,
+                                                  conn=connection,
+                                                  committable=committable,
+                                                  logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)

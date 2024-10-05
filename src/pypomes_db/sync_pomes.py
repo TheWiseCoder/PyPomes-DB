@@ -1,9 +1,7 @@
 from logging import Logger
 from typing import Any
 
-from .db_common import (
-    _bind_columns, _bind_marks, _except_msg, _remove_nulls
-)
+from .db_common import _except_msg, _remove_nulls
 from .db_pomes import (
     db_connect, db_bulk_delete, db_bulk_insert, db_bulk_update
 )
@@ -157,7 +155,7 @@ def db_sync_data(errors: list[str] | None,
                     source_data: tuple = get_sync_data(row=source_row,
                                                        pk_cols=pk_columns,
                                                        sync_cols=sync_columns)
-                    target_data: tuple = get_sync_data(row=source_row,
+                    target_data: tuple = get_sync_data(row=target_row,
                                                        pk_cols=pk_columns,
                                                        sync_cols=sync_columns)
                     if source_data != target_data:
@@ -198,16 +196,10 @@ def db_sync_data(errors: list[str] | None,
 
             # process the rows flagged for delete
             if rows_for_delete:
-                # build the DELETE query
-                where_cols: str = _bind_columns(engine=target_engine,
-                                                columns = pk_columns,
-                                                concat=" AND ",
-                                                start_index=1)
-                delete_stmt: str = (f"DELETE FROM {target_table} "
-                                    f"WHERE {where_cols}")
                 # delete the rows
                 db_bulk_delete(errors=op_errors,
-                               delete_stmt=delete_stmt,
+                               target_table=target_table,
+                               where_attrs=pk_columns,
                                where_vals=rows_for_delete,
                                engine=target_engine,
                                connection=curr_target_conn,
@@ -216,21 +208,11 @@ def db_sync_data(errors: list[str] | None,
 
             # process the rows flagged for update
             if not op_errors and rows_for_update:
-                # build the UPDATE query
-                value_cols: str = _bind_columns(engine=target_engine,
-                                                columns = sync_columns,
-                                                concat=", ",
-                                                start_index=1)
-                where_cols: str = _bind_columns(engine=target_engine,
-                                                columns = pk_columns,
-                                                concat=", ",
-                                                start_index=len(sync_columns)+1)
-                update_stmt: str = (f"UPDATE {target_table} "
-                                    f"SET {value_cols} "
-                                    f"WHERE {where_cols}")
                 # update the rows
                 db_bulk_update(errors=op_errors,
-                               update_stmt=update_stmt,
+                               target_table=target_table,
+                               set_attrs=sync_columns,
+                               where_attrs=pk_columns,
                                update_vals=rows_for_update,
                                engine=target_engine,
                                connection=curr_target_conn,
@@ -239,19 +221,10 @@ def db_sync_data(errors: list[str] | None,
 
             # process the rows flagged for insert
             if not op_errors and rows_for_insert:
-                # build the INSERT query
-                if target_engine == "postgres":
-                    values: str = "VALUES %s"
-                else:
-                    bind_marks: str = _bind_marks(engine=target_engine,
-                                                  start=1,
-                                                  finish=len(all_cols)+1)
-                    values: str = f"VALUES({bind_marks})"
-                insert_stmt: str = (f"INSERT INTO {target_table} "
-                                    f"({all_cols}) {values}")
                 # insert the rows
                 db_bulk_insert(errors=op_errors,
-                               insert_stmt=insert_stmt,
+                               target_table=target_table,
+                               insert_attrs=pk_columns + sync_columns,
                                insert_vals=rows_for_insert,
                                engine=target_engine,
                                connection=curr_target_conn,

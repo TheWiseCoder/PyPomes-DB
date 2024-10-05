@@ -239,8 +239,12 @@ def bulk_execute(errors: list[str],
     """
     Bulk-update the database with the statement defined in *execute_stmt*, and the values in *execute_vals*.
 
-    For *INSERT* operations, the *VALUES* clause must be simply *VALUES %s*. *UPDATE* operations
-    require a sepcial syntax, with *VALUES %s* combined with a *FROM* clause.
+    For *INSERT* operations, the *VALUES* clause must be simply *VALUES %s*:
+        INSERT INTO my_tb (id, v1, v2) VALUES %s
+    *UPDATE* operations require a special syntax, with *VALUES %s* combined with a *FROM* clause:
+        UPDATE my_tb SET v1 = data.v1, v2 = data.v2 FROM (VALUES %s) AS data (id, v1, v2) WHERE my_tb.id = data.id
+    *DELETE* operations require a special syntax using a *IN* clause:
+        DELETE FROM my_tb WHERE (id1, id2) IN (%s)
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
