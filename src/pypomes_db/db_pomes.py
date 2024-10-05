@@ -689,10 +689,10 @@ def db_bulk_insert(errors: list[str] | None,
                    identity_column: str = None,
                    logger: Logger = None) -> int:
     """
-    Insert into *target_table* the values defined in *insert_vals*, in the database.
+    Insert into *target_table* the values defined in *insert_vals*.
 
     Bulk inserts may require non-standard syntax, depending on the database engine being targeted.
-    The number of attributes in *insert_attrs* must match the number of bind values in *insert_vals*.
+    The number of attributes in *insert_attrs* must match the number of bind values in *insert_vals* tuples.
     Specific handling is required for identity columns (i.e., columns whose values are generated directly
     by the database engine - typically, they are also primary keys), and thus they must be identified
     by *identity_column*, and ommited from *insert_stmt*,
@@ -801,11 +801,11 @@ def db_bulk_update(errors: list[str] | None,
                    committable: bool = None,
                    logger: Logger = None) -> int:
     """
-    Update *target_table* with values defined in *update_vals*, in the database.
+    Update *where_attrs* in *target_table* with values defined in *update_vals*.
 
     Bulk updates require non-standard syntax, specific for the database engine being targeted.
     The number of attributes in *set_attrs*, plus the number of attributes in *where_attrs*,
-    must match the number of bind values in *update_vals*. Note that within *update_vals*,
+    must match the number of bind values in *update_vals* tuples. Note that within *update_vals*,
     the bind values for the *WHERE* clause will follow the ones for the *SET* clause.
     The target database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
@@ -840,11 +840,11 @@ def db_bulk_update(errors: list[str] | None,
             set_items += f"{set_attr} = data.{set_attr}, "
         where_items: str = ""
         for where_attr in where_attrs:
-            where_items += f"{target_table}.{where_attr} = data.{where_attr}"
+            where_items += f"{target_table}.{where_attr} = data.{where_attr} AND "
         update_stmt: str = (f"UPDATE {target_table}"
                             f" SET {set_items[:-2]} "
                             f"FROM (VALUES %s) AS data ({', '.join(set_attrs + where_attrs)}) "
-                            f"WHERE {where_items[:-2]}")
+                            f"WHERE {where_items[:-5]}")
         result = postgres_pomes.bulk_execute(errors=op_errors,
                                              exc_stmt=update_stmt,
                                              exc_vals=update_vals,
@@ -893,10 +893,10 @@ def db_bulk_delete(errors: list[str] | None,
                    committable: bool = None,
                    logger: Logger = None) -> int:
     """
-    Delete from *target_table* with values defined in *where_vals*, in the database.
+    Delete from *target_table* with values defined in *where_vals*.
 
     Bulk deletes may require non-standard syntax, depending on the database engine being targeted.
-    The number of attributes in *where_attrs* must match the number of bind values in *where_vals*.
+    The number of attributes in *where_attrs* must match the number of bind values in *where_vals* tuples.
     The target database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.

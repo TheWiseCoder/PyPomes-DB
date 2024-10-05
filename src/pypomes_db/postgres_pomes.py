@@ -269,7 +269,7 @@ def bulk_execute(errors: list[str],
         try:
             # obtain a cursor and perform the operation
             with curr_conn.cursor() as cursor:
-                # after the successful execution of 'execute_values', 'cursor.rowcount' has the value 1 (one)
+                # 'cursor.rowcount' might end up with a wrong value
                 execute_values(cur=cursor,
                                sql=exc_stmt,
                                argslist=exc_vals)
