@@ -63,6 +63,7 @@ def connect(errors: list[str],
         if isinstance(errors, list):
             errors.append(err_msg)
         if logger:
+            logger.error(err_msg)
             logger.error(msg=f"Error connecting to '{name}' at '{host}'")
 
     return result
@@ -156,6 +157,7 @@ def select(errors: list[str] | None,
             if isinstance(errors, list):
                 errors.append(err_msg)
             if logger:
+                logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=sel_stmt,
                                                   engine="sqlserver",
                                                   bind_vals=where_vals))
@@ -226,6 +228,7 @@ def execute(errors: list[str] | None,
             if isinstance(errors, list):
                 errors.append(err_msg)
             if logger:
+                logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
                                                   engine="sqlserver",
                                                   bind_vals=bind_vals))
@@ -290,6 +293,7 @@ def bulk_execute(errors: list[str] | None,
             if isinstance(errors, list):
                 errors.append(err_msg)
             if logger:
+                logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
                                                   engine="sqlserver",
                                                   bind_vals=exc_vals[0]))
@@ -386,6 +390,7 @@ def update_lob(errors: list[str],
             if isinstance(errors, list):
                 errors.append(err_msg)
             if logger:
+                logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=update_stmt,
                                                   engine="sqlserver",
                                                   bind_vals=pk_vals))
@@ -451,6 +456,7 @@ def call_procedure(errors: list[str] | None,
             if isinstance(errors, list):
                 errors.append(err_msg)
             if logger:
+                logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=proc_stmt,
                                                   engine="sqlserver",
                                                   bind_vals=proc_vals))
