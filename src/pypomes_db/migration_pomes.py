@@ -224,11 +224,12 @@ def db_migrate_data(errors: list[str] | None,
         # log the migration finish
         if err_msg:
             op_errors.append(err_msg)
+            if logger:
+                logger.error(msg=err_msg)
         if logger:
             logger.debug(msg=(f"Migrated {result} tuples, "
                               f"from {source_engine}.{source_table} "
                               f"to {target_engine}.{target_table}"))
-
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -443,11 +444,12 @@ def db_migrate_lobs(errors: list[str] | None,
         # log the migration finish
         if err_msg:
             op_errors.append(err_msg)
+            if logger:
+                logger.error(msg=err_msg)
         if logger:
             logger.debug(msg=(f"Migrated {result} LOBs, "
                               f"from {source_engine}.{source_table}.{source_lob_column} "
                               f"to {target_engine}.{target_table}.{target_lob_column}"))
-
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -585,6 +587,8 @@ def db_stream_lobs(errors: list[str] | None,
         # log the stream finish
         if err_msg:
             op_errors.append(err_msg)
+            if logger:
+                logger.error(msg=err_msg)
         if logger:
             logger.debug(msg=(f"Streamed {lob_count} LOBs, "
                          f"from {engine}.{table}.{lob_column}"))

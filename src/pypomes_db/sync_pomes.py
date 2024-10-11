@@ -259,6 +259,8 @@ def db_sync_data(errors: list[str] | None,
         # log the synchronization finish
         if err_msg:
             op_errors.append(err_msg)
+            if logger:
+                logger.error(msg=err_msg)
         if logger:
             logger.debug(msg=(f"Synchronized {log_count} tuples, "
                               f"from {source_engine}.{source_table} "
