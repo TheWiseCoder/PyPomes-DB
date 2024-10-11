@@ -505,11 +505,13 @@ def db_stream_lobs(errors: list[str] | None,
             chunk_size = -1
 
         # buid the SELECT query
+        ref_columns: list[str] = pk_columns.copy()
         lob_index: int = len(pk_columns)
         sel_stmt: str = f"SELECT {', '.join(pk_columns)}"
         if ref_column and ref_column not in pk_columns:
             sel_stmt += f", {ref_column}"
             lob_index += 1
+            ref_columns.append(ref_column)
         sel_stmt += f", {lob_column} FROM {table}"
         if where_clause:
             sel_stmt += f" WHERE {where_clause}"
@@ -534,10 +536,10 @@ def db_stream_lobs(errors: list[str] | None,
             for row in source_cursor:
 
                 # retrieve the values of the primary key and reference columns (leave LOB column out)
-                pk_vals: tuple = tuple([row[inx] for inx in range(lob_index)])
+                ref_vals: tuple = tuple([row[inx] for inx in range(lob_index)])
                 identifier: dict[str, Any] = {}
-                for inx, pk_val in enumerate(pk_vals):
-                    identifier[pk_columns[inx]] = pk_val
+                for inx, pk_val in enumerate(ref_vals):
+                    identifier[ref_columns[inx]] = pk_val
                 # send the LOB's metadata
                 yield identifier
 
