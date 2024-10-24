@@ -1,16 +1,18 @@
 from logging import Logger
 from typing import Any
 
-from .db_common import _except_msg, _remove_nulls
+from .db_common import (
+    DbEngine, _except_msg, _remove_nulls
+)
 from .db_pomes import (
     db_connect, db_bulk_delete, db_bulk_insert, db_bulk_update
 )
 
 
 def db_sync_data(errors: list[str] | None,
-                 source_engine: str,
+                 source_engine: DbEngine,
                  source_table: str,
-                 target_engine: str,
+                 target_engine: DbEngine,
                  target_table: str,
                  pk_columns: list[str],
                  sync_columns: list[str],
@@ -21,7 +23,8 @@ def db_sync_data(errors: list[str] | None,
                  identity_column: str = None,
                  batch_size: int = None,
                  has_nulls: bool = None,
-                 logger: Logger = None) -> tuple[int, int, int]:
+                 logger: Logger = None,
+                 log_trigger: int = 10000) -> tuple[int, int, int]:
     """
     Synchronize data in *target_table*, as per the contents of *source_table*.
 
@@ -56,6 +59,7 @@ def db_sync_data(errors: list[str] | None,
     :param batch_size: the maximum number of tuples to synchronize in each batch, or 0 or None for no limit
     :param has_nulls: indicates that one or more string-type source columns have nulls
     :param logger: optional logger
+    :param log_trigger: number of LOBs to trigger logging info on migration (defaults to 10000 LOBs)
     :return: the number of tuples effectively deleted, inserted, and updated in the target table
     """
     # helper function to obtain a primary key tuple from a row
@@ -89,13 +93,13 @@ def db_sync_data(errors: list[str] | None,
         if batch_size:
             source_sel_stmt += " OFFSET @offset ROWS"
             target_sel_stmt += " OFFSET @offset ROWS"
-            if source_engine == "postgres":
+            if source_engine == DbEngine.POSTGRES:
                 source_sel_stmt += f" LIMIT {batch_size}"
-            elif source_engine in ["oracle", "slqserver"]:
+            elif source_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                 source_sel_stmt += f" FETCH NEXT {batch_size} ROWS ONLY"
-            if target_engine == "postgres":
+            if target_engine == DbEngine.POSTGRES:
                 target_sel_stmt += f" LIMIT {batch_size}"
-            elif target_engine in ["oracle", "slqserver"]:
+            elif target_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                 target_sel_stmt += f" FETCH NEXT {batch_size} ROWS ONLY"
         rows_for_delete: list[tuple] = []
         rows_for_insert: list[tuple] = []
@@ -108,7 +112,7 @@ def db_sync_data(errors: list[str] | None,
                               f"to {target_engine}.{target_table}"))
         # migrate the data
         log_count: int
-        log_step: int = 10000
+        log_step: int = 0
         err_msg: str | None = None
         try:
             # obtain the cursors
@@ -170,7 +174,8 @@ def db_sync_data(errors: list[str] | None,
                     if source_rows:
                         source_offset += len(source_rows)
                         log_count += source_offset
-                        if has_nulls and target_engine == "postges":
+                        log_step += source_offset
+                        if has_nulls and target_engine == DbEngine.POSTGRES:
                             source_rows = _remove_nulls(rows=source_rows)
                     else:
                         # no more tuples in source table
@@ -186,10 +191,11 @@ def db_sync_data(errors: list[str] | None,
                         target_offset = 0
 
                 # log partial result
-                if logger and log_count % log_step == 0:
+                if logger and log_step >= log_trigger:
                     logger.debug(msg=(f"Synchronizing {log_count} tuples, "
                                       f"from {source_engine}.{source_table} "
                                       f"to {target_engine}.{target_table}"))
+                    log_step = 0
             # close the cursors
             source_cursor.close()
             target_cursor.close()

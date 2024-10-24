@@ -3,10 +3,11 @@ from logging import Logger
 from pyodbc import Binary, Connection, Row
 from pathlib import Path
 from pypomes_core import str_between
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
+from . import DbParam
 from .db_common import (
-    _assert_query_quota, _build_query_msg, _get_params, _except_msg
+    DbEngine, _assert_query_quota, _build_query_msg, _get_params, _except_msg
 )
 
 
@@ -17,12 +18,13 @@ def get_connection_string() -> str:
     :return: the connection string
     """
     # retrieve the connection parameters
-    name, user, pwd, host, port, driver = _get_params("sqlserver")
+    db_params: dict[DbParam, Any] = _get_params(DbEngine.SQLSERVER)
 
     # build and return the connection string
     return (
-        f"mssql+pyodbc://{user}:"
-        f"{pwd}@{host}:{port}/{name}?driver={driver}"
+        f"mssql+pyodbc://{db_params.get(DbParam.USER)}:"
+        f"{db_params.get(DbParam.PWD)}@{db_params.get(DbParam.HOST)}:"
+        f"{db_params.get(DbParam.PORT)}/{db_params.get(DbParam.NAME)}?driver={db_params.get(DbParam.DRIVER)}"
     )
 
 
@@ -43,10 +45,12 @@ def connect(errors: list[str],
     result: Connection | None = None
 
     # retrieve the connection parameters and build the connection string
-    name, user, pwd, host, port, driver = _get_params("sqlserver")
+    db_params: dict[DbParam, Any] = _get_params(DbEngine.SQLSERVER)
     connection_kwargs: str = (
-        f"DRIVER={{{driver}}};SERVER={host},{port};"
-        f"DATABASE={name};UID={user};PWD={pwd};TrustServerCertificate=yes;"
+        f"DRIVER={{{db_params.get(DbParam.DRIVER)}}};"
+        f"SERVER={db_params.get(DbParam.HOST)},{db_params.get(DbParam.PORT)};"
+        f"DATABASE={db_params.get(DbParam.NAME)};"
+        f"UID={db_params.get(DbParam.USER)};PWD={db_params.get(DbParam.PWD)};TrustServerCertificate=yes;"
     )
 
     # obtain a connection to the database
@@ -57,15 +61,15 @@ def connect(errors: list[str],
         result.autocommit = isinstance(autocommit, bool) and autocommit
     except Exception as e:
         err_msg = _except_msg(exception=e,
-                              engine="sqlserver")
+                              engine=DbEngine.SQLSERVER)
     # log eventual errors
     if err_msg:
         if isinstance(errors, list):
             errors.append(err_msg)
         if logger:
             logger.error(err_msg)
-            logger.error(msg=f"Error connecting to '{name}' at '{host}'")
-
+            logger.error(msg=("Error connecting to "
+                              f"'{db_params.get(DbParam.NAME)}' at '{db_params.get(DbParam.HOST)}'"))
     return result
 
 
@@ -129,7 +133,7 @@ def select(errors: list[str] | None,
 
                 # has the query quota been satisfied ?
                 if _assert_query_quota(errors=errors,
-                                       engine="sqlserver",
+                                       engine=DbEngine.SQLSERVER,
                                        query=sel_stmt,
                                        where_vals=where_vals,
                                        count=count,
@@ -146,7 +150,7 @@ def select(errors: list[str] | None,
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="sqlserver")
+                                  engine=DbEngine.SQLSERVER)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -159,7 +163,7 @@ def select(errors: list[str] | None,
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=sel_stmt,
-                                                  engine="sqlserver",
+                                                  engine=DbEngine.SQLSERVER,
                                                   bind_vals=where_vals))
     return result
 
@@ -217,7 +221,7 @@ def execute(errors: list[str] | None,
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="sqlserver")
+                                  engine=DbEngine.SQLSERVER)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -230,7 +234,7 @@ def execute(errors: list[str] | None,
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
-                                                  engine="sqlserver",
+                                                  engine=DbEngine.SQLSERVER,
                                                   bind_vals=bind_vals))
     return result
 
@@ -282,7 +286,7 @@ def bulk_execute(errors: list[str] | None,
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="sqlserver")
+                                  engine=DbEngine.SQLSERVER)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -295,7 +299,7 @@ def bulk_execute(errors: list[str] | None,
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
-                                                  engine="sqlserver",
+                                                  engine=DbEngine.SQLSERVER,
                                                   bind_vals=exc_vals[0]))
     return result
 
@@ -379,7 +383,7 @@ def update_lob(errors: list[str],
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="sqlserver")
+                                  engine=DbEngine.SQLSERVER)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -392,7 +396,7 @@ def update_lob(errors: list[str],
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=update_stmt,
-                                                  engine="sqlserver",
+                                                  engine=DbEngine.SQLSERVER,
                                                   bind_vals=pk_vals))
 
 
@@ -445,7 +449,7 @@ def call_procedure(errors: list[str] | None,
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="sqlserver")
+                                  engine=DbEngine.SQLSERVER)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -458,7 +462,7 @@ def call_procedure(errors: list[str] | None,
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=proc_stmt,
-                                                  engine="sqlserver",
+                                                  engine=DbEngine.SQLSERVER,
                                                   bind_vals=proc_vals))
     return result
 

@@ -1,16 +1,17 @@
 from logging import Logger
 from pathlib import Path
 from pypomes_core import str_sanitize
-from typing import Any, Literal, BinaryIO
+from typing import Any, BinaryIO
 
 from .db_common import (
     DB_BIND_META_TAG, _DB_ENGINES, _DB_CONN_DATA,
+    DbEngine, DbParam,
     _assert_engine, _get_param, _bind_columns, _bind_marks,
     _combine_insert_data, _combine_update_data, _combine_search_data
 )
 
 
-def db_setup(engine: Literal["mysql", "oracle", "postgres", "sqlserver"],
+def db_setup(engine: DbEngine,
              db_name: str,
              db_user: str,
              db_pwd: str,
@@ -40,23 +41,23 @@ def db_setup(engine: Literal["mysql", "oracle", "postgres", "sqlserver"],
     result: bool = False
 
     # are the parameters compliant ?
-    if (engine in ["mysql", "oracle", "postgres", "sqlserver"] and
+    if (engine in DbEngine and
         db_name and db_user and db_pwd and db_host and
-        not (engine != "oracle" and db_client) and
-        not (engine != "sqlserver" and db_driver) and
-        not (engine == "sqlserver" and not db_driver) and
+        not (engine != DbEngine.ORACLE and db_client) and
+        not (engine != DbEngine.SQLSERVER and db_driver) and
+        not (engine == DbEngine.SQLSERVER and not db_driver) and
         isinstance(db_port, int) and db_port > 0):
         _DB_CONN_DATA[engine] = {
-            "name": db_name,
-            "user": db_user,
-            "pwd": db_pwd,
-            "host": db_host,
-            "port": db_port
+            DbParam.NAME: db_name,
+            DbParam.USER: db_user,
+            DbParam.PWD: db_pwd,
+            DbParam.HOST: db_host,
+            DbParam.PORT: db_port
         }
-        if engine == "oracle":
-            _DB_CONN_DATA[engine]["client"] = Path(db_client)
-        elif engine == "sqlserver":
-            _DB_CONN_DATA[engine]["driver"] = db_driver
+        if engine == DbEngine.ORACLE:
+            _DB_CONN_DATA[engine][DbParam.CLIENT] = Path(db_client)
+        elif engine == DbEngine.SQLSERVER:
+            _DB_CONN_DATA[engine][DbParam.DRIVER] = db_driver
         if engine not in _DB_ENGINES:
             _DB_ENGINES.append(engine)
         result = True
@@ -77,7 +78,7 @@ def db_get_engines() -> list[str]:
     return _DB_ENGINES.copy()
 
 
-def db_get_param(key: Literal["name", "user", "pwd", "host", "port", "client", "driver"],
+def db_get_param(key: DbParam,
                  engine: str = None) -> Any:
     """
     Return the connection parameter value for *key*.
@@ -91,12 +92,13 @@ def db_get_param(key: Literal["name", "user", "pwd", "host", "port", "client", "
     :return: the current value of the connection parameter
     """
     # determine the database engine
-    curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
 
-    return _get_param(curr_engine, key)
+    return _get_param(engine=curr_engine,
+                      param=key)
 
 
-def db_get_params(engine: str = None) -> dict[str, Any]:
+def db_get_params(engine: DbEngine = None) -> dict[str, Any]:
     """
     Return the connection parameters as a *dict*.
 
@@ -109,14 +111,19 @@ def db_get_params(engine: str = None) -> dict[str, Any]:
     :param engine: the reference database engine (the default engine, if not provided)
     :return: the current connection parameters for the engine
     """
-    # determine the database engine
-    curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+    # initialize the return variable
+    result: dict[str, Any] | None = None
 
-    # SANITY-CHECK: return a cloned 'dict'
-    return dict(_DB_CONN_DATA.get(curr_engine))
+    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+    db_params: dict[DbParam, Any] = _DB_CONN_DATA.get(curr_engine)
+    if db_params:
+        # noinspection PyTypeChecker
+        result = {k.value: v for (k, v) in db_params.items()}
+
+    return result
 
 
-def db_get_connection_string(engine: str = None) -> str:
+def db_get_connection_string(engine: DbEngine = None) -> str:
     """
     Build and return the connection string for connecting to the database.
 
@@ -127,17 +134,17 @@ def db_get_connection_string(engine: str = None) -> str:
     result: Any = None
 
     # determine the database engine
-    curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
 
-    if curr_engine == "mysql":
+    if curr_engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == "oracle":
+    elif curr_engine == DbEngine.ORACLE:
         from . import oracle_pomes
         result = oracle_pomes.get_connection_string()
-    elif curr_engine == "postgres":
+    elif curr_engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         result = postgres_pomes.get_connection_string()
-    elif curr_engine == "sqlserver":
+    elif curr_engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
         result = sqlserver_pomes.get_connection_string()
 
@@ -145,7 +152,7 @@ def db_get_connection_string(engine: str = None) -> str:
 
 
 def db_bind_stmt(stmt: str,
-                 engine: str = None) -> str:
+                 engine: DbEngine = None) -> str:
     """
     Replace the occurrences of bind meta-tag in *stmt*, with the appropriate bind tag for *engine*.
 
@@ -159,24 +166,24 @@ def db_bind_stmt(stmt: str,
     result: str | None = None
 
     # determine the database engine
-    curr_engine: str = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
 
     match curr_engine:
-        case "mysql" | "postgres":
+        case DbEngine.MYSQL | DbEngine.POSTGRES:
             result = stmt.replace(DB_BIND_META_TAG, "%s")
-        case "oracle":
+        case DbEngine.ORACLE:
             pos: int = 0
             while result != stmt:
                 pos += 1
                 result = stmt.replace(DB_BIND_META_TAG, f":{pos}", 1)
-        case "sqlserver":
+        case DbEngine.SQLSERVER:
             result = stmt.replace(DB_BIND_META_TAG, "?")
 
     return result
 
 
 def db_assert_connection(errors: list[str] | None,
-                         engine: str = None,
+                         engine: DbEngine = None,
                          logger: Logger = None) -> bool:
     """
     Determine whether the *engine*'s current configuration allows for a safe connection.
@@ -193,10 +200,10 @@ def db_assert_connection(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
     proceed: bool = True
-    if curr_engine == "oracle":
+    if curr_engine == DbEngine.ORACLE:
         from . import oracle_pomes
         proceed = oracle_pomes.initialize(errors=op_errors,
                                           logger=logger)
@@ -217,7 +224,7 @@ def db_assert_connection(errors: list[str] | None,
 
 def db_connect(errors: list[str] | None,
                autocommit: bool = False,
-               engine: str = None,
+               engine: DbEngine = None,
                logger: Logger = None) -> Any:
     """
     Obtain and return a connection to the database, or *None* if the connection cannot be obtained.
@@ -237,21 +244,21 @@ def db_connect(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
                                       engine=engine)
-    if curr_engine == "mysql":
+    if curr_engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == "oracle":
+    elif curr_engine == DbEngine.ORACLE:
         from . import oracle_pomes
         result = oracle_pomes.connect(errors=op_errors,
                                       autocommit=autocommit,
                                       logger=logger)
-    elif curr_engine == "postgres":
+    elif curr_engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         result = postgres_pomes.connect(errors=op_errors,
                                         autocommit=autocommit,
                                         logger=logger)
-    elif curr_engine == "sqlserver":
+    elif curr_engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
         result = sqlserver_pomes.connect(errors=op_errors,
                                          autocommit=autocommit,
@@ -316,7 +323,7 @@ def db_rollback(errors: list[str] | None,
 def db_count(errors: list[str] | None,
              table: str,
              where_data: dict[str, Any] = None,
-             engine: str = None,
+             engine: DbEngine = None,
              connection: Any = None,
              committable: bool = None,
              logger: Logger = None) -> int:
@@ -363,7 +370,7 @@ def db_count(errors: list[str] | None,
 def db_exists(errors: list[str] | None,
               table: str,
               where_data: dict[str, Any] = None,
-              engine: str = None,
+              engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
               logger: Logger = None) -> bool:
@@ -416,7 +423,7 @@ def db_select(errors: list[str] | None,
               min_count: int = None,
               max_count: int = None,
               require_count: int = None,
-              engine: str = None,
+              engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
               logger: Logger = None) -> list[tuple]:
@@ -453,8 +460,8 @@ def db_select(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                            engine=engine)
 
     # process search data provided as key-value pairs
     if where_data:
@@ -467,9 +474,9 @@ def db_select(errors: list[str] | None,
         sel_stmt = db_bind_stmt(stmt=sel_stmt,
                                 engine=curr_engine)
 
-    if curr_engine == "mysql":
+    if curr_engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == "oracle":
+    elif curr_engine == DbEngine.ORACLE:
         from . import oracle_pomes
         result = oracle_pomes.select(errors=op_errors,
                                      sel_stmt=sel_stmt,
@@ -480,7 +487,7 @@ def db_select(errors: list[str] | None,
                                      conn=connection,
                                      committable=committable,
                                      logger=logger)
-    elif curr_engine == "postgres":
+    elif curr_engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         result = postgres_pomes.select(errors=op_errors,
                                        sel_stmt=sel_stmt,
@@ -491,7 +498,7 @@ def db_select(errors: list[str] | None,
                                        conn=connection,
                                        committable=committable,
                                        logger=logger)
-    elif curr_engine == "sqlserver":
+    elif curr_engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
         result = sqlserver_pomes.select(errors=op_errors,
                                         sel_stmt=sel_stmt,
@@ -513,7 +520,7 @@ def db_insert(errors: list[str] | None,
               insert_stmt: str,
               insert_vals: tuple = None,
               insert_data: dict[str, Any] = None,
-              engine: str = None,
+              engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
               logger: Logger = None) -> int:
@@ -562,7 +569,7 @@ def db_update(errors: list[str] | None,
               update_data: dict[str, Any] = None,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
-              engine: str = None,
+              engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
               logger: Logger = None) -> int:
@@ -598,7 +605,7 @@ def db_update(errors: list[str] | None,
                                                         update_data=update_data)
     # process search data provided as key-value pairs
     if where_data:
-        curr_engine: str = _assert_engine(errors=[],
+        curr_engine: DbEngine = _assert_engine(errors=[],
                                           engine=engine)
         update_stmt, where_vals = _combine_search_data(query_stmt=update_stmt,
                                                        where_vals=where_vals,
@@ -631,7 +638,7 @@ def db_delete(errors: list[str] | None,
               delete_stmt: str,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
-              engine: str = None,
+              engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
               logger: Logger = None) -> int:
@@ -659,8 +666,8 @@ def db_delete(errors: list[str] | None,
 
     # process search data provided as key-value pairs
     if where_data:
-        curr_engine: str = _assert_engine(errors=[],
-                                          engine=engine)
+        curr_engine: DbEngine = _assert_engine(errors=[],
+                                               engine=engine)
         delete_stmt, where_vals = _combine_search_data(query_stmt=delete_stmt,
                                                        where_vals=where_vals,
                                                        where_data=where_data,
@@ -683,7 +690,7 @@ def db_bulk_insert(errors: list[str] | None,
                    target_table: str,
                    insert_attrs: list[str],
                    insert_vals: list[tuple],
-                   engine: str = None,
+                   engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
                    identity_column: str = None,
@@ -718,11 +725,11 @@ def db_bulk_insert(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
-    if curr_engine == "mysql":
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
+    if curr_engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == "postgres":
+    elif curr_engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         insert_stmt: str = f"INSERT INTO {target_table} ({', '.join(insert_attrs)})"
         # pre-insert handling of identity columns
@@ -744,13 +751,13 @@ def db_bulk_insert(errors: list[str] | None,
                                                  committable=committable,
                                                  identity_column=identity_column,
                                                  logger=logger)
-    elif curr_engine in ["oracle", "sqlserver"]:
+    elif curr_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
         bind_marks: str = _bind_marks(engine=engine,
                                       start=1,
                                       finish=len(insert_attrs)+1)
         insert_stmt: str = (f"INSERT INTO {target_table} "
                             f"({', '.join(insert_attrs)} VALUES({bind_marks})")
-        if curr_engine == "oracle":
+        if curr_engine == DbEngine.ORACLE:
             from . import oracle_pomes
             result = oracle_pomes.bulk_execute(errors=op_errors,
                                                exc_stmt=insert_stmt,
@@ -758,7 +765,7 @@ def db_bulk_insert(errors: list[str] | None,
                                                conn=connection,
                                                committable=committable,
                                                logger=logger)
-        elif curr_engine == "sqlserver":
+        elif curr_engine == DbEngine.SQLSERVER:
             from . import sqlserver_pomes
             # pre-insert handling of identity columns
             if identity_column:
@@ -796,7 +803,7 @@ def db_bulk_update(errors: list[str] | None,
                    set_attrs: list[str],
                    where_attrs: list[str],
                    update_vals: list[tuple],
-                   engine: str = None,
+                   engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
                    logger: Logger = None) -> int:
@@ -829,11 +836,11 @@ def db_bulk_update(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
-    if curr_engine == "mysql":
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
+    if curr_engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == "postgres":
+    elif curr_engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         set_items: str = ""
         for set_attr in set_attrs:
@@ -851,7 +858,7 @@ def db_bulk_update(errors: list[str] | None,
                                              conn=connection,
                                              committable=committable,
                                              logger=logger)
-    elif curr_engine in ["oracle", "sqlserver"]:
+    elif curr_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
         set_items: str = _bind_columns(engine=engine,
                                        columns=set_attrs,
                                        concat=", ",
@@ -861,7 +868,7 @@ def db_bulk_update(errors: list[str] | None,
                                          concat=" AND ",
                                          start_index=len(set_attrs)+1)
         update_stmt: str = f"UPDATE {target_table} SET {set_items} WHERE {where_items}"
-        if curr_engine == "oracle":
+        if curr_engine == DbEngine.ORACLE:
             from . import oracle_pomes
             result = oracle_pomes.bulk_execute(errors=op_errors,
                                                exc_stmt=update_stmt,
@@ -888,7 +895,7 @@ def db_bulk_delete(errors: list[str] | None,
                    target_table: str,
                    where_attrs: list[str],
                    where_vals: list[tuple],
-                   engine: str = None,
+                   engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
                    logger: Logger = None) -> int:
@@ -918,11 +925,11 @@ def db_bulk_delete(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
-    if curr_engine == "mysql":
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
+    if curr_engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == "postgres":
+    elif curr_engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         delete_stmt: str = (f"DELETE FROM {target_table} "
                             f"WHERE ({', '.join(where_attrs)}) IN (%s)")
@@ -932,13 +939,13 @@ def db_bulk_delete(errors: list[str] | None,
                                              conn=connection,
                                              committable=committable,
                                              logger=logger)
-    elif curr_engine in ["oracle", "sqlserver"]:
+    elif curr_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
         where_items: str = _bind_columns(engine=engine,
                                          columns=where_attrs,
                                          concat=" AND",
                                          start_index=1)
         delete_stmt: str = f"DELETE FROM {target_table} WHERE {where_items}"
-        if curr_engine == "oracle":
+        if curr_engine == DbEngine.ORACLE:
             from . import oracle_pomes
             result = oracle_pomes.bulk_execute(errors=op_errors,
                                                exc_stmt=delete_stmt,
@@ -946,7 +953,7 @@ def db_bulk_delete(errors: list[str] | None,
                                                conn=connection,
                                                committable=committable,
                                                logger=logger)
-        elif curr_engine == "sqlserver":
+        else:
             from . import sqlserver_pomes
             result = sqlserver_pomes.bulk_execute(errors=op_errors,
                                                   exc_stmt=delete_stmt,
@@ -968,7 +975,7 @@ def db_update_lob(errors: list[str] | None,
                   pk_vals: tuple,
                   lob_data: bytes | str | Path | BinaryIO,
                   chunk_size: int,
-                  engine: str = None,
+                  engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
                   logger: Logger = None) -> None:
@@ -998,11 +1005,11 @@ def db_update_lob(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
-    if curr_engine == "mysql":
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
+    if curr_engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == "oracle":
+    elif curr_engine == DbEngine.ORACLE:
         from . import oracle_pomes
         oracle_pomes.update_lob(errors=op_errors,
                                 lob_table=lob_table,
@@ -1014,7 +1021,7 @@ def db_update_lob(errors: list[str] | None,
                                 conn=connection,
                                 committable=committable,
                                 logger=logger)
-    elif curr_engine == "postgres":
+    elif curr_engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         postgres_pomes.update_lob(errors=op_errors,
                                   lob_table=lob_table,
@@ -1026,7 +1033,7 @@ def db_update_lob(errors: list[str] | None,
                                   conn=connection,
                                   committable=committable,
                                   logger=logger)
-    elif curr_engine == "sqlserver":
+    elif curr_engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
         sqlserver_pomes.update_lob(errors=op_errors,
                                    lob_table=lob_table,
@@ -1046,7 +1053,7 @@ def db_update_lob(errors: list[str] | None,
 def db_execute(errors: list[str] | None,
                exc_stmt: str,
                bind_vals: tuple = None,
-               engine: str = None,
+               engine: DbEngine = None,
                connection: Any = None,
                committable: bool = None,
                logger: Logger = None) -> int:
@@ -1081,15 +1088,15 @@ def db_execute(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
     # establish the correct bind tags
     if bind_vals and DB_BIND_META_TAG in exc_stmt:
         exc_stmt = db_bind_stmt(stmt=exc_stmt,
                                 engine=curr_engine)
-    if curr_engine == "mysql":
+    if curr_engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == "oracle":
+    elif curr_engine == DbEngine.ORACLE:
         from . import oracle_pomes
         result = oracle_pomes.execute(errors=op_errors,
                                       exc_stmt=exc_stmt,
@@ -1097,7 +1104,7 @@ def db_execute(errors: list[str] | None,
                                       conn=connection,
                                       committable=committable,
                                       logger=logger)
-    elif curr_engine == "postgres":
+    elif curr_engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         result = postgres_pomes.execute(errors=op_errors,
                                         exc_stmt=exc_stmt,
@@ -1105,7 +1112,7 @@ def db_execute(errors: list[str] | None,
                                         conn=connection,
                                         committable=committable,
                                         logger=logger)
-    elif curr_engine == "sqlserver":
+    elif curr_engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
         result = sqlserver_pomes.execute(errors=op_errors,
                                          exc_stmt=exc_stmt,
@@ -1123,7 +1130,7 @@ def db_execute(errors: list[str] | None,
 def db_call_function(errors: list[str] | None,
                      func_name: str,
                      func_vals: tuple = None,
-                     engine: str = None,
+                     engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
                      logger: Logger = None) -> list[tuple]:
@@ -1150,11 +1157,11 @@ def db_call_function(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
-    if curr_engine == "mysql":
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
+    if curr_engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == "oracle":
+    elif curr_engine == DbEngine.ORACLE:
         from . import oracle_pomes
         result = oracle_pomes.call_function(errors=op_errors,
                                             func_name=func_name,
@@ -1162,7 +1169,7 @@ def db_call_function(errors: list[str] | None,
                                             conn=connection,
                                             committable=committable,
                                             logger=logger)
-    elif curr_engine == "postgres":
+    elif curr_engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         result = postgres_pomes.call_procedure(errors=op_errors,
                                                proc_name=func_name,
@@ -1170,7 +1177,7 @@ def db_call_function(errors: list[str] | None,
                                                conn=connection,
                                                committable=committable,
                                                logger=logger)
-    elif curr_engine == "sqlserver":
+    elif curr_engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
         result = sqlserver_pomes.call_procedure(errors=op_errors,
                                                 proc_name=func_name,
@@ -1188,7 +1195,7 @@ def db_call_function(errors: list[str] | None,
 def db_call_procedure(errors: list[str] | None,
                       proc_name: str,
                       proc_vals: tuple = None,
-                      engine: str = None,
+                      engine: DbEngine = None,
                       connection: Any = None,
                       committable: bool = None,
                       logger: Logger = None) -> list[tuple]:
@@ -1215,11 +1222,11 @@ def db_call_procedure(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
-    if curr_engine == "mysql":
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
+    if curr_engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == "oracle":
+    elif curr_engine == DbEngine.ORACLE:
         from . import oracle_pomes
         result = oracle_pomes.call_procedure(errors=op_errors,
                                              proc_name=proc_name,
@@ -1227,7 +1234,7 @@ def db_call_procedure(errors: list[str] | None,
                                              conn=connection,
                                              committable=committable,
                                              logger=logger)
-    elif curr_engine == "postgres":
+    elif curr_engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         result = postgres_pomes.call_procedure(errors=op_errors,
                                                proc_name=proc_name,
@@ -1235,7 +1242,7 @@ def db_call_procedure(errors: list[str] | None,
                                                conn=connection,
                                                committable=committable,
                                                logger=logger)
-    elif curr_engine == "sqlserver":
+    elif curr_engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
         result = sqlserver_pomes.call_procedure(errors=op_errors,
                                                 proc_name=proc_name,

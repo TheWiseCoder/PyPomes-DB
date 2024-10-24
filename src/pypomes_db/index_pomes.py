@@ -2,15 +2,15 @@ from logging import Logger
 from pypomes_core import str_positional
 from typing import Any
 
+from .db_common import DbEngine, _assert_engine
 from .db_pomes import db_select
-from .db_common import _assert_engine
 
 
 def db_get_indexes(errors: list[str] | None,
                    schema: str = None,
                    omit_pks: bool = True,
                    tables: list[str] = None,
-                   engine: str = None,
+                   engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
                    logger: Logger = None) -> list[str]:
@@ -42,15 +42,15 @@ def db_get_indexes(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
     # proceed, if no errors
     if not op_errors:
         # process table names
-        tbl_name = str_positional(source=curr_engine,
+        tbl_name = str_positional(source=str(curr_engine),
                                   list_origin=["oracle", "postgres", "sqlserver"],
                                   list_dest=["table_name", "LOWER(t.relname)", "LOWER(t.name)"])
-        sch_name = str_positional(source=curr_engine,
+        sch_name = str_positional(source=str(curr_engine),
                                   list_origin=["oracle", "postgres", "sqlserver"],
                                   list_dest=["aic.table_name",
                                              "LOWER(ns.nspname)", "SCHEMA_NAME(t.schema_id)"])
@@ -62,12 +62,12 @@ def db_get_indexes(errors: list[str] | None,
             # is 'table' schema-qualified ?
             if len(splits) == 1:
                 # no
-                tbl_value: str = table.upper() if curr_engine == "oracle" else table.lower()
+                tbl_value: str = table.upper() if curr_engine == DbEngine.ORACLE else table.lower()
                 in_tables += f"'{tbl_value}',"
             else:
                 # yes
-                tbl_value: str = splits[1].upper() if curr_engine == "oracle" else splits[1].lower()
-                sch_value: str = splits[0].upper() if curr_engine == "oracle" else splits[0].lower()
+                tbl_value: str = splits[1].upper() if curr_engine == DbEngine.ORACLE else splits[1].lower()
+                sch_value: str = splits[0].upper() if curr_engine == DbEngine.ORACLE else splits[0].lower()
                 where_tables += (f"({tbl_name} = '{tbl_value}' "
                                  f"AND {sch_name} = '{sch_value}') OR ")
         if in_tables:
@@ -78,9 +78,9 @@ def db_get_indexes(errors: list[str] | None,
         # build the query
         sel_stmt: str | None = None
         match curr_engine:
-            case "mysql":
+            case DbEngine.MYSQL:
                 pass
-            case "oracle":
+            case DbEngine.ORACLE:
                 sel_stmt: str = "SELECT ai.index_name FROM all_indexes ai "
                 if omit_pks:
                     sel_stmt += ("INNER JOIN all_ind_columns aic ON ai.index_name = aic.index_name "
@@ -94,7 +94,7 @@ def db_get_indexes(errors: list[str] | None,
                 if where_tables:
                     sel_stmt += f"({where_tables}) AND "
                 sel_stmt = sel_stmt[:-5]
-            case "postgres":
+            case DbEngine.POSTGRES:
                 sel_stmt: str = ("SELECT i.relname FROM pg_class t "
                                  "INNER JOIN pg_namespace ns ON ns.oid = t.relnamespace "
                                  "INNER JOIN pg_index ix ON ix.indrelid = t.oid "
@@ -108,7 +108,7 @@ def db_get_indexes(errors: list[str] | None,
                 if where_tables:
                     sel_stmt += f"({where_tables}) AND "
                 sel_stmt = sel_stmt[:-5]
-            case "sqlserver":
+            case DbEngine.SQLSERVER:
                 sel_stmt = ("SELECT i.name FROM sys.tables t "
                             "INNER JOIN sys.indexes i ON i.object_id = t.object_id")
                 if omit_pks or schema or where_tables:
@@ -141,7 +141,7 @@ def db_get_indexes(errors: list[str] | None,
 
 def db_get_index_ddl(errors: list[str] | None,
                      index_name: str,
-                     engine: str = None,
+                     engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
                      logger: Logger = None) -> str:
@@ -168,8 +168,8 @@ def db_get_index_ddl(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
 
     # is 'index_name' schema-qualified ?
     splits: list[str] = index_name.split(".")
@@ -185,17 +185,17 @@ def db_get_index_ddl(errors: list[str] | None,
 
         # build the query
         sel_stmt: str | None = None
-        if curr_engine == "mysql":
+        if curr_engine== DbEngine.MYSQL:
             pass
-        if curr_engine == "oracle":
+        if curr_engine == DbEngine.ORACLE:
             sel_stmt = ("SELECT DBMS_METADATA.GET_DDL('INDEX', "
                         f"'{index_name.upper()}', '{schema_name.upper()}') "
                         "FROM DUAL")
-        elif curr_engine == "postgres":
+        elif curr_engine == DbEngine.POSTGRES:
             sel_stmt = ("SELECT pg_get_indexdef("
                         f"(quote_ident('{schema_name.lower()}') || '.' || "
                         f"quote_ident('{index_name.lower()}'))::regclass))")
-        elif curr_engine == "sqlserver":
+        elif curr_engine == DbEngine.SQLSERVER:
             sel_stmt = ("SELECT OBJECT_DEFINITION (OBJECT_ID("
                         f"'{schema_name.lower()}.{index_name.lower()}'))")
 

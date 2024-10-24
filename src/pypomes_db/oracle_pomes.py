@@ -2,11 +2,13 @@ import oracledb
 from logging import Logger
 from oracledb import Connection, init_oracle_client, makedsn
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
+from . import DbParam
 from .db_common import (
-    _DB_CONN_DATA,
-    _assert_query_quota, _build_query_msg, _get_params, _except_msg
+    DbEngine,
+    _assert_query_quota, _build_query_msg,
+    _get_param, _get_params, _except_msg
 )
 def get_connection_string() -> str:
     """
@@ -15,13 +17,13 @@ def get_connection_string() -> str:
     :return: the connection string
     """
     # retrieve the connection parameters
-    name, user, pwd, host, port = _get_params("oracle")
+    db_params: dict[DbParam, Any] = _get_params(DbEngine.ORACLE)
 
     # build and return the connection string
-    dsn: str = makedsn(host=host,
-                       port=port,
-                       service_name=name)
-    return f"oracle+oracledb://{user}:{pwd}@{dsn}"
+    dsn: str = makedsn(host=db_params.get(DbParam.HOST),
+                       port=db_params.get(DbParam.PORT),
+                       service_name=db_params.get(DbParam.NAME))
+    return f"oracle+oracledb://{db_params.get(DbParam.USER)}:{db_params.get(DbParam.PWD)}@{dsn}"
 
 
 def connect(errors: list[str],
@@ -41,28 +43,29 @@ def connect(errors: list[str],
     result: Connection | None = None
 
     # retrieve the connection parameters
-    name, user, pwd, host, port = _get_params("oracle")
+    db_params: dict[DbParam, Any] = _get_params(DbEngine.ORACLE)
 
     # obtain a connection to the database
     err_msg: str | None = None
     try:
-        result = oracledb.connect(service_name=name,
-                                  host=host,
-                                  port=port,
-                                  user=user,
-                                  password=pwd)
+        result = oracledb.connect(service_name=db_params.get(DbParam.NAME),
+                                  host=db_params.get(DbParam.HOST),
+                                  port=db_params.get(DbParam.PORT),
+                                  user=db_params.get(DbParam.USER),
+                                  password=db_params.get(DbParam.PWD))
         # establish the connection's autocommit mode
         result.autocommit = isinstance(autocommit, bool) and autocommit
     except Exception as e:
         err_msg = _except_msg(exception=e,
-                              engine="oracle")
+                              engine=DbEngine.ORACLE)
     # log eventual errors
     if err_msg:
         if isinstance(errors, list):
             errors.append(err_msg)
         if logger:
             logger.error(err_msg)
-            logger.error(msg=f"Error connecting to '{name}' at '{host}'")
+            logger.error(msg=(f"Error connecting to '{db_params.get(DbParam.NAME)} '"
+                              f"at '{db_params.get(DbParam.NAME)}'"))
 
     return result
 
@@ -127,7 +130,7 @@ def select(errors: list[str] | None,
 
                 # has the query quota been satisfied ?
                 if _assert_query_quota(errors=errors,
-                                       engine="oracle",
+                                       engine=DbEngine.ORACLE,
                                        query=sel_stmt,
                                        where_vals=where_vals,
                                        count=count,
@@ -147,7 +150,7 @@ def select(errors: list[str] | None,
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="oracle")
+                                  engine=DbEngine.ORACLE)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -160,7 +163,7 @@ def select(errors: list[str] | None,
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=sel_stmt,
-                                                  engine="oracle",
+                                                  engine=DbEngine.ORACLE,
                                                   bind_vals=where_vals))
     return result
 
@@ -215,7 +218,7 @@ def execute(errors: list[str] | None,
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="oracle")
+                                  engine=DbEngine.ORACLE)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -226,7 +229,7 @@ def execute(errors: list[str] | None,
             errors.append(err_msg)
         if logger:
             logger.debug(msg=_build_query_msg(query_stmt=exc_stmt,
-                                              engine="oracle",
+                                              engine=DbEngine.ORACLE,
                                               bind_vals=bind_vals))
     return result
 
@@ -279,7 +282,7 @@ def bulk_execute(errors: list[str] | None,
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="oracle")
+                                  engine=DbEngine.ORACLE)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -292,7 +295,7 @@ def bulk_execute(errors: list[str] | None,
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
-                                                  engine="oracle",
+                                                  engine=DbEngine.ORACLE,
                                                   bind_vals=exc_vals[0]))
     return result
 
@@ -379,7 +382,7 @@ def update_lob(errors: list[str],
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="oracle")
+                                  engine=DbEngine.ORACLE)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -392,7 +395,7 @@ def update_lob(errors: list[str],
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=update_stmt,
-                                                  engine="oracle",
+                                                  engine=DbEngine.ORACLE,
                                                   bind_vals=pk_vals))
 
 
@@ -471,7 +474,7 @@ def call_procedure(errors: list[str] | None,
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="oracle")
+                                  engine=DbEngine.ORACLE)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -484,7 +487,7 @@ def call_procedure(errors: list[str] | None,
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=proc_name,
-                                                  engine="oracle",
+                                                  engine=DbEngine.ORACLE,
                                                   bind_vals=proc_vals))
     return result
 
@@ -506,14 +509,15 @@ def initialize(errors: list[str],
     global __is_initialized
     if not __is_initialized:
         err_msg: str | None = None
-        client: Path = _DB_CONN_DATA["oracle"]["client"]
+        client: Path = _get_param(engine=DbEngine.ORACLE,
+                                  param=DbParam.CLIENT)
         try:
             init_oracle_client(client.as_posix())
             __is_initialized = True
         except Exception as e:
             result = False
             err_msg = _except_msg(exception=e,
-                                  engine="oracle")
+                                  engine=DbEngine.ORACLE)
         # log the results
         if err_msg and isinstance(errors, list):
             errors.append(err_msg)

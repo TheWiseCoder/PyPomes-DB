@@ -1,9 +1,28 @@
 from pypomes_core import (
     APP_PREFIX,
-    env_get_int, env_get_str, env_get_path,
+    env_get_int, env_get_str, env_get_strs, env_get_path,
     str_sanitize, str_positional
 )
+from enum import StrEnum, auto
 from typing import Any, Final
+
+
+class DbEngine(StrEnum):
+    MYSQL = auto()
+    ORACLE = auto()
+    POSTGRES = auto()
+    SQLSERVER = auto()
+
+
+class DbParam(StrEnum):
+    NAME = auto()
+    USER = auto()
+    PWD = auto()
+    HOST = auto()
+    PORT = auto()
+    CLIENT = auto()
+    DRIVER = auto()
+
 
 # the bind meta-tag to use in DML statements
 # (guarantees cross-engine compatilitiy, as this is replaced by the engine's bind tag)
@@ -27,40 +46,41 @@ DB_BIND_META_TAG: Final[str] = env_get_str(key=f"{APP_PREFIX}_DB_BIND_META_TAG",
 #   'MSQL', 'ORCL', 'PG', and 'SQLS', respectively for the engines listed above
 
 _DB_CONN_DATA: dict = {}
-_DB_ENGINES: list[str] = []
-_prefix: str = env_get_str(key=f"{APP_PREFIX}_DB_ENGINE")
-if _prefix:
+_DB_ENGINES: list[DbEngine] = []
+_engine: str = env_get_str(key=f"{APP_PREFIX}_DB_ENGINE",
+                           values=list(map(str, DbEngine)))
+if _engine:
     _default_setup: bool = True
-    _DB_ENGINES.append(_prefix)
+    _DB_ENGINES.append(DbEngine(_engine))
 else:
     _default_setup: bool = False
-    _engines: str = env_get_str(key=f"{APP_PREFIX}_DB_ENGINES")
+    _engines: list[str] = env_get_strs(key=f"{APP_PREFIX}_DB_ENGINES",
+                                       values=list(map(str, DbEngine)))
     if _engines:
-        _DB_ENGINES.extend(_engines.split(sep=","))
-for engine in _DB_ENGINES:
+        _DB_ENGINES.extend([DbEngine(v) for v in _engines])
+for _db_engine in _DB_ENGINES:
     if _default_setup:
-        _tag = "DB"
+        _prefix: str = "DB"
         _default_setup = False
     else:
-        _tag: str = str_positional(source=engine,
-                                   list_origin=["mysql", "oracle", "postgres", "sqlserver"],
-                                   list_dest=["MSQL", "ORCL", "PG", "SQLS"])
-    _db_data = {
-        "name":  env_get_str(key=f"{APP_PREFIX}_{_tag}_NAME"),
-        "user": env_get_str(key=f"{APP_PREFIX}_{_tag}_USER"),
-        "pwd": env_get_str(key=f"{APP_PREFIX}_{_tag}_PWD"),
-        "host": env_get_str(key=f"{APP_PREFIX}_{_tag}_HOST"),
-        "port": env_get_int(key=f"{APP_PREFIX}_{_tag}_PORT")
+        _prefix: str = str_positional(source=str(_db_engine),
+                                      list_origin=["mysql", "oracle", "postgres", "sqlserver"],
+                                      list_dest=["MSQL", "ORCL", "PG", "SQLS"])
+    _DB_CONN_DATA[_db_engine] = {
+        DbParam.NAME: env_get_str(key=f"{APP_PREFIX}_{_prefix}_NAME"),
+        DbParam.USER: env_get_str(key=f"{APP_PREFIX}_{_prefix}_USER"),
+        DbParam.PWD: env_get_str(key=f"{APP_PREFIX}_{_prefix}_PWD"),
+        DbParam.HOST: env_get_str(key=f"{APP_PREFIX}_{_prefix}_HOST"),
+        DbParam.PORT: env_get_int(key=f"{APP_PREFIX}_{_prefix}_PORT")
     }
-    if engine == "oracle":
-        _db_data["client"] = env_get_path(key=f"{APP_PREFIX}_{_tag}_CLIENT")
-    elif engine == "sqlserver":
-        _db_data["driver"] = env_get_str(key=f"{APP_PREFIX}_{_tag}_DRIVER")
-    _DB_CONN_DATA[engine] = _db_data
+    if _db_engine == DbEngine.ORACLE:
+        _DB_CONN_DATA[_db_engine][DbParam.CLIENT] = env_get_path(key=f"{APP_PREFIX}_{_prefix}_CLIENT")
+    elif _db_engine == DbEngine.SQLSERVER:
+        _DB_CONN_DATA[_db_engine][DbParam.DRIVER] = env_get_str(key=f"{APP_PREFIX}_{_prefix}_DRIVER")
 
 
 def _assert_engine(errors: list[str],
-                   engine: str) -> str:
+                   engine: DbEngine) -> DbEngine:
     """
     Verify if *engine* is in the list of supported engines.
 
@@ -72,7 +92,7 @@ def _assert_engine(errors: list[str],
     :return: the validated or default engine
     """
     # initialize the return valiable
-    result: str | None = None
+    result: DbEngine | None = None
 
     if not engine and _DB_ENGINES:
         result = _DB_ENGINES[0]
@@ -86,7 +106,7 @@ def _assert_engine(errors: list[str],
 
 
 def _assert_query_quota(errors: list[str],
-                        engine: str,
+                        engine: DbEngine,
                         query: str,
                         where_vals: tuple,
                         count: int,
@@ -141,8 +161,8 @@ def _assert_query_quota(errors: list[str],
     return result
 
 
-def _get_param(engine: str,
-               param: str) -> Any:
+def _get_param(engine: DbEngine,
+               param: DbParam) -> Any:
     """
     Return the current value of *param* being used by *engine*.
 
@@ -150,41 +170,21 @@ def _get_param(engine: str,
     :param param: the reference parameter
     :return: the parameter's current value
     """
-    return _DB_CONN_DATA.get(engine or {}).get(param)
+    return (_DB_CONN_DATA.get(engine) or {}).get(param)
 
 
-def _get_params(engine: str) -> tuple:
+def _get_params(engine: DbEngine) -> dict[DbParam, Any]:
     """
     Return the current connection parameters being used for *engine*.
-
-    The connection parameters are returned as a *tuple*, with the elements
-    *name*, *user*, *pwd*, *host*, *port*.
-    For *oracle* engines, the extra element *client* is returned.
-    For *sqlserver* engines, the extra element *driver* is returned.
-    The meaning of some parameters may vary between different database engines.
 
     :param engine: the reference database engine
     :return: the current connection parameters for the engine
     """
-    conn_data: dict = _DB_CONN_DATA[engine] or {}
-    name: str = conn_data.get("name")
-    user: str = conn_data.get("user")
-    pwd: str = conn_data.get("pwd")
-    host: str = conn_data.get("host")
-    port: int = conn_data.get("port")
-
-    result: tuple
-    if engine == "sqlserver":
-        driver: str = conn_data.get("driver")
-        result = (name, user, pwd, host, port, driver)
-    else:
-        result = (name, user, pwd, host, port)
-
-    return result
+    return _DB_CONN_DATA.get(engine)
 
 
 def _except_msg(exception: Exception,
-                engine: str) -> str:
+                engine: DbEngine) -> str:
     """
     Format and return the error message corresponding to the exception raised while accessing the database.
 
@@ -192,13 +192,13 @@ def _except_msg(exception: Exception,
     :param engine: the reference database engine
     :return: the formatted error message
     """
-    name: str = _DB_CONN_DATA[engine].get("name")
-    host: str = _DB_CONN_DATA[engine].get("host")
-    return f"Error accessing '{name}' at '{host}': {str_sanitize(f'{exception}')}"
+    db_data: dict[DbParam, Any] = _DB_CONN_DATA.get(engine) or {}
+    return (f"Error accessing '{db_data.get(DbParam.NAME)}' "
+            f"at '{db_data.get(DbParam.HOST)}': {str_sanitize(f'{exception}')}")
 
 
 def _build_query_msg(query_stmt: str,
-                     engine: str,
+                     engine: DbEngine,
                      bind_vals: tuple) -> str:
     """
     Format and return the message indicative of a query problem.
@@ -216,17 +216,19 @@ def _build_query_msg(query_stmt: str,
         else:
             sval: str = str(val)
         match engine:
-            case "oracle":
+            case DbEngine.MYSQL:
+                pass
+            case DbEngine.ORACLE:
                 result = result.replace(f":{inx}", sval, 1)
-            case "postgres":
+            case DbEngine.POSTGRES:
                 result = result.replace("%s", sval, 1)
-            case "sqlserver":
+            case DbEngine.SQLSERVER:
                 result = result.replace("?", sval, 1)
 
     return result
 
 
-def _bind_columns(engine: str,
+def _bind_columns(engine: DbEngine,
                   columns: list[str],
                   concat: str,
                   start_index: int) -> str:
@@ -246,21 +248,21 @@ def _bind_columns(engine: str,
     result: str | None = None
 
     match engine:
-        case "mysql":
+        case DbEngine.MYSQL:
             pass
-        case "oracle":
+        case DbEngine.ORACLE:
             result = concat.join([f"{column} = :{inx}"
                                  for inx, column in enumerate(iterable=columns,
                                                               start=start_index)])
-        case "postgres":
+        case DbEngine.POSTGRES:
             result =  concat.join([f"{column} = %s" for column in columns])
-        case "sqlserver":
+        case DbEngine.SQLSERVER:
             result = concat.join([f"{column} = ?" for column in columns])
 
     return result
 
 
-def _bind_marks(engine: str,
+def _bind_marks(engine: DbEngine,
                 start: int,
                 finish: int) -> str:
     """
@@ -275,13 +277,13 @@ def _bind_marks(engine: str,
     result: str | None = None
 
     match engine:
-        case "mysql":
+        case DbEngine.MYSQL:
             pass
-        case "oracle":
+        case DbEngine.ORACLE:
             result = ",".join([f":{inx}" for inx in range(start, finish)])
-        case "postgres":
+        case DbEngine.POSTGRES:
             result = ",".join(["%s" for _inx in range(start, finish)])
-        case "sqlserver":
+        case DbEngine.SQLSERVER:
             result = ",".join(["?" for _inx in range(start, finish)])
 
     return result
@@ -290,7 +292,7 @@ def _bind_marks(engine: str,
 def _combine_search_data(query_stmt: str,
                          where_vals: tuple,
                          where_data: dict[str, Any],
-                         engine: str) -> tuple[str, tuple]:
+                         engine: DbEngine) -> tuple[str, tuple]:
     """
     Rebuild the query statement *stmt* and the list of bind values *where_vals*.
 
@@ -325,7 +327,7 @@ def _combine_search_data(query_stmt: str,
         query_stmt = query_stmt.replace(f"{where} ", f"{where} (") + ")"
         for key, value in where_data.items():
             if isinstance(value, list | tuple):
-                if engine == "postgres":
+                if engine == DbEngine.POSTGRES:
                     where_vals.append(value)
                     query_stmt += f" AND {key} IN {DB_BIND_META_TAG}"
                 else:
@@ -343,7 +345,7 @@ def _combine_search_data(query_stmt: str,
         where_vals = []
         for key, value in where_data.items():
             if isinstance(value, list | tuple):
-                if engine == "postgres":
+                if engine == DbEngine.POSTGRES:
                     where_vals.append(value)
                     query_stmt += f"{key} IN {DB_BIND_META_TAG} AND "
                 else:

@@ -6,9 +6,10 @@ from psycopg2.extras import execute_values
 # noinspection PyProtectedMember
 from psycopg2._psycopg import connection
 from pypomes_core import str_between
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from .db_common import (
+    DbEngine, DbParam,
     _assert_query_quota, _build_query_msg, _get_params, _except_msg
 )
 
@@ -20,10 +21,12 @@ def get_connection_string() -> str:
     :return: the connection string
     """
     # retrieve the connection parameters
-    name, user, pwd, host, port = _get_params("postgres")
+    db_params: dict[DbParam, Any] = _get_params(DbEngine.POSTGRES)
 
     # build and return the connection string
-    return f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{name}"
+    return (f"postgresql+psycopg2://{db_params.get(DbParam.USER)}:"
+            f"{db_params.get(DbParam.PWD)}@{db_params.get(DbParam.HOST)}:"
+            f"{db_params.get(DbParam.PORT)}/{db_params.get(DbParam.NAME)}")
 
 
 def connect(errors: list[str],
@@ -43,29 +46,29 @@ def connect(errors: list[str],
     result: connection | None = None
 
     # retrieve the connection parameters
-    name, user, pwd, host, port = _get_params("postgres")
+    db_params: dict[DbParam, Any] = _get_params(DbEngine.POSTGRES)
 
     # obtain a connection to the database
     err_msg: str | None = None
     try:
-        result = psycopg2.connect(host=host,
-                                  port=port,
-                                  database=name,
-                                  user=user,
-                                  password=pwd)
+        result = psycopg2.connect(host=db_params.get(DbParam.HOST),
+                                  port=db_params.get(DbParam.PORT),
+                                  database=db_params.get(DbParam.NAME),
+                                  user=db_params.get(DbParam.USER),
+                                  password=db_params.get(DbParam.PWD))
         # establish the connection's autocommit mode
         result.autocommit = isinstance(autocommit, bool) and autocommit
     except Exception as e:
         err_msg = _except_msg(exception=e,
-                              engine="postgres")
+                              engine=DbEngine.POSTGRES)
     # log eventual errors
     if err_msg:
         if isinstance(errors, list):
             errors.append(err_msg)
         if logger:
             logger.error(err_msg)
-            logger.error(msg=f"Error connecting to '{name}' at '{host}'")
-
+            logger.error(msg="Error connecting to "
+                             f"'{db_params.get(DbParam.NAME)}' at '{db_params.get(DbParam.HOST)}'")
     return result
 
 
@@ -129,7 +132,7 @@ def select(errors: list[str] | None,
 
                 # has the query quota been satisfied ?
                 if _assert_query_quota(errors=errors,
-                                       engine="postgres",
+                                       engine=DbEngine.POSTGRES,
                                        query=sel_stmt,
                                        where_vals=where_vals,
                                        count=count,
@@ -146,7 +149,7 @@ def select(errors: list[str] | None,
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="postgres")
+                                  engine=DbEngine.POSTGRES)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -159,7 +162,7 @@ def select(errors: list[str] | None,
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=sel_stmt,
-                                                  engine="postgres",
+                                                  engine=DbEngine.POSTGRES,
                                                   bind_vals=where_vals))
 
     return result
@@ -215,7 +218,7 @@ def execute(errors: list[str] | None,
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="postgres")
+                                  engine=DbEngine.POSTGRES)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -228,7 +231,7 @@ def execute(errors: list[str] | None,
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
-                                                  engine="postgres",
+                                                  engine=DbEngine.POSTGRES,
                                                   bind_vals=bind_vals))
     return result
 
@@ -285,7 +288,7 @@ def bulk_execute(errors: list[str],
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="postgres")
+                                  engine=DbEngine.POSTGRES)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -381,7 +384,7 @@ def update_lob(errors: list[str],
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="postgres")
+                                  engine=DbEngine.POSTGRES)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -394,7 +397,7 @@ def update_lob(errors: list[str],
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=update_stmt,
-                                                  engine="postgres",
+                                                  engine=DbEngine.POSTGRES,
                                                   bind_vals=pk_vals))
 
 
@@ -446,7 +449,7 @@ def call_procedure(errors: list[str] | None,
             if curr_conn:
                 curr_conn.rollback()
             err_msg = _except_msg(exception=e,
-                                  engine="postgres")
+                                  engine=DbEngine.POSTGRES)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -459,7 +462,7 @@ def call_procedure(errors: list[str] | None,
             if logger:
                 logger.error(err_msg)
                 logger.error(msg=_build_query_msg(query_stmt=proc_stmt,
-                                                  engine="postgres",
+                                                  engine=DbEngine.POSTGRES,
                                                   bind_vals=proc_vals))
 
     return result

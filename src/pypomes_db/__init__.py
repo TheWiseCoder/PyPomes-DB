@@ -1,5 +1,5 @@
 from .db_common import (
-    DB_BIND_META_TAG
+    DB_BIND_META_TAG, DbEngine, DbParam
 )
 from .db_pomes import (
     db_setup, db_get_engines, db_get_param, db_get_params,
@@ -29,7 +29,7 @@ from .view_pomes import (
 
 __all__ = [
     # db_common
-    "DB_BIND_META_TAG",
+    "DB_BIND_META_TAG", "DbEngine", "DbParam",
     # db_pomes
     "db_setup", "db_get_engines", "db_get_param", "db_get_params",
     "db_get_connection_string", "db_assert_connection",

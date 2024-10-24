@@ -1,13 +1,13 @@
 from logging import Logger
 from typing import Any
 
+from .db_common import DbEngine, _assert_engine
 from .db_pomes import db_execute, db_select
-from .db_common import _assert_engine
 
 
 def db_get_tables(errors: list[str] | None,
                   schema: str = None,
-                  engine: str = None,
+                  engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
                   logger: Logger = None) -> list[str]:
@@ -32,12 +32,12 @@ def db_get_tables(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
     # proceed, if no errors
     if not op_errors:
         # build the query
-        if curr_engine == "oracle":
+        if curr_engine == DbEngine.ORACLE:
             sel_stmt: str = "SELECT schema_name || '.' || table_name FROM all_tables"
             if schema:
                 sel_stmt += f" WHERE owner = '{schema.upper()}'"
@@ -68,7 +68,7 @@ def db_get_tables(errors: list[str] | None,
 
 def db_table_exists(errors: list[str] | None,
                     table_name: str,
-                    engine: str = None,
+                    engine: DbEngine = None,
                     connection: Any = None,
                     committable: bool = None,
                     logger: Logger = None) -> bool:
@@ -94,8 +94,8 @@ def db_table_exists(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
     # proceed, if no errors
     if not op_errors:
         # extract the schema, if possible
@@ -106,7 +106,7 @@ def db_table_exists(errors: list[str] | None,
             table_name = splits[1]
 
         # build the query
-        if curr_engine == "oracle":
+        if curr_engine == DbEngine.ORACLE:
             sel_stmt: str = ("SELECT COUNT(*) FROM all_tables "
                              f"WHERE table_name = '{table_name.upper()}'")
             if schema_name:
@@ -139,7 +139,7 @@ def db_table_exists(errors: list[str] | None,
 
 def db_drop_table(errors: list[str] | None,
                   table_name: str,
-                  engine: str = None,
+                  engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
                   logger: Logger = None) -> None:
@@ -163,12 +163,12 @@ def db_drop_table(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
     # proceed, if no errors
     if not op_errors:
         # build the DROP statement
-        if curr_engine == "oracle":
+        if curr_engine == DbEngine.ORACLE:
             # oracle has no 'IF EXISTS' clause
             drop_stmt: str = \
                 (f"BEGIN"
@@ -176,7 +176,7 @@ def db_drop_table(errors: list[str] | None,
                  "EXCEPTION"
                  " WHEN OTHERS THEN NULL; "
                  "END;")
-        elif curr_engine == "postgres":
+        elif curr_engine == DbEngine.POSTGRES:
             drop_stmt: str = \
                 ("DO $$"
                  "BEGIN"
@@ -184,7 +184,7 @@ def db_drop_table(errors: list[str] | None,
                  "EXCEPTION"
                  " WHEN OTHERS THEN NULL; "
                  "END $$;")
-        elif curr_engine == "sqlserver":
+        elif curr_engine == DbEngine.SQLSERVER:
             drop_stmt: str = \
                 ("BEGIN TRY"
                  f" EXEC('DROP TABLE IF EXISTS {table_name} CASCADE;'); "
@@ -209,7 +209,7 @@ def db_drop_table(errors: list[str] | None,
 
 def db_get_table_ddl(errors: list[str] | None,
                      table_name: str,
-                     engine: str = None,
+                     engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
                      logger: Logger = None) -> str:
@@ -237,8 +237,8 @@ def db_get_table_ddl(errors: list[str] | None,
     op_errors: list[str] = []
 
     # determine the database engine
-    curr_engine: str = _assert_engine(errors=op_errors,
-                                      engine=engine)
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
     # is 'table_name' schema-qualified ?
     splits: list[str] = table_name.split(".")
     if len(splits) != 2:
@@ -253,16 +253,16 @@ def db_get_table_ddl(errors: list[str] | None,
 
         # build the query
         sel_stmt: str | None = None
-        if curr_engine == "mysql":
+        if curr_engine== DbEngine.MYSQL:
             pass
-        if curr_engine == "oracle":
+        if curr_engine == DbEngine.ORACLE:
             sel_stmt = ("SELECT DBMS_METADATA.GET_DDL('TABLE', "
                         f"'{table_name.upper()}', '{schema_name.upper()}') "
                         "FROM DUAL")
-        elif curr_engine == "postgres":
+        elif curr_engine == DbEngine.POSTGRES:
             sel_stmt = ("SELECT * FROM public.pg_get_table_def("
                         f"'{schema_name.lower()}', '{table_name.lower()}', false)")
-        elif curr_engine == "sqlserver":
+        elif curr_engine == DbEngine.SQLSERVER:
             # sel_stmt = f"EXEC sp_help '{schema_name}.{table_name}'"
             sel_stmt = ("SELECT OBJECT_DEFINITION (OBJECT_ID("
                         f"'{schema_name.lower()}.{table_name.upper()}'))")
