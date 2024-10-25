@@ -65,7 +65,7 @@ def db_setup(engine: DbEngine,
     return result
 
 
-def db_get_engines() -> list[str]:
+def db_get_engines() -> list[DbEngine]:
     """
     Retrieve and return the list of configured engines.
 
@@ -79,9 +79,9 @@ def db_get_engines() -> list[str]:
 
 
 def db_get_param(key: DbParam,
-                 engine: str = None) -> Any:
+                 engine: DbEngine = None) -> Any:
     """
-    Return the connection parameter value for *key*.
+    Return the current value for connection parameter *key*.
 
     The connection key should be one of *name*, *user*, *pwd*, *host*, and *port*.
     For *oracle* and *sqlserver* engines, the extra keys *client* and *driver*
@@ -100,13 +100,12 @@ def db_get_param(key: DbParam,
 
 def db_get_params(engine: DbEngine = None) -> dict[str, Any]:
     """
-    Return the connection parameters as a *dict*.
+    Return the current connection parameters as a *dict*.
 
     The returned *dict* contains the keys *name*, *user*, *pwd*, *host*, and *port*.
     For *oracle* engines, the returned *dict* contains the extra key *client*.
     For *sqlserver* engines, the returned *dict* contains the extra key *driver*.
     The meaning of these parameters may vary between different database engines.
-    Note that the value of the *pwd* parameter is not returned.
 
     :param engine: the reference database engine (the default engine, if not provided)
     :return: the current connection parameters for the engine
@@ -118,7 +117,7 @@ def db_get_params(engine: DbEngine = None) -> dict[str, Any]:
     db_params: dict[DbParam, Any] = _DB_CONN_DATA.get(curr_engine)
     if db_params:
         # noinspection PyTypeChecker
-        result = {k.value: v for (k, v) in db_params.items()}
+        result = {str(k): v for (k, v) in db_params.items()}
 
     return result
 
