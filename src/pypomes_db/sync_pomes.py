@@ -124,11 +124,19 @@ def db_sync_data(errors: list[str] | None,
             # (parameter is 'statement' for oracle, 'query' for postgres, 'sql' for sqlserver)
             source_cursor.execute(statement=source_sel_stmt.replace("OFFSET @offset ROWS ", ""))
             source_rows: list[tuple] = source_cursor.fetchall()
+            # log query result
+            if logger:
+                logger.debug(msg=(f"Read {len(source_rows)} tuples "
+                                  f"from {source_engine}.{source_table}"))
             if has_nulls and target_engine == "postges":
                 source_rows = _remove_nulls(rows=source_rows)
             source_offset: int = len(source_rows)
             target_cursor.execute(target_sel_stmt.replace("OFFSET @offset ROWS ", ""))
             target_rows: list[tuple] = target_cursor.fetchall()
+            # log query result
+            if logger:
+                logger.debug(msg=(f"Read {len(target_rows)} tuples "
+                                  f"from {target_engine}.{target_table}"))
             target_offset: int = len(target_rows)
             log_count = source_offset
 
@@ -173,6 +181,10 @@ def db_sync_data(errors: list[str] | None,
                     source_cursor.execute(source_sel_stmt.replace("@offset", str(source_offset)))
                     source_rows = source_cursor.fetchall()
                     if source_rows:
+                        # log query result
+                        if logger:
+                            logger.debug(msg=(f"Read {len(source_rows)} tuples "
+                                              f"from {source_engine}.{source_table}"))
                         source_offset += len(source_rows)
                         log_count += source_offset
                         log_step += source_offset
@@ -186,6 +198,10 @@ def db_sync_data(errors: list[str] | None,
                     target_cursor.execute(target_sel_stmt.replace("@offset", str(target_offset)))
                     target_rows = target_cursor.fetchall()
                     if target_rows:
+                        # log query result
+                        if logger:
+                            logger.debug(msg=(f"Read {len(target_rows)} tuples "
+                                              f"from {target_engine}.{target_table}"))
                         target_offset += len(target_rows)
                     else:
                         # no more tuples in target table

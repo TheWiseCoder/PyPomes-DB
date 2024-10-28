@@ -140,6 +140,10 @@ def db_migrate_data(errors: list[str] | None,
                 # execute the query (initial query has no offset)
                 source_cursor.execute(statement=sel_stmt.replace(" OFFSET @offset ROWS", ""))
                 rows: list[tuple] = source_cursor.fetchall()
+                # log query result
+                if logger:
+                    logger.debug(msg=(f"Read {len(rows)} tuples "
+                                      f"from {source_engine}.{source_table}"))
 
                 # traverse the result set
                 while rows:
@@ -174,6 +178,10 @@ def db_migrate_data(errors: list[str] | None,
                     if batch_size:
                         source_cursor.execute(statement=sel_stmt.replace("@offset", str(result)))
                         rows = source_cursor.fetchall()
+                        # log query result
+                        if logger:
+                            logger.debug(msg=(f"Read {len(rows)} tuples "
+                                              f"from {source_engine}.{source_table}"))
                     else:
                         rows = []
 
