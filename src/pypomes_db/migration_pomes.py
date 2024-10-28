@@ -1,3 +1,4 @@
+from contextlib import suppress
 from logging import Logger
 from typing import Any
 
@@ -89,7 +90,7 @@ def db_migrate_data(errors: list[str] | None,
         if orderby_clause:
             sel_stmt += f" ORDER BY {orderby_clause}"
             if batch_size:
-                if source_engine== DbEngine.POSTGRES:
+                if source_engine == DbEngine.POSTGRES:
                     sel_stmt += f" OFFSET @offset ROWS LIMIT {batch_size}"
                 elif source_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                     sel_stmt += f" OFFSET @offset ROWS FETCH NEXT {batch_size} ROWS ONLY"
@@ -98,7 +99,7 @@ def db_migrate_data(errors: list[str] | None,
             batch_size = 0
 
         # build the INSERT query
-        if target_engine== DbEngine.POSTGRES:
+        if target_engine == DbEngine.POSTGRES:
             values: str = "VALUES %s"
             # pre-insert handling of identity columns on Postgres
             if identity_column:
@@ -119,7 +120,7 @@ def db_migrate_data(errors: list[str] | None,
                               f"to {target_engine}.{target_table}"))
 
         # pre-insert handling of identity columns on SQLServer
-        if identity_column and target_engine== DbEngine.SQLSERVER:
+        if identity_column and target_engine == DbEngine.SQLSERVER:
             from . import sqlserver_pomes
             # noinspection PyProtectedMember
             sqlserver_pomes._identity_pre_insert(errors=op_errors,
@@ -134,10 +135,10 @@ def db_migrate_data(errors: list[str] | None,
             try:
                 source_cursor: Any = curr_source_conn.cursor()
                 target_cursor: Any = curr_target_conn.cursor()
-                if target_engine== DbEngine.SQLSERVER:
+                if target_engine == DbEngine.SQLSERVER:
                     target_cursor.fast_executemany = True
-                # execute the query
-                source_cursor.execute(statement=sel_stmt.replace("OFFSET @offset ROWS ", ""))
+                # execute the query (initial query has no offset)
+                source_cursor.execute(statement=sel_stmt.replace(" OFFSET @offset ROWS", ""))
                 rows: list[tuple] = source_cursor.fetchall()
 
                 # traverse the result set
@@ -212,9 +213,11 @@ def db_migrate_data(errors: list[str] | None,
             except Exception as e:
                 # rollback the transactions
                 if curr_source_conn:
-                    curr_source_conn.rollback()
+                    with suppress(Exception):
+                        curr_source_conn.rollback()
                 if curr_target_conn:
-                    curr_target_conn.rollback()
+                    with suppress(Exception):
+                        curr_target_conn.rollback()
                 result = 0
                 err_msg = _except_msg(exception=e,
                                       engine=source_engine)
@@ -285,7 +288,7 @@ def db_migrate_lobs(errors: list[str] | None,
     :param target_committable: whether to commit on *target_conn* upon errorless completion
     :param where_clause: the criteria for tuple selection
     :param accept_empty: account for all LOBs, even empty ones
-    :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
+    :param chunk_size: size in bytes of the data chunk to read/write, or 0 or 'None' for no limit
     :param logger: optional logger
     :param log_trigger: number of LOBs to trigger logging info on migration (defaults to 10000 LOBs)
     :return: the number of LOBs effectively migrated
@@ -391,21 +394,21 @@ def db_migrate_lobs(errors: list[str] | None,
                                           offset=offset)
                         case DbEngine.POSTGRES:
                             from psycopg2 import Binary
-                            # remove append indication on first update
+                            # remove append indication on initial update
                             update_pg: str = update_stmt if offset > 1 else \
                                              update_stmt.replace(f"{target_lob_column} || ", "")
 
-                            # string data may come from LOB (Oracle's NCLOB is a good example)
+                            # string data may come from a LOB (Oracle's NCLOB is a good example)
                             col_data: str | Binary = Binary(lob_data) if isinstance(lob_data, bytes) else lob_data
                             target_cursor.execute(query=update_pg,
                                                   vars=(col_data, *pk_vals))
                         case DbEngine.SQLSERVER:
                             from pyodbc import Binary
-                            # remove append indication on first update
+                            # remove append indication on initial update
                             update_sqls: str = update_stmt if offset > 1 else \
                                                update_stmt.replace(f"{target_lob_column} || ", "")
 
-                            # string data may come from LOB (Oracle's NCLOB is a good example)
+                            # string data may come from a LOB (Oracle's NCLOB is a good example)
                             col_data: str | Binary = Binary(lob_data) if isinstance(lob_data, bytes) else lob_data
                             target_cursor.execute(sql=update_sqls,
                                                   params=(col_data, *pk_vals))
@@ -436,9 +439,11 @@ def db_migrate_lobs(errors: list[str] | None,
         except Exception as e:
             # rollback the transactions
             if curr_source_conn:
-                curr_source_conn.rollback()
+                with suppress(Exception):
+                    curr_source_conn.rollback()
             if curr_target_conn:
-                curr_target_conn.rollback()
+                with suppress(Exception):
+                    curr_target_conn.rollback()
             result = 0
             err_msg = _except_msg(exception=e,
                                   engine=source_engine)
@@ -589,7 +594,8 @@ def db_stream_lobs(errors: list[str] | None,
         except Exception as e:
             # rollback the transactions
             if curr_conn:
-                curr_conn.rollback()
+                with suppress(Exception):
+                    curr_conn.rollback()
             lob_count = 0
             err_msg = _except_msg(exception=e,
                                   engine=engine)

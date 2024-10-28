@@ -1,3 +1,4 @@
+from contextlib import  suppress
 from logging import Logger
 from typing import Any
 
@@ -249,9 +250,11 @@ def db_sync_data(errors: list[str] | None,
         except Exception as e:
             # rollback the transactions
             if curr_source_conn:
-                curr_source_conn.rollback()
+                with suppress(Exception):
+                    curr_source_conn.rollback()
             if curr_target_conn:
-                curr_target_conn.rollback()
+                with suppress(Exception):
+                    curr_target_conn.rollback()
             log_count = 0
             err_msg = _except_msg(exception=e,
                                   engine=source_engine)

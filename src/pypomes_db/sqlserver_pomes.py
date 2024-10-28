@@ -1,4 +1,5 @@
 import pyodbc
+from contextlib import  suppress
 from logging import Logger
 from pyodbc import Binary, Connection, Row
 from pathlib import Path
@@ -148,7 +149,8 @@ def select(errors: list[str] | None,
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
-                curr_conn.rollback()
+                with suppress(Exception):
+                    curr_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   engine=DbEngine.SQLSERVER)
         finally:
@@ -219,7 +221,8 @@ def execute(errors: list[str] | None,
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
-                curr_conn.rollback()
+                with suppress(Exception):
+                    curr_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   engine=DbEngine.SQLSERVER)
         finally:
@@ -284,7 +287,8 @@ def bulk_execute(errors: list[str] | None,
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
-                curr_conn.rollback()
+                with suppress(Exception):
+                    curr_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   engine=DbEngine.SQLSERVER)
         finally:
@@ -381,7 +385,8 @@ def update_lob(errors: list[str],
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
-                curr_conn.rollback()
+                with suppress(Exception):
+                    curr_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   engine=DbEngine.SQLSERVER)
         finally:
@@ -447,7 +452,8 @@ def call_procedure(errors: list[str] | None,
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
-                curr_conn.rollback()
+                with suppress(Exception):
+                    curr_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   engine=DbEngine.SQLSERVER)
         finally:

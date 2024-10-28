@@ -1,4 +1,5 @@
 import oracledb
+from contextlib import  suppress
 from logging import Logger
 from oracledb import Connection, init_oracle_client, makedsn
 from pathlib import Path
@@ -148,7 +149,8 @@ def select(errors: list[str] | None,
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
-                curr_conn.rollback()
+                with suppress(Exception):
+                    curr_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   engine=DbEngine.ORACLE)
         finally:
@@ -216,7 +218,8 @@ def execute(errors: list[str] | None,
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
-                curr_conn.rollback()
+                with suppress(Exception):
+                    curr_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   engine=DbEngine.ORACLE)
         finally:
@@ -280,7 +283,8 @@ def bulk_execute(errors: list[str] | None,
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
-                curr_conn.rollback()
+                with suppress(Exception):
+                    curr_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   engine=DbEngine.ORACLE)
         finally:
