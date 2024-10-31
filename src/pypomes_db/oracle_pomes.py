@@ -1,16 +1,17 @@
 import oracledb
-from contextlib import  suppress
+from contextlib import suppress
 from logging import Logger
 from oracledb import Connection, init_oracle_client, makedsn
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from . import DbParam
 from .db_common import (
-    DbEngine,
+    DbEngine, DbParam,
     _assert_query_quota, _build_query_msg,
     _get_param, _get_params, _except_msg
 )
+
+
 def get_connection_string() -> str:
     """
     Build and return the connection string for connecting to the database.
@@ -378,7 +379,6 @@ def update_lob(errors: list[str],
                         data_bytes = lob_data.read(chunk_size)
                     lob_data.close()
 
-
             # commit the transaction, if appropriate
             if committable or not conn:
                 curr_conn.commit()
@@ -497,6 +497,7 @@ def call_procedure(errors: list[str] | None,
 
 
 __is_initialized: str | None = None
+
 
 def initialize(errors: list[str],
                logger: Logger) -> bool:

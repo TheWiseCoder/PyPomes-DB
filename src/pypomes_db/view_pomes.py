@@ -32,7 +32,7 @@ def db_get_views(errors: list[str] | None,
     :param logger: optional logger
     :return: the schema-qualified views found, or 'None' if an error ocurred
     """
-    #initialize the return variable
+    # initialize the return variable
     result: list[str] | None = None
 
     # initialize the local errors list
@@ -46,7 +46,7 @@ def db_get_views(errors: list[str] | None,
         # build the query
         if curr_engine == DbEngine.ORACLE:
             vw_table: str = "all_mviews" if view_type == "M" else "all_views"
-            vw_name: str = "mview_name"  if view_type == "M" else "view_name"
+            vw_name: str = "mview_name" if view_type == "M" else "view_name"
             sel_stmt: str = f"SELECT owner || '.' || {vw_name} FROM {vw_table}"
             if schema:
                 sel_stmt += f" WHERE owner = '{schema.upper()}'"
@@ -60,7 +60,7 @@ def db_get_views(errors: list[str] | None,
                             "INNER JOIN sys.indexes i ON i.object_id = v.object_id "
                             "WHERE i.index_id < 2")
                 if schema:
-                    sel_stmt +=  f" AND LOWER(SCHEMA_NAME(v.schema_id)) = '{schema.lower()}'"
+                    sel_stmt += f" AND LOWER(SCHEMA_NAME(v.schema_id)) = '{schema.lower()}'"
         else:  # standard views (DbEngine.POSTGRES, DbEngine.SQLSERVER)
             sel_stmt: str = ("SELECT table_schema || '.' || table_name "
                              "FROM information_schema.views")
@@ -130,7 +130,7 @@ def db_view_exists(errors: list[str] | None,
     :param logger: optional logger
     :return: 'True' if the view was found, 'False' otherwise, 'None' if an error ocurred
     """
-    #initialize the return variable
+    # initialize the return variable
     result: bool | None = None
 
     # initialize the local errors list
@@ -168,7 +168,7 @@ def db_view_exists(errors: list[str] | None,
                             "INNER JOIN sys.indexes i ON i.object_id - v.object_id "
                             f"WHERE i.index_id < 2 AND LOWER(table_name) = {view_name.lower()}")
                 if schema_name:
-                    sel_stmt +=  f" AND LOWER(SCHEMA_NAME(v.schema_id)) = {schema_name.lower()}"
+                    sel_stmt += f" AND LOWER(SCHEMA_NAME(v.schema_id)) = {schema_name.lower()}"
 
         else:  # standard views (DbEngine.POSTGRES, DbEngine.SQLSERVER)
             sel_stmt = ("SELECT COUNT(*) "
@@ -293,7 +293,7 @@ def db_get_view_ddl(errors: list[str] | None,
     :param logger: optional logger
     :return: the DDL script used to create the view, or 'None' if the view does not exist, or an error ocurred
     """
-    #initialize the return variable
+    # initialize the return variable
     result: str | None = None
 
     # initialize the local errors list
@@ -315,8 +315,8 @@ def db_get_view_ddl(errors: list[str] | None,
         sel_stmt: str | None = None
         if curr_engine == DbEngine.ORACLE:
             vw_type: str = "MATERIALIZED_VIEW" if view_type == "M" else "VIEW"
-            vw_table: str = "all_mviews"  if view_type == "M" else "all_views"
-            vw_column: str = "mview_name"  if view_type == "M" else "view_name"
+            vw_table: str = "all_mviews" if view_type == "M" else "all_views"
+            vw_column: str = "mview_name" if view_type == "M" else "view_name"
             sel_stmt = (f"SELECT DBMS_METADATA.GET_DDL("
                         f"'{vw_type}', '{view_name.upper()}', '{schema_name.upper()}') "
                         "FROM dual WHERE EXISTS "
@@ -386,7 +386,7 @@ def db_get_view_dependencies(errors: list[str] | None,
     :param logger: optional logger
     :return: the schema-qualified tables the view depends on, or 'None' if view not found or an error ocurred
     """
-    #initialize the return variable
+    # initialize the return variable
     result: list[str] | None = None
 
     # initialize the local errors list

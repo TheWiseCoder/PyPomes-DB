@@ -130,8 +130,8 @@ def _assert_query_quota(errors: list[str],
     err_msg: str | None = None
 
     # has an exact number of tuples been defined but not returned ?
-    if (isinstance(require_count, int) and
-        require_count > 0 and require_count != count):
+    if isinstance(require_count, int) and \
+       require_count > 0 and require_count != count:
         # yes, report the error, if applicable
         err_msg = f"{count} tuples returned, exactly {require_count} expected"
 
@@ -143,8 +143,7 @@ def _assert_query_quota(errors: list[str],
 
     # has a maximum number of tuples been defined but not complied with ?
     # INSANITY CHECK: expected to never occur
-    elif (isinstance(max_count, int) and
-        0 < max_count < count):
+    elif isinstance(max_count, int) and 0 < max_count < count:
         # yes, report the error, if applicable
         err_msg = f"{count} tuples returned, up to {max_count} expected"
 
@@ -255,7 +254,7 @@ def _bind_columns(engine: DbEngine,
                                  for inx, column in enumerate(iterable=columns,
                                                               start=start_index)])
         case DbEngine.POSTGRES:
-            result =  concat.join([f"{column} = %s" for column in columns])
+            result = concat.join([f"{column} = %s" for column in columns])
         case DbEngine.SQLSERVER:
             result = concat.join([f"{column} = ?" for column in columns])
 
@@ -454,7 +453,7 @@ def _remove_nulls(rows: list[tuple]) -> list[tuple]:
     for row in rows:
         cleaned_row: list[Any] = []
 
-        #traverse the values
+        # traverse the values
         for val in row:
             # is 'val' a string containing NULLs ?
             if isinstance(val, str) and val.count(chr(0)) > 0:

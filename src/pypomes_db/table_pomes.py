@@ -25,7 +25,7 @@ def db_get_tables(errors: list[str] | None,
     :param logger: optional logger
     :return: the schema-qualified table names found, or 'None' if an error ocurred
     """
-    #initialize the return variable
+    # initialize the return variable
     result: list[str] | None = None
 
     # initialize the local errors list
@@ -87,7 +87,7 @@ def db_table_exists(errors: list[str] | None,
     :param logger: optional logger
     :return: 'True' if the table was found, 'False' otherwise, or 'None' if an error ocurred
     """
-    #initialize the return variable
+    # initialize the return variable
     result: bool | None = None
 
     # initialize the local errors list
@@ -230,7 +230,7 @@ def db_get_table_ddl(errors: list[str] | None,
     :param logger: optional logger
     :return: the DDL script used to create the index, or 'None' if the index does not exist, or an error ocurred
     """
-    #initialize the return variable
+    # initialize the return variable
     result: str | None = None
 
     # initialize the local errors list
@@ -253,7 +253,7 @@ def db_get_table_ddl(errors: list[str] | None,
 
         # build the query
         sel_stmt: str | None = None
-        if curr_engine== DbEngine.MYSQL:
+        if curr_engine == DbEngine.MYSQL:
             pass
         if curr_engine == DbEngine.ORACLE:
             sel_stmt = ("SELECT DBMS_METADATA.GET_DDL('TABLE', "

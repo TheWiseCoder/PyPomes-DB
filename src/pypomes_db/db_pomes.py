@@ -41,12 +41,12 @@ def db_setup(engine: DbEngine,
     result: bool = False
 
     # are the parameters compliant ?
-    if (engine in DbEngine and
-        db_name and db_user and db_pwd and db_host and
-        not (engine != DbEngine.ORACLE and db_client) and
-        not (engine != DbEngine.SQLSERVER and db_driver) and
-        not (engine == DbEngine.SQLSERVER and not db_driver) and
-        isinstance(db_port, int) and db_port > 0):
+    if engine in DbEngine and \
+       db_name and db_user and db_pwd and db_host and \
+       not (engine != DbEngine.ORACLE and db_client) and \
+       not (engine != DbEngine.SQLSERVER and db_driver) and \
+       not (engine == DbEngine.SQLSERVER and not db_driver) and \
+       isinstance(db_port, int) and db_port > 0:
         _DB_CONN_DATA[engine] = {
             DbParam.NAME: db_name,
             DbParam.USER: db_user,
@@ -244,7 +244,7 @@ def db_connect(errors: list[str] | None,
 
     # determine the database engine
     curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                      engine=engine)
+                                           engine=engine)
     if curr_engine == DbEngine.MYSQL:
         pass
     elif curr_engine == DbEngine.ORACLE:
@@ -403,7 +403,7 @@ def db_exists(errors: list[str] | None,
                                   sel_stmt=sel_stmt,
                                   where_data=where_data,
                                   max_count=1,
-                                  engine = engine,
+                                  engine=engine,
                                   connection=connection,
                                   committable=committable,
                                   logger=logger)
@@ -460,7 +460,7 @@ def db_select(errors: list[str] | None,
 
     # determine the database engine
     curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                            engine=engine)
+                                           engine=engine)
 
     # process search data provided as key-value pairs
     if where_data:
@@ -605,7 +605,7 @@ def db_update(errors: list[str] | None,
     # process search data provided as key-value pairs
     if where_data:
         curr_engine: DbEngine = _assert_engine(errors=[],
-                                          engine=engine)
+                                               engine=engine)
         update_stmt, where_vals = _combine_search_data(query_stmt=update_stmt,
                                                        where_vals=where_vals,
                                                        where_data=where_data,

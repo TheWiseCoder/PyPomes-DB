@@ -1,14 +1,14 @@
 import pyodbc
-from contextlib import  suppress
+from contextlib import suppress
 from logging import Logger
 from pyodbc import Binary, Connection, Row
 from pathlib import Path
 from pypomes_core import str_between
 from typing import Any, BinaryIO
 
-from . import DbParam
 from .db_common import (
-    DbEngine, _assert_query_quota, _build_query_msg, _get_params, _except_msg
+    DbEngine, DbParam,
+    _assert_query_quota, _build_query_msg, _get_params, _except_msg
 )
 
 

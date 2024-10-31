@@ -363,8 +363,8 @@ def update_lob(errors: list[str],
 
                 # retrieve the lob data and write to the database
                 if isinstance(lob_data, bytes):
-                            cursor.execute(update_stmt,
-                                           (Binary(lob_data), *pk_vals))
+                    cursor.execute(update_stmt,
+                                   (Binary(lob_data), *pk_vals))
                 elif isinstance(lob_data, Path):
                     data_bytes: bytes
                     with lob_data.open("rb") as file:
@@ -475,11 +475,11 @@ def call_procedure(errors: list[str] | None,
 
 
 def _identity_post_insert(errors: list[str] | None,
-                         insert_stmt: str,
-                         conn: connection,
-                         committable: bool,
-                         identity_column: str,
-                         logger: Logger) -> None:
+                          insert_stmt: str,
+                          conn: connection,
+                          committable: bool,
+                          identity_column: str,
+                          logger: Logger) -> None:
     """
     Handle the post-insert for tables with identity columns.
 

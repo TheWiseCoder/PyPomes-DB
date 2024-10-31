@@ -35,7 +35,7 @@ def db_get_indexes(errors: list[str] | None,
     :param logger: optional logger
     :return: the list of schema-qualified indexes in the database
     """
-    #initialize the return variable
+    # initialize the return variable
     result: list[str] | None = None
 
     # initialize the local errors list
@@ -161,7 +161,7 @@ def db_get_index_ddl(errors: list[str] | None,
     :param logger: optional logger
     :return: the DDL script used to create the index, or 'None' if the index does not exist, or an error ocurred
     """
-    #initialize the return variable
+    # initialize the return variable
     result: str | None = None
 
     # initialize the local errors list
@@ -185,7 +185,7 @@ def db_get_index_ddl(errors: list[str] | None,
 
         # build the query
         sel_stmt: str | None = None
-        if curr_engine== DbEngine.MYSQL:
+        if curr_engine == DbEngine.MYSQL:
             pass
         if curr_engine == DbEngine.ORACLE:
             sel_stmt = ("SELECT DBMS_METADATA.GET_DDL('INDEX', "

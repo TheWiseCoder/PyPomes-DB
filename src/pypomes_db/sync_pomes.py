@@ -1,4 +1,4 @@
-from contextlib import  suppress
+from contextlib import suppress
 from logging import Logger
 from typing import Any
 
@@ -89,8 +89,8 @@ def db_sync_data(errors: list[str] | None,
         all_cols: str = ", ".join(pk_columns + sync_columns)
         source_sel_stmt: str = (f"SELECT {all_cols} FROM {source_table} "
                                 f"ORDER BY {', '.join(pk_columns)}")
-        target_sel_stmt: str =  (f"SELECT {all_cols} FROM {target_table} "
-                                 f"ORDER BY {', '.join(pk_columns)}")
+        target_sel_stmt: str = (f"SELECT {all_cols} FROM {target_table} "
+                                f"ORDER BY {', '.join(pk_columns)}")
         if batch_size:
             source_sel_stmt += " OFFSET @offset ROWS"
             target_sel_stmt += " OFFSET @offset ROWS"
