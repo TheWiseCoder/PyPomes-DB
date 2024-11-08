@@ -90,6 +90,7 @@ def select(errors: list[str] | None,
     If not positive integers, *min_count*, *max_count*, and *require_count* are ignored.
     If *require_count* is specified, then exactly that number of tuples must be returned by the query.
     If the search is empty, an empty list is returned.
+
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -182,10 +183,12 @@ def execute(errors: list[str] | None,
     This command might be a DML ccommand modifying the database, such as
     inserting, updating or deleting tuples, or it might be a DDL statement,
     or it might even be an environment-related command.
+
     The optional bind values for this operation are in *bind_vals*.
     The value returned is the value obtained from the execution of *exc_stmt*.
     It might be the number of inserted, modified, or deleted tuples,
     ou None if an error occurred.
+
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -255,6 +258,7 @@ def bulk_execute(errors: list[str] | None,
     placeholders as there are elements in the tuples found in the list provided in *execute_vals*.
     Note that, in *UPDATE* operations, the placeholders in the *WHERE* clause will follow
     the ones in the *SET* clause.
+
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -323,6 +327,7 @@ def update_lob(errors: list[str],
 
     The data for the update may come from *bytes*, from a *Path* or its string representation,
     or from a pointer obtained from *BytesIO* or *Path.open()* in binary mode.
+
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 

@@ -149,6 +149,7 @@ def db_drop_table(errors: list[str] | None,
     This is a silent *DDL* operation. Whether commits or rollbacks are applicable,
     and what their use would entail, depends on the response of the *engine* to the
     mixing of *DDL* and *DML* statements in a transaction.
+
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -219,6 +220,7 @@ def db_get_table_ddl(errors: list[str] | None,
     Note that *table_name* must be schema-qualified, or else the invocation will fail.
     For *postgres* databases, make sure that the function *pg_get_tabledef* is installed and accessible.
     This function is freely available at https://github.com/MichaelDBA/pg_get_tabledef.
+
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 

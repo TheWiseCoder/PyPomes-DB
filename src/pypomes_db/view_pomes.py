@@ -19,6 +19,7 @@ def db_get_views(errors: list[str] | None,
     The returned view names will be qualified with the schema they belong to.
     If a list of, possibly schema-qualified, table names is provided in *tables*, then only
     the views whose table dependencies are all included therein are returned.
+
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -118,6 +119,7 @@ def db_view_exists(errors: list[str] | None,
     Determine whether the view *view_name* exists in the database.
 
     If *view_name* is schema-qualified, then the search will be restricted to that schema.
+
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -208,6 +210,7 @@ def db_drop_view(errors: list[str] | None,
     This is a silent *DDL* operation. Whether commits or rollbacks are applicable,
     and what their use would entail, depends on the response of the *engine* to the
     mixing of *DDL* and *DML* statements in a transaction.
+
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -281,6 +284,7 @@ def db_get_view_ddl(errors: list[str] | None,
 
     If *view_name* is schema-qualified, then the search will be pointed to the view in that schema.
     For Oracle databases, if the schema qualification is not provided, the search will fail.
+
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -374,6 +378,7 @@ def db_get_view_dependencies(errors: list[str] | None,
     Retrieve and return the schema-qualified names of the tables *view_name* depends on.
 
     If *view_name* is schema-qualified, then the search will be pointed to the view in that schema.
+
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 

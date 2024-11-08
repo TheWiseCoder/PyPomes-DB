@@ -322,6 +322,7 @@ def db_rollback(errors: list[str] | None,
 def db_count(errors: list[str] | None,
              table: str,
              where_data: dict[str, Any] = None,
+             where_clause: str = None,
              engine: DbEngine = None,
              connection: Any = None,
              committable: bool = None,
@@ -338,6 +339,7 @@ def db_count(errors: list[str] | None,
     :param errors: incidental error messages
     :param table: the table to be searched
     :param where_data: the search criteria specified as key-value pairs
+    :param where_clause: optional criteria for tuple selection
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -350,7 +352,12 @@ def db_count(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
+    # build the SELECT statement
     sel_stmt: str = f"SELECT COUNT(*) FROM {table}"
+    if where_clause:
+        sel_stmt += f" WHERE {where_clause}"
+
+    # execute the query
     recs: list[tuple[int]] = db_select(errors=op_errors,
                                        sel_stmt=sel_stmt,
                                        where_data=where_data,
@@ -369,6 +376,7 @@ def db_count(errors: list[str] | None,
 def db_exists(errors: list[str] | None,
               table: str,
               where_data: dict[str, Any] = None,
+              where_clause: str = None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
@@ -385,6 +393,7 @@ def db_exists(errors: list[str] | None,
     :param errors: incidental error messages
     :param table: the table to be searched
     :param where_data: the search criteria specified as key-value pairs
+    :param where_clause: optional criteria for tuple selection
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -397,8 +406,13 @@ def db_exists(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
+    # build the SELECT statement
     # noinspection PyDataSource
     sel_stmt: str = f"SELECT * FROM {table}"
+    if where_clause:
+        sel_stmt += f" WHERE {where_clause}"
+
+    # execute the query
     recs: list[tuple] = db_select(errors=op_errors,
                                   sel_stmt=sel_stmt,
                                   where_data=where_data,

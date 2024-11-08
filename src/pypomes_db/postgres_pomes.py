@@ -87,10 +87,12 @@ def select(errors: list[str] | None,
 
     The command can optionally contain search criteria, with respective values given in *where_vals*.
     The list of values for an attribute with the *IN* clause must be contained in a specific tuple.
+
     If not positive integers, *min_count*, *max_count*, and *require_count* are ignored.
     If *require_count* is specified, then exactly that number of tuples must be
     returned by the query. If the search is empty, an empty list is returned.
     If the search is empty, an empty list is returned.
+
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -182,10 +184,12 @@ def execute(errors: list[str] | None,
     This command might be a DML ccommand modifying the database, such as
     inserting, updating or deleting tuples, or it might be a DDL statement,
     or it might even be an environment-related command.
+
     The optional bind values for this operation are in *bind_vals*.
     The value returned is the value obtained from the execution of *exc_stmt*.
     It might be the number of inserted, modified, or deleted tuples,
     ou None if an error occurred.
+
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -250,10 +254,13 @@ def bulk_execute(errors: list[str],
 
     For *INSERT* operations, the *VALUES* clause must be simply *VALUES %s*:
         INSERT INTO my_tb (id, v1, v2) VALUES %s
+
     *UPDATE* operations require a special syntax, with *VALUES %s* combined with a *FROM* clause:
         UPDATE my_tb SET v1 = data.v1, v2 = data.v2 FROM (VALUES %s) AS data (id, v1, v2) WHERE my_tb.id = data.id
+
     *DELETE* operations require a special syntax using a *IN* clause:
         DELETE FROM my_tb WHERE (id1, id2) IN (%s)
+
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -324,6 +331,7 @@ def update_lob(errors: list[str],
 
     The data for the update may come from *bytes*, from a *Path* or its string representation, or from
     a pointer obtained from *BytesIO* or *Path.open()* in binary mode.
+
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
