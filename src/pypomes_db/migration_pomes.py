@@ -411,6 +411,9 @@ def db_migrate_lobs(errors: list[str] | None,
         # buid the SELECT query
         source_pks: str = ", ".join(source_pk_columns)
         sel_stmt: str = f"SELECT {source_pks}, {source_lob_column} FROM {source_table}"
+        if not orderby_clause and \
+                (skip_rows or batch_size or limit_rows):
+            orderby_clause = ", ".join(source_pk_columns)
         if where_clause:
             sel_stmt += f" WHERE {where_clause}"
         if orderby_clause:
@@ -422,10 +425,6 @@ def db_migrate_lobs(errors: list[str] | None,
                     sel_stmt += " ROWS LIMIT @limit"
                 elif source_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                     sel_stmt += " ROWS FETCH NEXT @limit ROWS ONLY"
-        else:
-            # these require an ORDER BY clause to have been provided
-            skip_rows = 0
-            batch_size = 0
 
         # build the UPDATE query
         lob_index: int = len(source_pk_columns)
@@ -654,8 +653,19 @@ def db_stream_lobs(errors: list[str] | None,
                                               engine=engine,
                                               logger=logger)
     if curr_conn:
+        # define the number of rows to skip
+        if skip_rows == -1:
+            skip_rows = db_count(errors=op_errors,
+                                 table=table,
+                                 where_clause=where_clause,
+                                 engine=engine,
+                                 connection=connection,
+                                 committable=committable,
+                                 logger=logger)
+        else:
+            skip_rows = __normalize_value(value=skip_rows)
+
         # normalize these parameters
-        skip_rows = __normalize_value(value=skip_rows)
         limit_rows = __normalize_value(value=limit_rows)
         batch_size = __normalize_value(value=batch_size)
         chunk_size = __normalize_value(value=chunk_size) or -1
@@ -670,6 +680,9 @@ def db_stream_lobs(errors: list[str] | None,
             lob_index += 1
             ref_columns.append(ref_column)
         sel_stmt += f", {lob_column} FROM {table}"
+        if not orderby_clause and \
+                (skip_rows or batch_size or limit_rows):
+            orderby_clause = ", ".join(pk_columns)
         if where_clause:
             sel_stmt += f" WHERE {where_clause}"
         if orderby_clause:
@@ -681,10 +694,6 @@ def db_stream_lobs(errors: list[str] | None,
                     sel_stmt += " ROWS LIMIT @limit"
                 elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                     sel_stmt += " ROWS FETCH NEXT @limit ROWS ONLY"
-        else:
-            # these require an ORDER BY clause to have been provided
-            skip_rows = 0
-            batch_size = 0
 
         # log the migration start
         if logger:
