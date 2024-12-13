@@ -765,9 +765,9 @@ def db_bulk_insert(errors: list[str] | None,
                                                  identity_column=identity_column,
                                                  logger=logger)
     elif curr_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
-        bind_marks: str = _bind_marks(engine=engine,
+        bind_marks: str = _bind_marks(engine=curr_engine,
                                       start=1,
-                                      finish=len(insert_attrs)+1)
+                                      finish=len(insert_attrs) + 1)
         insert_stmt: str = (f"INSERT INTO {target_table} "
                             f"({', '.join(insert_attrs)}) VALUES({bind_marks})")
         if curr_engine == DbEngine.ORACLE:
@@ -872,11 +872,11 @@ def db_bulk_update(errors: list[str] | None,
                                              committable=committable,
                                              logger=logger)
     elif curr_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
-        set_items: str = _bind_columns(engine=engine,
+        set_items: str = _bind_columns(engine=curr_engine,
                                        columns=set_attrs,
                                        concat=", ",
                                        start_index=1)
-        where_items: str = _bind_columns(engine=engine,
+        where_items: str = _bind_columns(engine=curr_engine,
                                          columns=where_attrs,
                                          concat=" AND ",
                                          start_index=len(set_attrs)+1)
@@ -953,7 +953,7 @@ def db_bulk_delete(errors: list[str] | None,
                                              committable=committable,
                                              logger=logger)
     elif curr_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
-        where_items: str = _bind_columns(engine=engine,
+        where_items: str = _bind_columns(engine=curr_engine,
                                          columns=where_attrs,
                                          concat=" AND",
                                          start_index=1)
