@@ -3,7 +3,7 @@ from .db_common import (
 )
 from .db_pomes import (
     db_setup, db_get_engines, db_get_param, db_get_params,
-    db_get_connection_string, db_assert_connection,
+    db_get_connection_string, db_assert_access,
     db_connect, db_commit, db_rollback, db_exists,
     db_count, db_select, db_insert, db_update, db_delete,
     db_bulk_insert, db_bulk_update, db_bulk_delete,
@@ -32,7 +32,7 @@ __all__ = [
     "DB_BIND_META_TAG", "DbEngine", "DbParam",
     # db_pomes
     "db_setup", "db_get_engines", "db_get_param", "db_get_params",
-    "db_get_connection_string", "db_assert_connection",
+    "db_get_connection_string", "db_assert_access",
     "db_connect", "db_commit", "db_rollback", "db_exists",
     "db_count", "db_select", "db_insert", "db_update", "db_delete",
     "db_bulk_insert", "db_bulk_update", "db_bulk_delete",

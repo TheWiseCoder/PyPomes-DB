@@ -181,9 +181,9 @@ def db_bind_stmt(stmt: str,
     return result
 
 
-def db_assert_connection(errors: list[str] | None,
-                         engine: DbEngine = None,
-                         logger: Logger = None) -> bool:
+def db_assert_access(errors: list[str] | None,
+                     engine: DbEngine = None,
+                     logger: Logger = None) -> bool:
     """
     Determine whether the *engine*'s current configuration allows for a safe connection.
 
@@ -769,7 +769,7 @@ def db_bulk_insert(errors: list[str] | None,
                                       start=1,
                                       finish=len(insert_attrs)+1)
         insert_stmt: str = (f"INSERT INTO {target_table} "
-                            f"({', '.join(insert_attrs)} VALUES({bind_marks})")
+                            f"({', '.join(insert_attrs)}) VALUES({bind_marks})")
         if curr_engine == DbEngine.ORACLE:
             from . import oracle_pomes
             result = oracle_pomes.bulk_execute(errors=op_errors,

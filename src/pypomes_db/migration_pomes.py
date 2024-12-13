@@ -411,11 +411,11 @@ def db_migrate_lobs(errors: list[str] | None,
         # buid the SELECT query
         source_pks: str = ", ".join(source_pk_columns)
         sel_stmt: str = f"SELECT {source_pks}, {source_lob_column} FROM {source_table}"
+        if where_clause:
+            sel_stmt += f" WHERE {where_clause}"
         if not orderby_clause and \
                 (skip_rows or batch_size or limit_rows):
             orderby_clause = ", ".join(source_pk_columns)
-        if where_clause:
-            sel_stmt += f" WHERE {where_clause}"
         if orderby_clause:
             sel_stmt += f" ORDER BY {orderby_clause}"
             if skip_rows or batch_size:
@@ -680,11 +680,11 @@ def db_stream_lobs(errors: list[str] | None,
             lob_index += 1
             ref_columns.append(ref_column)
         sel_stmt += f", {lob_column} FROM {table}"
+        if where_clause:
+            sel_stmt += f" WHERE {where_clause}"
         if not orderby_clause and \
                 (skip_rows or batch_size or limit_rows):
             orderby_clause = ", ".join(pk_columns)
-        if where_clause:
-            sel_stmt += f" WHERE {where_clause}"
         if orderby_clause:
             sel_stmt += f" ORDER BY {orderby_clause}"
             if skip_rows or batch_size:
