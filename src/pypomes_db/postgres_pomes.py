@@ -76,9 +76,11 @@ def connect(errors: list[str],
 def select(errors: list[str] | None,
            sel_stmt: str,
            where_vals: tuple | None,
+           orderby_clause: str | None,
            min_count: int | None,
            max_count: int | None,
            require_count: int | None,
+           offset_count: int | None,
            conn: connection | None,
            committable: bool | None,
            logger: Logger | None) -> list[tuple]:
@@ -89,8 +91,7 @@ def select(errors: list[str] | None,
     The list of values for an attribute with the *IN* clause must be contained in a specific tuple.
 
     If not positive integers, *min_count*, *max_count*, and *require_count* are ignored.
-    If *require_count* is specified, then exactly that number of tuples must be
-    returned by the query. If the search is empty, an empty list is returned.
+    If *require_count* is specified, then exactly that number of tuples must be returned by the query.
     If the search is empty, an empty list is returned.
 
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
@@ -99,11 +100,13 @@ def select(errors: list[str] | None,
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the search criteria
+    :param orderby_clause: optional retrieval order
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
     :param require_count: number of tuples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
+    :param offset_count: number of tuples to skip
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable:whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: list of tuples containing the search result, '[]' if the search was empty, or 'None' if there was an error
     """
@@ -115,13 +118,18 @@ def select(errors: list[str] | None,
                                             autocommit=False,
                                             logger=logger)
     if curr_conn:
-        # establish the right query cardinality
+        # establish the appropriate query cardinality
         if isinstance(require_count, int) and require_count > 0:
             min_count = require_count
             max_count = require_count + 1
 
-        if isinstance(max_count, int) and max_count >= 0:
-            sel_stmt += f" LIMIT {max_count}"
+        # establish an offset into the result set
+        if isinstance(offset_count, int) and offset_count > 0:
+            sel_stmt += f" OFFSET {offset_count}"
+
+        # order the returned tuples
+        if orderby_clause:
+            sel_stmt += f" ORDER BY {orderby_clause}"
 
         err_msg: str | None = None
         try:
@@ -197,7 +205,7 @@ def execute(errors: list[str] | None,
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable:whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the return value from the command execution
     """
@@ -268,7 +276,7 @@ def bulk_execute(errors: list[str],
     :param exc_stmt: the command to update the database with
     :param exc_vals: the list of values for tuple identification, and to update the database with
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable:whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the number of inserted or updated tuples, or None if an error occurred
     """
@@ -343,7 +351,7 @@ def update_lob(errors: list[str],
     :param lob_data: the LOB data (bytes, a file path, or a file pointer)
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable:whether to commit operation upon errorless completion
     :param logger: optional logger
     """
     # make sure to have a connection
@@ -430,7 +438,7 @@ def call_procedure(errors: list[str] | None,
     :param proc_name: the name of the sotred procedure
     :param proc_vals: the arguments to be passed
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable:whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the data returned by the procedure
     """
@@ -497,7 +505,7 @@ def _identity_post_insert(errors: list[str] | None,
     :param errors: incidental error messages
     :param insert_stmt: the INSERT command
     :param conn: the connection to use
-    :param committable: whether to commit upon errorless completion
+    :param committable:whether to commit operation upon errorless completion
     :param identity_column: column whose values are generated by the database
     :param logger: optional logger
     """
@@ -509,9 +517,11 @@ def _identity_post_insert(errors: list[str] | None,
                                     sel_stmt=(f"SELECT MAX({identity_column}) "
                                               f"FROM {table_name}"),
                                     where_vals=None,
+                                    orderby_clause=None,
                                     min_count=None,
                                     max_count=None,
                                     require_count=None,
+                                    offset_count=None,
                                     conn=conn,
                                     committable=False,
                                     logger=logger)

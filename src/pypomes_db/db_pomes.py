@@ -342,7 +342,7 @@ def db_count(errors: list[str] | None,
     :param where_clause: optional criteria for tuple selection
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: 'True' if at least one tuple was found, 'False' otherwise, 'None' if an error ocurred
     """
@@ -396,7 +396,7 @@ def db_exists(errors: list[str] | None,
     :param where_clause: optional criteria for tuple selection
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: 'True' if at least one tuple was found, 'False' otherwise, 'None' if an error ocurred
     """
@@ -406,23 +406,17 @@ def db_exists(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # build the SELECT statement
-    # noinspection PyDataSource
-    sel_stmt: str = f"SELECT * FROM {table}"
-    if where_clause:
-        sel_stmt += f" WHERE {where_clause}"
-
-    # execute the query
-    recs: list[tuple] = db_select(errors=op_errors,
-                                  sel_stmt=sel_stmt,
-                                  where_data=where_data,
-                                  max_count=1,
-                                  engine=engine,
-                                  connection=connection,
-                                  committable=committable,
-                                  logger=logger)
+    # count the tuples
+    count: int = db_count(errors=op_errors,
+                          table=table,
+                          where_data=where_data,
+                          where_clause=where_clause,
+                          engine=engine,
+                          connection=connection,
+                          committable=committable,
+                          logger=logger)
     if not op_errors:
-        result = recs is not None and len(recs) > 0
+        result = count > 0
     elif isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -433,9 +427,11 @@ def db_select(errors: list[str] | None,
               sel_stmt: str,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
+              orderby_clause: str = None,
               min_count: int = None,
               max_count: int = None,
               require_count: int = None,
+              offset_count: int = None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
@@ -445,11 +441,13 @@ def db_select(errors: list[str] | None,
 
     The command can optionally contain search criteria, with respective values given in *where_vals*,
     or specified additionally by key-value pairs in *where_data*.
-    For PostgreSQL, the list of values for an attribute with the *IN* clause must be contained in a
-    specific tuple. If not positive integers, *min_count*, *max_count*, and *require_count* are ignored.
-    If *require_count* is specified, then exactly that number of tuples must be
-    returned by the query. If the search is empty, an empty list is returned.
+    If the search is empty, an empty list is returned.
     The target database engine, specified or default, must have been previously configured.
+
+    For PostgreSQL, the list of values for an attribute with the *IN* clause must be contained in a specific tuple.
+    If not positive integers, *min_count*, *max_count*, and *require_count* are ignored.
+    If *require_count* is specified, then exactly that number of tuples must be returned by the query.
+    The parameter *offset_count* is used to offset the retrieval of tuples.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -457,12 +455,14 @@ def db_select(errors: list[str] | None,
     :param sel_stmt: SELECT command for the search
     :param where_vals: values to be associated with the search criteria
     :param where_data: search criteria specified as key-value pairs
+    :param orderby_clause: optional retrieval order
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
     :param require_count: number of tuples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
+    :param offset_count: number of tuples to skip (defaults to none)
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: list of tuples containing the search result, '[]' if the search was empty, or 'None' if there was an error
     """
@@ -494,9 +494,11 @@ def db_select(errors: list[str] | None,
         result = oracle_pomes.select(errors=op_errors,
                                      sel_stmt=sel_stmt,
                                      where_vals=where_vals,
+                                     orderby_clause=orderby_clause,
                                      min_count=min_count,
                                      max_count=max_count,
                                      require_count=require_count,
+                                     offset_count=offset_count,
                                      conn=connection,
                                      committable=committable,
                                      logger=logger)
@@ -505,9 +507,11 @@ def db_select(errors: list[str] | None,
         result = postgres_pomes.select(errors=op_errors,
                                        sel_stmt=sel_stmt,
                                        where_vals=where_vals,
+                                       orderby_clause=orderby_clause,
                                        min_count=min_count,
                                        max_count=max_count,
                                        require_count=require_count,
+                                       offset_count=offset_count,
                                        conn=connection,
                                        committable=committable,
                                        logger=logger)
@@ -516,9 +520,11 @@ def db_select(errors: list[str] | None,
         result = sqlserver_pomes.select(errors=op_errors,
                                         sel_stmt=sel_stmt,
                                         where_vals=where_vals,
+                                        orderby_clause=orderby_clause,
                                         min_count=min_count,
                                         max_count=max_count,
                                         require_count=require_count,
+                                        offset_count=offset_count,
                                         conn=connection,
                                         committable=committable,
                                         logger=logger)
@@ -550,7 +556,7 @@ def db_insert(errors: list[str] | None,
     :param insert_data: data to be inserted as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the number of inserted tuples (0 ou 1), or 'None' if an error occurred
     """
@@ -604,7 +610,7 @@ def db_update(errors: list[str] | None,
     :param where_data: search criteria as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the number of updated tuples, or 'None' if an error occurred
     """
@@ -670,7 +676,7 @@ def db_delete(errors: list[str] | None,
     :param where_data: search criteria as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the number of deleted tuples, or 'None' if an error occurred
     """
@@ -726,7 +732,7 @@ def db_bulk_insert(errors: list[str] | None,
     :param insert_vals: the list of values to be inserted
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param identity_column: column whose values are generated by the database
     :param logger: optional logger
     :return: the number of inserted tuples (1 for postgres), or 'None' if an error occurred
@@ -838,7 +844,7 @@ def db_bulk_update(errors: list[str] | None,
     :param update_vals: the list of values to update the database with, and to identify the tuples
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the number of updated tuples, or 'None' if an error occurred
     """
@@ -927,7 +933,7 @@ def db_bulk_delete(errors: list[str] | None,
     :param where_vals: the list of values to bind to the attributes
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the number of inserted tuples (1 for postgres), or 'None' if an error occurred
     """
@@ -1010,7 +1016,7 @@ def db_update_lob(errors: list[str] | None,
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: number of LOBs effectively copied, or 'None' if an error occurred
     """
@@ -1090,7 +1096,7 @@ def db_execute(errors: list[str] | None,
     :param bind_vals: optional bind values
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the return value from the command execution, or 'None' if an error occurred
     """
@@ -1159,7 +1165,7 @@ def db_call_function(errors: list[str] | None,
     :param func_vals: parameters for the stored function
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the data returned by the function, or 'None' if an error occurred
     """
@@ -1224,7 +1230,7 @@ def db_call_procedure(errors: list[str] | None,
     :param proc_vals: parameters for the stored procedure
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the data returned by the procedure, or 'None' if an error occurred
     """

@@ -21,7 +21,7 @@ def db_get_tables(errors: list[str] | None,
     :param schema: optional name of the schema to restrict the search to
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable:whether to commit operation on errorless completion
     :param logger: optional logger
     :return: the schema-qualified table names found, or 'None' if an error ocurred
     """
@@ -83,7 +83,7 @@ def db_table_exists(errors: list[str] | None,
     :param table_name: the, possibly schema-qualified, name of the table to look for
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable:whether to commit operation on errorless completion
     :param logger: optional logger
     :return: 'True' if the table was found, 'False' otherwise, or 'None' if an error ocurred
     """
@@ -157,7 +157,7 @@ def db_drop_table(errors: list[str] | None,
     :param table_name: the, possibly schema-qualified, name of the table to drop
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable:whether to commit operation on errorless completion
     :param logger: optional logger
     """
     # initialize the local errors list
@@ -228,7 +228,7 @@ def db_get_table_ddl(errors: list[str] | None,
     :param table_name: the schema-qualified name of the table
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable:whether to commit operation on errorless completion
     :param logger: optional logger
     :return: the DDL script used to create the index, or 'None' if the index does not exist, or an error ocurred
     """
