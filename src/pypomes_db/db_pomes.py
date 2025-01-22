@@ -321,8 +321,8 @@ def db_rollback(errors: list[str] | None,
 
 def db_count(errors: list[str] | None,
              table: str,
-             where_data: dict[str, Any] = None,
              where_clause: str = None,
+             where_data: dict[str, Any] = None,
              engine: DbEngine = None,
              connection: Any = None,
              committable: bool = None,
@@ -330,16 +330,16 @@ def db_count(errors: list[str] | None,
     """
     Obtain and return the number of tuples in *table* meeting the criteria defined in *where_data*.
 
-    The attributes and corresponding values for the query's WHERE clause are held in *where_data*.
-    If more than one, the attributes are concatenated by the *AND* logical connector.
+    Optionally, selection criteria may be specified in *where_clause*, or additionally by
+    key-value pairs in *where_data*, which would be concatenated by the *AND* logical connector.
     The targer database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
     :param errors: incidental error messages
     :param table: the table to be searched
-    :param where_data: the search criteria specified as key-value pairs
     :param where_clause: optional criteria for tuple selection
+    :param where_data: the selection criteria specified as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
@@ -375,8 +375,8 @@ def db_count(errors: list[str] | None,
 
 def db_exists(errors: list[str] | None,
               table: str,
-              where_data: dict[str, Any] = None,
               where_clause: str = None,
+              where_data: dict[str, Any] = None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
@@ -384,16 +384,16 @@ def db_exists(errors: list[str] | None,
     """
     Determine whether at least one tuple in *table* meets the criteria defined in *where_data*.
 
-    The attributes and corresponding values for the query's WHERE clause are held in *where_data*.
-    If more than one, the attributes are concatenated by the *AND* logical connector.
+    Optionally, selection criteria may be specified in *where_clause*, or additionally by
+    key-value pairs in *where_data*, which would be concatenated by the *AND* logical connector.
     The targer database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
     :param errors: incidental error messages
     :param table: the table to be searched
-    :param where_data: the search criteria specified as key-value pairs
     :param where_clause: optional criteria for tuple selection
+    :param where_data: the selection criteria specified as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
@@ -406,17 +406,22 @@ def db_exists(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
+    # build the SELECT statement
+    sel_stmt: str = f"SELECT * FROM {table}"
+    if where_clause:
+        sel_stmt += f" WHERE {where_clause}"
+
     # count the tuples
-    count: int = db_count(errors=op_errors,
-                          table=table,
-                          where_data=where_data,
-                          where_clause=where_clause,
-                          engine=engine,
-                          connection=connection,
-                          committable=committable,
-                          logger=logger)
+    recs: list[tuple] = db_select(errors=op_errors,
+                                  sel_stmt=sel_stmt,
+                                  where_data=where_data,
+                                  limit_count=1,
+                                  engine=engine,
+                                  connection=connection,
+                                  committable=committable,
+                                  logger=logger)
     if not op_errors:
-        result = count > 0
+        result = len(recs) > 0
     elif isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -432,15 +437,16 @@ def db_select(errors: list[str] | None,
               max_count: int = None,
               require_count: int = None,
               offset_count: int = None,
+              limit_count: int = None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
               logger: Logger = None) -> list[tuple]:
     """
-    Search the database and return all tuples that satisfy the *sel_stmt* search command.
+    Query the database and return all tuples that satisfy the *sel_stmt* command.
 
-    The command can optionally contain search criteria, with respective values given in *where_vals*,
-    or specified additionally by key-value pairs in *where_data*.
+    Optionally, selection criteria may be specified in *where_vals*, or additionally by
+    key-value pairs in *where_data*, which would be concatenated by the *AND* logical connector.
     If the search is empty, an empty list is returned.
     The target database engine, specified or default, must have been previously configured.
 
@@ -453,13 +459,14 @@ def db_select(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
-    :param where_vals: values to be associated with the search criteria
-    :param where_data: search criteria specified as key-value pairs
+    :param where_vals: values to be associated with the selection criteria
+    :param where_data: selection criteria specified as key-value pairs
     :param orderby_clause: optional retrieval order
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
     :param require_count: number of tuples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
     :param offset_count: number of tuples to skip (defaults to none)
+    :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
@@ -499,6 +506,7 @@ def db_select(errors: list[str] | None,
                                      max_count=max_count,
                                      require_count=require_count,
                                      offset_count=offset_count,
+                                     limit_count=limit_count,
                                      conn=connection,
                                      committable=committable,
                                      logger=logger)
@@ -512,6 +520,7 @@ def db_select(errors: list[str] | None,
                                        max_count=max_count,
                                        require_count=require_count,
                                        offset_count=offset_count,
+                                       limit_count=limit_count,
                                        conn=connection,
                                        committable=committable,
                                        logger=logger)
@@ -525,6 +534,7 @@ def db_select(errors: list[str] | None,
                                         max_count=max_count,
                                         require_count=require_count,
                                         offset_count=offset_count,
+                                        limit_count=limit_count,
                                         conn=connection,
                                         committable=committable,
                                         logger=logger)
@@ -606,8 +616,8 @@ def db_update(errors: list[str] | None,
     :param update_stmt: the UPDATE command
     :param update_vals: values for the update operation
     :param update_data: update data as key-value pairs
-    :param where_vals: values to be associated with the search criteria
-    :param where_data: search criteria as key-value pairs
+    :param where_vals: values to be associated with the selection criteria
+    :param where_data: selection criteria as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
@@ -672,8 +682,8 @@ def db_delete(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param delete_stmt: the DELETE command
-    :param where_vals: values to be associated with the search criteria
-    :param where_data: search criteria as key-value pairs
+    :param where_vals: values to be associated with the selection criteria
+    :param where_data: selection criteria as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion

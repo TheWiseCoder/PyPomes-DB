@@ -39,7 +39,7 @@ def connect(errors: list[str],
     Return *None* if the connection could not be obtained.
 
     :param errors: incidental error messages
-    :param autocommit: whether the connection is to be in autocommit mode (defaults to False)
+    :param autocommit: whether the connection is to be in autocommit mode (defaults to *False*)
     :param logger: optional logger
     :return: the connection to the database
     """
@@ -81,13 +81,14 @@ def select(errors: list[str] | None,
            max_count: int | None,
            require_count: int | None,
            offset_count: int | None,
+           limit_count: int | None,
            conn: connection | None,
            committable: bool | None,
            logger: Logger | None) -> list[tuple]:
     """
-    Search the database and return all tuples that satisfy the *sel_stmt* search command.
+    Query the database and return all tuples that satisfy the *sel_stmt* command.
 
-    The command can optionally contain search criteria, with respective values given in *where_vals*.
+    The command can optionally contain selection criteria, with respective values given in *where_vals*.
     The list of values for an attribute with the *IN* clause must be contained in a specific tuple.
 
     If not positive integers, *min_count*, *max_count*, and *require_count* are ignored.
@@ -99,16 +100,17 @@ def select(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
-    :param where_vals: the values to be associated with the search criteria
+    :param where_vals: the values to be associated with the selection criteria
     :param orderby_clause: optional retrieval order
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
-    :param require_count: number of tuples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
-    :param offset_count: number of tuples to skip
+    :param require_count: number of tuples that must exactly satisfy the query (overrides *min_count* and *max_count*)
+    :param offset_count: number of tuples to skip (ignored if *orderby_clause* is not specified)
+    :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: list of tuples containing the search result, '[]' if the search was empty, or 'None' if there was an error
+    :return: list of tuples containing the search result, *[]* if the search was empty, or *None* if there was an error
     """
     # initialize the return variable
     result: list[tuple] = []
@@ -121,11 +123,15 @@ def select(errors: list[str] | None,
         # establish the appropriate query cardinality
         if isinstance(require_count, int) and require_count > 0:
             min_count = require_count
-            max_count = require_count + 1
+            max_count = require_count
 
         # establish an offset into the result set
-        if isinstance(offset_count, int) and offset_count > 0:
+        if orderby_clause and isinstance(offset_count, int) and offset_count > 0:
             sel_stmt += f" OFFSET {offset_count}"
+
+        # establish a limit to the number of tuples returned
+        if isinstance(limit_count, int) and limit_count > 0:
+            sel_stmt += f" LIMIT {limit_count}"
 
         # order the returned tuples
         if orderby_clause:
@@ -522,6 +528,7 @@ def _identity_post_insert(errors: list[str] | None,
                                     max_count=None,
                                     require_count=None,
                                     offset_count=None,
+                                    limit_count=None,
                                     conn=conn,
                                     committable=False,
                                     logger=logger)

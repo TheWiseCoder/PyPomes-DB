@@ -143,7 +143,7 @@ def db_migrate_data(errors: list[str] | None,
         else:
             bind_marks: str = _bind_marks(engine=target_engine,
                                           start=1,
-                                          finish=len(target_columns)+1)
+                                          finish=len(target_columns) + 1)
             values: str = f"VALUES({bind_marks})"
         cols = ", ".join(target_columns)
         insert_stmt: str = (f"INSERT INTO {target_table} "
