@@ -322,6 +322,7 @@ def db_rollback(errors: list[str] | None,
 def db_count(errors: list[str] | None,
              table: str,
              where_clause: str = None,
+             where_vals: tuple = None,
              where_data: dict[str, Any] = None,
              engine: DbEngine = None,
              connection: Any = None,
@@ -339,6 +340,7 @@ def db_count(errors: list[str] | None,
     :param errors: incidental error messages
     :param table: the table to be searched
     :param where_clause: optional criteria for tuple selection
+    :param where_vals: values to be associated with the selection criteria
     :param where_data: the selection criteria specified as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
@@ -352,14 +354,11 @@ def db_count(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # build the SELECT statement
-    sel_stmt: str = f"SELECT COUNT(*) FROM {table}"
-    if where_clause:
-        sel_stmt += f" WHERE {where_clause}"
-
     # execute the query
     recs: list[tuple[int]] = db_select(errors=op_errors,
-                                       sel_stmt=sel_stmt,
+                                       sel_stmt=f"SELECT COUNT(*) FROM {table}",
+                                       where_clause=where_clause,
+                                       where_vals=where_vals,
                                        where_data=where_data,
                                        engine=engine,
                                        connection=connection,
@@ -376,6 +375,7 @@ def db_count(errors: list[str] | None,
 def db_exists(errors: list[str] | None,
               table: str,
               where_clause: str = None,
+              where_vals: tuple = None,
               where_data: dict[str, Any] = None,
               engine: DbEngine = None,
               connection: Any = None,
@@ -393,6 +393,7 @@ def db_exists(errors: list[str] | None,
     :param errors: incidental error messages
     :param table: the table to be searched
     :param where_clause: optional criteria for tuple selection
+    :param where_vals: values to be associated with the selection criteria
     :param where_data: the selection criteria specified as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
@@ -406,14 +407,11 @@ def db_exists(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # build the SELECT statement
-    sel_stmt: str = f"SELECT * FROM {table}"
-    if where_clause:
-        sel_stmt += f" WHERE {where_clause}"
-
     # count the tuples
     recs: list[tuple] = db_select(errors=op_errors,
-                                  sel_stmt=sel_stmt,
+                                  sel_stmt=f"SELECT * FROM {table}",
+                                  where_clause=where_clause,
+                                  where_vals=where_vals,
                                   where_data=where_data,
                                   limit_count=1,
                                   engine=engine,
@@ -430,6 +428,7 @@ def db_exists(errors: list[str] | None,
 
 def db_select(errors: list[str] | None,
               sel_stmt: str,
+              where_clause: str = None,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
               orderby_clause: str = None,
@@ -445,7 +444,7 @@ def db_select(errors: list[str] | None,
     """
     Query the database and return all tuples that satisfy the *sel_stmt* command.
 
-    Optionally, selection criteria may be specified in *where_vals*, or additionally by
+    Optionally, selection criteria may be specified in *where_clause* and *where_vals*, or additionally by
     key-value pairs in *where_data*, which would be concatenated by the *AND* logical connector.
     If the search is empty, an empty list is returned.
     The target database engine, specified or default, must have been previously configured.
@@ -459,9 +458,10 @@ def db_select(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
+    :param where_clause: optional criteria for tuple selection (ignored if *sel_stmt* contains a *WHERE* clause)
     :param where_vals: values to be associated with the selection criteria
     :param where_data: selection criteria specified as key-value pairs
-    :param orderby_clause: optional retrieval order
+    :param orderby_clause: optional retrieval order (ignored if *sel_stmt* contains a *ORDER BY* clause)
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
     :param require_count: number of tuples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
@@ -471,7 +471,7 @@ def db_select(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: list of tuples containing the search result, '[]' if the search was empty, or 'None' if there was an error
+    :return: list of tuples containing the search result, *[]* on empty search, or *None* on error
     """
     # initialize the return variable
     result: list[tuple] | None = None
@@ -486,8 +486,10 @@ def db_select(errors: list[str] | None,
     # process search data provided as key-value pairs
     if where_data:
         sel_stmt, where_vals = _combine_search_data(query_stmt=sel_stmt,
+                                                    where_clause=where_clause,
                                                     where_vals=where_vals,
                                                     where_data=where_data,
+                                                    orderby_clause=orderby_clause,
                                                     engine=curr_engine)
     # establish the correct bind tags
     if where_vals and DB_BIND_META_TAG in sel_stmt:
@@ -501,7 +503,6 @@ def db_select(errors: list[str] | None,
         result = oracle_pomes.select(errors=op_errors,
                                      sel_stmt=sel_stmt,
                                      where_vals=where_vals,
-                                     orderby_clause=orderby_clause,
                                      min_count=min_count,
                                      max_count=max_count,
                                      require_count=require_count,
@@ -515,7 +516,6 @@ def db_select(errors: list[str] | None,
         result = postgres_pomes.select(errors=op_errors,
                                        sel_stmt=sel_stmt,
                                        where_vals=where_vals,
-                                       orderby_clause=orderby_clause,
                                        min_count=min_count,
                                        max_count=max_count,
                                        require_count=require_count,
@@ -529,7 +529,6 @@ def db_select(errors: list[str] | None,
         result = sqlserver_pomes.select(errors=op_errors,
                                         sel_stmt=sel_stmt,
                                         where_vals=where_vals,
-                                        orderby_clause=orderby_clause,
                                         min_count=min_count,
                                         max_count=max_count,
                                         require_count=require_count,
@@ -596,6 +595,7 @@ def db_update(errors: list[str] | None,
               update_stmt: str,
               update_vals: tuple = None,
               update_data: dict[str, Any] = None,
+              where_clause: str = None,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
               engine: DbEngine = None,
@@ -616,6 +616,7 @@ def db_update(errors: list[str] | None,
     :param update_stmt: the UPDATE command
     :param update_vals: values for the update operation
     :param update_data: update data as key-value pairs
+    :param where_clause: optional criteria for tuple selection (ignored if *upd_stmt* contains a *WHERE* clause)
     :param where_vals: values to be associated with the selection criteria
     :param where_data: selection criteria as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
@@ -637,8 +638,10 @@ def db_update(errors: list[str] | None,
         curr_engine: DbEngine = _assert_engine(errors=[],
                                                engine=engine)
         update_stmt, where_vals = _combine_search_data(query_stmt=update_stmt,
+                                                       where_clause=where_clause,
                                                        where_vals=where_vals,
                                                        where_data=where_data,
+                                                       orderby_clause=None,
                                                        engine=curr_engine)
     # combine 'update' and 'where' bind values
     bind_vals: tuple | None = None
@@ -665,6 +668,7 @@ def db_update(errors: list[str] | None,
 
 def db_delete(errors: list[str] | None,
               delete_stmt: str,
+              where_clause: str = None,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
               engine: DbEngine = None,
@@ -682,6 +686,7 @@ def db_delete(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param delete_stmt: the DELETE command
+    :param where_clause: optional criteria for tuple selection (ignored if *delete_stmt* contains a *WHERE* clause)
     :param where_vals: values to be associated with the selection criteria
     :param where_data: selection criteria as key-value pairs
     :param engine: the database engine to use (uses the default engine, if not provided)
@@ -698,8 +703,10 @@ def db_delete(errors: list[str] | None,
         curr_engine: DbEngine = _assert_engine(errors=[],
                                                engine=engine)
         delete_stmt, where_vals = _combine_search_data(query_stmt=delete_stmt,
+                                                       where_clause=where_clause,
                                                        where_vals=where_vals,
                                                        where_data=where_data,
+                                                       orderby_clause=None,
                                                        engine=curr_engine)
     result: int = db_execute(errors=op_errors,
                              exc_stmt=delete_stmt,

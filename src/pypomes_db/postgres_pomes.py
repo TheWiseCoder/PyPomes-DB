@@ -76,7 +76,6 @@ def connect(errors: list[str],
 def select(errors: list[str] | None,
            sel_stmt: str,
            where_vals: tuple | None,
-           orderby_clause: str | None,
            min_count: int | None,
            max_count: int | None,
            require_count: int | None,
@@ -101,16 +100,15 @@ def select(errors: list[str] | None,
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the selection criteria
-    :param orderby_clause: optional retrieval order
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
     :param require_count: number of tuples that must exactly satisfy the query (overrides *min_count* and *max_count*)
-    :param offset_count: number of tuples to skip (ignored if *orderby_clause* is not specified)
+    :param offset_count: number of tuples to skip
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: list of tuples containing the search result, *[]* if the search was empty, or *None* if there was an error
+    :return: list of tuples containing the search result, *[]* on empty search, or *None* on error
     """
     # initialize the return variable
     result: list[tuple] = []
@@ -126,16 +124,12 @@ def select(errors: list[str] | None,
             max_count = require_count
 
         # establish an offset into the result set
-        if orderby_clause and isinstance(offset_count, int) and offset_count > 0:
+        if isinstance(offset_count, int) and offset_count > 0:
             sel_stmt += f" OFFSET {offset_count}"
 
         # establish a limit to the number of tuples returned
         if isinstance(limit_count, int) and limit_count > 0:
             sel_stmt += f" LIMIT {limit_count}"
-
-        # order the returned tuples
-        if orderby_clause:
-            sel_stmt += f" ORDER BY {orderby_clause}"
 
         err_msg: str | None = None
         try:
@@ -523,7 +517,6 @@ def _identity_post_insert(errors: list[str] | None,
                                     sel_stmt=(f"SELECT MAX({identity_column}) "
                                               f"FROM {table_name}"),
                                     where_vals=None,
-                                    orderby_clause=None,
                                     min_count=None,
                                     max_count=None,
                                     require_count=None,

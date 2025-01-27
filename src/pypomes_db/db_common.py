@@ -289,29 +289,36 @@ def _bind_marks(engine: DbEngine,
 
 
 def _combine_search_data(query_stmt: str,
+                         where_clause: str,
                          where_vals: tuple,
                          where_data: dict[str, Any],
+                         orderby_clause: str | None,
                          engine: DbEngine) -> tuple[str, tuple]:
     """
-    Rebuild the query statement *stmt* and the list of bind values *where_vals*.
+    Rebuild the query statement *query_stmt* and the list of bind values *where_vals*.
 
     This is done by adding to them the search criteria specified by the key-value pairs in *where_data*.
 
     :param query_stmt: the query statement to add to
+    :param where_clause: optional criteria for tuple selection (ignored if *query_stmt* contains a *WHERE* clause)
     :param where_vals: the bind values list to add to
     :param where_data: the search criteria specified as key-value pairs
+    :param orderby_clause: optional retrieval order (ignored if *query_stmt* contains a *ORDER BY* clause)
     :param engine: the reference database engine
     :return: the modified query statement and bind values list
     """
-    # use 'WHERE' as found in 'stmt'
-    pos: int = f"{query_stmt.lower()} where ".index(" where ")
-    where: str = f"{query_stmt} WHERE "[pos + 1:pos + 6]
+    # use 'WHERE' as found in 'stmt' (defaults to 'WHERE')
+    pos: int = query_stmt.lower().find(" where ")
+    if pos > 0:
+        where: str = query_stmt[pos + 1:pos + 6]
+        where_clause = None
+    else:
+        where = "WHERE"
 
     # extract 'ORDER BY' clause
-    order_by: str | None = None
     if " order by " in query_stmt.lower():
         pos = query_stmt.lower().index(" order by ")
-        order_by = query_stmt[pos+1:]
+        orderby_clause = query_stmt[pos+1:]
         query_stmt = query_stmt[:pos]
 
     # extract 'GROUP BY' clause
@@ -320,6 +327,10 @@ def _combine_search_data(query_stmt: str,
         pos = query_stmt.lower().index(" group by ")
         group_by = query_stmt[pos+1:]
         query_stmt = query_stmt[:pos]
+
+    # add 'WHERE' clause
+    if where_clause:
+        query_stmt += f" {where} {where_clause}"
 
     if where_vals:
         where_vals = list(where_vals)
@@ -362,8 +373,8 @@ def _combine_search_data(query_stmt: str,
         query_stmt = f"{query_stmt} {group_by}"
 
     # put back 'ORDER BY' clause
-    if order_by:
-        query_stmt = f"{query_stmt} {order_by}"
+    if orderby_clause:
+        query_stmt = f"{query_stmt} {orderby_clause}"
 
     return query_stmt, where_vals
 
