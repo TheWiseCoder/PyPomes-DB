@@ -321,6 +321,7 @@ def db_rollback(errors: list[str] | None,
 
 def db_count(errors: list[str] | None,
              table: str,
+             count_clause: str = None,
              where_clause: str = None,
              where_vals: tuple = None,
              where_data: dict[str, Any] = None,
@@ -339,6 +340,7 @@ def db_count(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param table: the table to be searched
+    :param count_clause: optional parameters in the *COUNT* clause (uses 'COUNT(*)' if omitted)
     :param where_clause: optional criteria for tuple selection
     :param where_vals: values to be associated with the selection criteria
     :param where_data: the selection criteria specified as key-value pairs
@@ -356,7 +358,7 @@ def db_count(errors: list[str] | None,
 
     # execute the query
     recs: list[tuple[int]] = db_select(errors=op_errors,
-                                       sel_stmt=f"SELECT COUNT(*) FROM {table}",
+                                       sel_stmt=f"SELECT COUNT({count_clause or '*'}) FROM {table}",
                                        where_clause=where_clause,
                                        where_vals=where_vals,
                                        where_data=where_data,
@@ -484,7 +486,7 @@ def db_select(errors: list[str] | None,
                                            engine=engine)
 
     # process search data provided as key-value pairs
-    if where_data:
+    if where_clause or where_data:
         sel_stmt, where_vals = _combine_search_data(query_stmt=sel_stmt,
                                                     where_clause=where_clause,
                                                     where_vals=where_vals,
@@ -634,7 +636,7 @@ def db_update(errors: list[str] | None,
                                                         update_vals=update_vals,
                                                         update_data=update_data)
     # process search data provided as key-value pairs
-    if where_data:
+    if where_clause or where_data:
         curr_engine: DbEngine = _assert_engine(errors=[],
                                                engine=engine)
         update_stmt, where_vals = _combine_search_data(query_stmt=update_stmt,
@@ -699,7 +701,7 @@ def db_delete(errors: list[str] | None,
     op_errors: list[str] = []
 
     # process search data provided as key-value pairs
-    if where_data:
+    if where_clause or where_data:
         curr_engine: DbEngine = _assert_engine(errors=[],
                                                engine=engine)
         delete_stmt, where_vals = _combine_search_data(query_stmt=delete_stmt,

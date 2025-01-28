@@ -332,41 +332,45 @@ def _combine_search_data(query_stmt: str,
     if where_clause:
         query_stmt += f" {where} {where_clause}"
 
-    if where_vals:
-        where_vals = list(where_vals)
-        query_stmt = query_stmt.replace(f"{where} ", f"{where} (") + ")"
-        for key, value in where_data.items():
-            if isinstance(value, list | tuple):
-                if engine == DbEngine.POSTGRES:
-                    where_vals.append(value)
-                    query_stmt += f" AND {key} IN {DB_BIND_META_TAG}"
+    # process the key-value search parameters
+    if where_data:
+        if where_vals:
+            where_vals = list(where_vals)
+            query_stmt = query_stmt.replace(f"{where} ", f"{where} (") + ")"
+            for key, value in where_data.items():
+                if isinstance(value, list | tuple):
+                    if engine == DbEngine.POSTGRES:
+                        where_vals.append(value)
+                        query_stmt += f" AND {key} IN {DB_BIND_META_TAG}"
+                    else:
+                        where_vals.extend(value)
+                        query_stmt += f" AND {key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
+                        query_stmt = f"{query_stmt[:-2]})"
                 else:
-                    where_vals.extend(value)
-                    query_stmt += f" AND {key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
-                    query_stmt = f"{query_stmt[:-2]})"
-            else:
-                where_vals.append(value)
-                query_stmt += f" AND {key} = {DB_BIND_META_TAG}"
-    else:
-        if where in query_stmt:
-            query_stmt = query_stmt.replace(f"{where} ", f"{where} (") + ") AND "
+                    where_vals.append(value)
+                    query_stmt += f" AND {key} = {DB_BIND_META_TAG}"
         else:
-            query_stmt += f" {where} "
-        where_vals = []
-        for key, value in where_data.items():
-            if isinstance(value, list | tuple):
-                if engine == DbEngine.POSTGRES:
-                    where_vals.append(value)
-                    query_stmt += f"{key} IN {DB_BIND_META_TAG} AND "
-                else:
-                    where_vals.extend(value)
-                    query_stmt += f"{key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
-                    query_stmt = f"{query_stmt[:-2]}) AND "
+            where_vals = []
+            if where in query_stmt:
+                query_stmt = query_stmt.replace(f"{where} ", f"{where} (") + ") AND "
             else:
-                where_vals.append(value)
-                query_stmt += f"{key} = {DB_BIND_META_TAG} AND "
-        query_stmt = query_stmt[:-5]
-    where_vals = tuple(where_vals)
+                query_stmt += f" {where} "
+            for key, value in where_data.items():
+                if isinstance(value, list | tuple):
+                    if engine == DbEngine.POSTGRES:
+                        where_vals.append(value)
+                        query_stmt += f"{key} IN {DB_BIND_META_TAG} AND "
+                    else:
+                        where_vals.extend(value)
+                        query_stmt += f"{key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
+                        query_stmt = f"{query_stmt[:-2]}) AND "
+                else:
+                    where_vals.append(value)
+                    query_stmt += f"{key} = {DB_BIND_META_TAG} AND "
+            query_stmt = query_stmt[:-5]
+
+    # set 'WHERE' values to tuple
+    where_vals = tuple(where_vals or [])
 
     # put back 'GROUP BY' clause
     if group_by:
