@@ -29,6 +29,27 @@ def get_connection_string() -> str:
     )
 
 
+def get_version() -> str:
+    """
+    Obtain and return the current version of the database engine.
+
+    :return: the engine's current version
+    """
+    reply: list[tuple] = select(errors=None,
+                                sel_stmt="SELECT @@VERSION",
+                                where_vals=None,
+                                min_count=None,
+                                max_count=None,
+                                require_count=None,
+                                offset_count=None,
+                                limit_count=1,
+                                conn=None,
+                                committable=None,
+                                logger=None)
+
+    return reply[0][0] if reply else None
+
+
 def connect(errors: list[str],
             autocommit: bool | None,
             logger: Logger | None) -> Connection:
@@ -69,8 +90,8 @@ def connect(errors: list[str],
             errors.append(err_msg)
         if logger:
             logger.error(err_msg)
-            logger.error(msg=("Error connecting to "
-                              f"'{db_params.get(DbParam.NAME)}' at '{db_params.get(DbParam.HOST)}'"))
+            logger.error(msg="Error connecting to "
+                             f"'{db_params.get(DbParam.NAME)}' at '{db_params.get(DbParam.HOST)}'")
     return result
 
 
@@ -99,8 +120,8 @@ def select(errors: list[str] | None,
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the selection criteria
-    :param min_count: optionally defines the minimum number of tuples to be returned
-    :param max_count: optionally defines the maximum number of tuples to be returned
+    :param min_count: optionally defines the minimum number of tuples expected
+    :param max_count: optionally defines the maximum number of tuples expected
     :param require_count: number of tuples that must exactly satisfy the query (overrides *min_count* and *max_count*)
     :param offset_count: number of tuples to skip
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
@@ -128,7 +149,7 @@ def select(errors: list[str] | None,
 
         # establish a limit to the number of tuples returned
         if isinstance(limit_count, int) and limit_count > 0:
-            sel_stmt = sel_stmt.replace("SELECT", f"SELECT TOP {limit_count}", 1)
+            sel_stmt = sel_stmt.replace("SELECT ", f"SELECT TOP {limit_count} ", 1)
 
         err_msg: str | None = None
         try:

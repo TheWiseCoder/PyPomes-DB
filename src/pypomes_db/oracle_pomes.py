@@ -28,6 +28,27 @@ def get_connection_string() -> str:
     return f"oracle+oracledb://{db_params.get(DbParam.USER)}:{db_params.get(DbParam.PWD)}@{dsn}"
 
 
+def get_version() -> str:
+    """
+    Obtain and return the current version of the database engine.
+
+    :return: the engine's current version
+    """
+    reply: list[tuple] = select(errors=None,
+                                sel_stmt="SELECT * FROM v$version",
+                                where_vals=None,
+                                min_count=None,
+                                max_count=None,
+                                require_count=None,
+                                offset_count=None,
+                                limit_count=1,
+                                conn=None,
+                                committable=None,
+                                logger=None)
+
+    return reply[0][0] if reply else None
+
+
 def connect(errors: list[str],
             autocommit: bool | None,
             logger: Logger | None) -> Connection:
@@ -66,8 +87,8 @@ def connect(errors: list[str],
             errors.append(err_msg)
         if logger:
             logger.error(err_msg)
-            logger.error(msg=(f"Error connecting to '{db_params.get(DbParam.NAME)} '"
-                              f"at '{db_params.get(DbParam.NAME)}'"))
+            logger.error(msg=f"Error connecting to '{db_params.get(DbParam.NAME)} '"
+                             f"at '{db_params.get(DbParam.NAME)}'")
 
     return result
 
@@ -97,8 +118,8 @@ def select(errors: list[str] | None,
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the selection criteria
-    :param min_count: optionally defines the minimum number of tuples to be returned
-    :param max_count: optionally defines the maximum number of tuples to be returned
+    :param min_count: optionally defines the minimum number of tuples expected
+    :param max_count: optionally defines the maximum number of tuples expected
     :param require_count: number of tuples that must exactly satisfy the query (overrides *min_count* and *max_count*)
     :param offset_count: number of tuples to skip (ignored if *sel_stmt* does not contain an *ORDER BY* clause)
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
@@ -122,11 +143,15 @@ def select(errors: list[str] | None,
 
         # establish an offset into the result set
         if isinstance(offset_count, int) and offset_count > 0:
-            sel_stmt += f" OFFSET {offset_count}"
+            sel_stmt += f" OFFSET {offset_count} ROWS"
 
         # establish a limit to the number of tuples returned
         if isinstance(limit_count, int) and limit_count > 0:
-            sel_stmt += f" ROWS FETCH NEXT {limit_count} ROWS ONLY"
+            if isinstance(offset_count, int) and offset_count > 0:
+                sel_stmt += " FETCH NEXT"
+            else:
+                sel_stmt += " FETCH FIRST"
+            sel_stmt += f" {limit_count} ROWS ONLY"
 
         err_msg: str | None = None
         try:

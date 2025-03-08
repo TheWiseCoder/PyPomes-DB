@@ -10,6 +10,7 @@ from .db_pomes import (
 )
 
 
+# ruff: noqa: C901 PLR0912 PLR0915
 def db_sync_data(errors: list[str] | None,
                  source_engine: DbEngine,
                  source_table: str,
@@ -111,9 +112,9 @@ def db_sync_data(errors: list[str] | None,
 
         # log the synchronization start
         if logger:
-            logger.debug(msg=(f"Started synchronizing data, "
-                              f"from {source_engine}.{source_table} "
-                              f"to {target_engine}.{target_table}"))
+            logger.debug(msg=f"Started synchronizing data, "
+                             f"from {source_engine}.{source_table} "
+                             f"to {target_engine}.{target_table}")
         # migrate the data
         log_count: int
         log_step: int = 0
@@ -129,8 +130,8 @@ def db_sync_data(errors: list[str] | None,
             source_rows: list[tuple] = source_cursor.fetchall()
             # log query result
             if logger:
-                logger.debug(msg=(f"Read {len(source_rows)} tuples "
-                                  f"from {source_engine}.{source_table}"))
+                logger.debug(msg=f"Read {len(source_rows)} tuples "
+                                 f"from {source_engine}.{source_table}")
             if has_nulls and target_engine == "postges":
                 source_rows = _remove_nulls(rows=source_rows)
             source_offset: int = len(source_rows)
@@ -138,8 +139,8 @@ def db_sync_data(errors: list[str] | None,
             target_rows: list[tuple] = target_cursor.fetchall()
             # log query result
             if logger:
-                logger.debug(msg=(f"Read {len(target_rows)} tuples "
-                                  f"from {target_engine}.{target_table}"))
+                logger.debug(msg=f"Read {len(target_rows)} tuples "
+                                 f"from {target_engine}.{target_table}")
             target_offset: int = len(target_rows)
             log_count = source_offset
 
@@ -186,8 +187,8 @@ def db_sync_data(errors: list[str] | None,
                     if source_rows:
                         # log query result
                         if logger:
-                            logger.debug(msg=(f"Read {len(source_rows)} tuples "
-                                              f"from {source_engine}.{source_table}"))
+                            logger.debug(msg=f"Read {len(source_rows)} tuples "
+                                             f"from {source_engine}.{source_table}")
                         source_offset += len(source_rows)
                         log_count += source_offset
                         log_step += source_offset
@@ -203,8 +204,8 @@ def db_sync_data(errors: list[str] | None,
                     if target_rows:
                         # log query result
                         if logger:
-                            logger.debug(msg=(f"Read {len(target_rows)} tuples "
-                                              f"from {target_engine}.{target_table}"))
+                            logger.debug(msg=f"Read {len(target_rows)} tuples "
+                                             f"from {target_engine}.{target_table}")
                         target_offset += len(target_rows)
                     else:
                         # no more tuples in target table
@@ -212,9 +213,9 @@ def db_sync_data(errors: list[str] | None,
 
                 # log partial result
                 if logger and log_step >= log_trigger:
-                    logger.debug(msg=(f"Synchronizing {log_count} tuples, "
-                                      f"from {source_engine}.{source_table} "
-                                      f"to {target_engine}.{target_table}"))
+                    logger.debug(msg=f"Synchronizing {log_count} tuples, "
+                                     f"from {source_engine}.{source_table} "
+                                     f"to {target_engine}.{target_table}")
                     log_step = 0
             # close the cursors
             source_cursor.close()
@@ -290,9 +291,9 @@ def db_sync_data(errors: list[str] | None,
             if logger:
                 logger.error(msg=err_msg)
         if logger:
-            logger.debug(msg=(f"Synchronized {log_count} tuples, "
-                              f"from {source_engine}.{source_table} "
-                              f"to {target_engine}.{target_table}"))
+            logger.debug(msg=f"Synchronized {log_count} tuples, "
+                             f"from {source_engine}.{source_table} "
+                             f"to {target_engine}.{target_table}")
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)

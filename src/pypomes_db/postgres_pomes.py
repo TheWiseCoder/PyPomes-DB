@@ -30,6 +30,27 @@ def get_connection_string() -> str:
             f"{db_params.get(DbParam.PORT)}/{db_params.get(DbParam.NAME)}")
 
 
+def get_version() -> str:
+    """
+    Obtain and return the current version of the database engine.
+
+    :return: the engine's current version
+    """
+    reply: list[tuple] = select(errors=None,
+                                sel_stmt="SELECT version()",
+                                where_vals=None,
+                                min_count=None,
+                                max_count=None,
+                                require_count=None,
+                                offset_count=None,
+                                limit_count=1,
+                                conn=None,
+                                committable=None,
+                                logger=None)
+
+    return reply[0][0] if reply else None
+
+
 def connect(errors: list[str],
             autocommit: bool | None,
             logger: Logger | None) -> connection:
@@ -88,7 +109,10 @@ def select(errors: list[str] | None,
     Query the database and return all tuples that satisfy the *sel_stmt* command.
 
     The command can optionally contain selection criteria, with respective values given in *where_vals*.
-    The list of values for an attribute with the *IN* clause must be contained in a specific tuple.
+    Care should be exercised if *where_clause* contains *IN* directives. In PostgreSQL, the list of values
+    for an attribute with the *IN* directive must be contained in a specific tuple, and the operation will
+    break for a list of values containing only 1 element. The safe way to specify *IN* directives is
+    to add them to *where_data*, as the specifics for PostgreSQL will then be properly dealt with.
 
     If not positive integers, *min_count*, *max_count*, and *require_count* are ignored.
     If *require_count* is specified, then exactly that number of tuples must be returned by the query.
@@ -100,8 +124,8 @@ def select(errors: list[str] | None,
     :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the selection criteria
-    :param min_count: optionally defines the minimum number of tuples to be returned
-    :param max_count: optionally defines the maximum number of tuples to be returned
+    :param min_count: optionally defines the minimum number of tuples expected
+    :param max_count: optionally defines the maximum number of expected
     :param require_count: number of tuples that must exactly satisfy the query (overrides *min_count* and *max_count*)
     :param offset_count: number of tuples to skip
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself

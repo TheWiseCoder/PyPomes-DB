@@ -27,7 +27,7 @@ def db_setup(engine: DbEngine,
         - *db_client* may be provided for *oracle*, only
         - *db_driver* is required for *sqlserver*, only
 
-    :param engine: the database engine (one of ['mysql', 'oracle', 'postgres', 'sqlserver'])
+    :param engine: the database engine (one of [*mysql*, *oracle*, *postgres', *sqlserver*])
     :param db_name: the database or service name
     :param db_user: the logon user
     :param db_pwd: the logon password
@@ -35,7 +35,7 @@ def db_setup(engine: DbEngine,
     :param db_port: the connection port (a positive integer)
     :param db_driver: the database driver (SQLServer only)
     :param db_client: the path to the client software (optional, Oracle only)
-    :return: 'True' if the data was accepted, 'False' otherwise
+    :return: *True* if the data was accepted, *False* otherwise
     """
     # initialize the return variable
     result: bool = False
@@ -102,7 +102,7 @@ def db_get_params(engine: DbEngine = None) -> dict[str, Any]:
     """
     Return the current connection parameters as a *dict*.
 
-    The returned *dict* contains the keys *name*, *user*, *pwd*, *host*, and *port*.
+    The returned *dict* contains the keys *engine*, *name*, *user*, *pwd*, *host*, and *port*.
     For *oracle* engines, the returned *dict* contains the extra key *client*.
     For *sqlserver* engines, the returned *dict* contains the extra key *driver*.
     The meaning of these parameters may vary between different database engines.
@@ -117,7 +117,8 @@ def db_get_params(engine: DbEngine = None) -> dict[str, Any]:
     db_params: dict[DbParam, Any] = _DB_CONN_DATA.get(curr_engine)
     if db_params:
         # noinspection PyTypeChecker
-        result = {str(k): v for (k, v) in db_params.items()}
+        result = {k.value: v for (k, v) in db_params.items()}
+        result["engine"] = DbEngine.value
 
     return result
 
@@ -130,7 +131,7 @@ def db_get_connection_string(engine: DbEngine = None) -> str:
     :return: the connection string
     """
     # initialize the return variable
-    result: Any = None
+    result: str | None = None
 
     # determine the database engine
     curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
@@ -150,16 +151,12 @@ def db_get_connection_string(engine: DbEngine = None) -> str:
     return result
 
 
-def db_bind_stmt(stmt: str,
-                 engine: DbEngine = None) -> str:
+def db_get_version(engine: DbEngine = None) -> str:
     """
-    Replace the occurrences of bind meta-tag in *stmt*, with the appropriate bind tag for *engine*.
+    Obtain and return the current version of *engine*.
 
-    The bind meta-tag is defined by *DB_BIND_META_TAG*, an environment variable with the default value *%?*.
-
-    :param stmt: the statement for which to replace the bind meta-tags with the proper bind tags
     :param engine: the reference database engine (the default engine, if not provided)
-    :return: the statement with the proper bind tags, or 'None' if the engine is not known
+    :return: the engine's current version
     """
     # initialize the return variable
     result: str | None = None
@@ -168,15 +165,97 @@ def db_bind_stmt(stmt: str,
     curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
 
     match curr_engine:
-        case DbEngine.MYSQL | DbEngine.POSTGRES:
+        case DbEngine.MYSQL:
+            pass
+        case DbEngine.ORACLE:
+            from . import oracle_pomes
+            result = oracle_pomes.get_version()
+        case DbEngine.POSTGRES:
+            from . import postgres_pomes
+            result = postgres_pomes.get_version()
+        case DbEngine.SQLSERVER:
+            from . import sqlserver_pomes
+            result = sqlserver_pomes.get_version()
+
+    return result
+
+
+def db_bind_stmt(stmt: str,
+                 engine: DbEngine = None) -> str:
+    """
+    Replace the occurrences of bind meta-tag in *stmt*, with the appropriate placeholder for *engine*.
+
+    The bind meta-tag is defined by *DB_BIND_META_TAG*, an environment variable with the default value *%?*.
+    These are the placeholders specific to the supported DB engines:
+        - mysql:     ?
+        - oracle:    :n (1-based)
+        - postgres:  %s
+        - sqlserver: ?
+
+    :param stmt: the statement for which to replace the bind meta-tags with the proper placeholders
+    :param engine: the reference database engine (the default engine, if not provided)
+    :return: the statement with the proper placeholders, or *None* if the engine is not known
+    """
+    # initialize the return variable
+    result: str | None = None
+
+    # determine the database engine
+    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+
+    match curr_engine:
+        case DbEngine.POSTGRES:
             result = stmt.replace(DB_BIND_META_TAG, "%s")
         case DbEngine.ORACLE:
             pos: int = 0
             while result != stmt:
                 pos += 1
                 result = stmt.replace(DB_BIND_META_TAG, f":{pos}", 1)
-        case DbEngine.SQLSERVER:
+        case DbEngine.MYSQL | DbEngine.SQLSERVER:
             result = stmt.replace(DB_BIND_META_TAG, "?")
+
+    return result
+
+
+def db_bind_args(query_stmt: str,
+                 bind_vals: list[Any],
+                 engine: DbEngine = None) -> str:
+    """
+    Replace the placeholders in *query_stmt* with the values in *bind_vals*, and return the modified query statement.
+
+    The placeholders in *query_stmt* can be either specific to *engine*, or the generic value set in
+    DB_BIND_META_TAG (default value is '%?').
+    These are the placeholders specific to the supported DB engines:
+        - mysql:     ?
+        - oracle:    :n (1-based)
+        - postgres:  %s
+        - sqlserver: ?
+
+    Note that using a statement in case values for types other than *str*, *int* or *float* were replaced,
+    may cause a query to break, as the standard string representations for these other types are used.
+
+    :param query_stmt: the query statement
+    :param bind_vals: the values to replace the placeholders with
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :return: the query statement with the placeholders replaced with their corresponding values
+    """
+    # initialize the return variable
+    result: str | None = None
+
+    # determine the database engine
+    curr_engine: DbEngine = _assert_engine(errors=None,
+                                           engine=engine)
+    # bind the arguments
+    for bind_val in bind_vals:
+        pos: int = 0
+        quote: str = "" if isinstance(bind_val, int | float) else "'"
+        val: str = f"{quote}{bind_val}{quote}"
+        if curr_engine in [DbEngine.MYSQL, DbEngine.SQLSERVER]:
+            result = query_stmt.replace("?", val, 1)
+        elif curr_engine == DbEngine.POSTGRES:
+            result = query_stmt.replace("%s", val, 1)
+        elif curr_engine == DbEngine.ORACLE:
+            pos += 1
+            result = query_stmt.replace(f":{pos}", val, 1)
 
     return result
 
@@ -190,7 +269,7 @@ def db_assert_access(errors: list[str] | None,
     :param errors: incidental errors
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param logger: optional logger
-    :return: 'True' if the trial connection succeeded, 'False' otherwise
+    :return: *True* if the connection attempt succeeded, *False* otherwise
     """
     # initialize the return variable
     result: bool = False
@@ -334,6 +413,11 @@ def db_count(errors: list[str] | None,
 
     Optionally, selection criteria may be specified in *where_clause*, or additionally by
     key-value pairs in *where_data*, which would be concatenated by the *AND* logical connector.
+    Care should be exercised if *where_clause* contains *IN* directives. In PostgreSQL, the list of values
+    for an attribute with the *IN* directive must be contained in a specific tuple, and the operation will
+    break for a list of values containing only 1 element. The safe way to specify *IN* directives is
+    to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
+
     The targer database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -348,7 +432,7 @@ def db_count(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: 'True' if at least one tuple was found, 'False' otherwise, 'None' if an error ocurred
+    :return: *True* if at least one tuple was found, *False* otherwise, *None* on error
     """
     # initialize the return variable
     result: int | None = None
@@ -388,6 +472,11 @@ def db_exists(errors: list[str] | None,
 
     Optionally, selection criteria may be specified in *where_clause*, or additionally by
     key-value pairs in *where_data*, which would be concatenated by the *AND* logical connector.
+    Care should be exercised if *where_clause* contains *IN* directives. In PostgreSQL, the list of values
+    for an attribute with the *IN* directive must be contained in a specific tuple, and the operation will
+    break for a list of values containing only 1 element. The safe way to specify *IN* directives is
+    to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
+
     The targer database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -401,7 +490,7 @@ def db_exists(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: 'True' if at least one tuple was found, 'False' otherwise, 'None' if an error ocurred
+    :return: *True* if at least one tuple was found, *False* otherwise, *None* on error
     """
     # initialize the return variable
     result: bool | None = None
@@ -448,13 +537,17 @@ def db_select(errors: list[str] | None,
 
     Optionally, selection criteria may be specified in *where_clause* and *where_vals*, or additionally by
     key-value pairs in *where_data*, which would be concatenated by the *AND* logical connector.
-    If the search is empty, an empty list is returned.
-    The target database engine, specified or default, must have been previously configured.
+    Care should be exercised if *where_clause* contains *IN* directives. In PostgreSQL, the list of values
+    for an attribute with the *IN* directive must be contained in a specific tuple, and the operation will
+    break for a list of values containing only 1 element. The safe way to specify *IN* directives is
+    to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
 
-    For PostgreSQL, the list of values for an attribute with the *IN* clause must be contained in a specific tuple.
     If not positive integers, *min_count*, *max_count*, and *require_count* are ignored.
     If *require_count* is specified, then exactly that number of tuples must be returned by the query.
     The parameter *offset_count* is used to offset the retrieval of tuples.
+
+    If the search is empty, an empty list is returned.
+    The target database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -464,9 +557,9 @@ def db_select(errors: list[str] | None,
     :param where_vals: values to be associated with the selection criteria
     :param where_data: selection criteria specified as key-value pairs
     :param orderby_clause: optional retrieval order (ignored if *sel_stmt* contains a *ORDER BY* clause)
-    :param min_count: optionally defines the minimum number of tuples to be returned
-    :param max_count: optionally defines the maximum number of tuples to be returned
-    :param require_count: number of tuples that must exactly satisfy the query (overrides 'min_count' and 'max_count')
+    :param min_count: optionally defines the minimum number of tuples expected
+    :param max_count: optionally defines the maximum number of tuples expected
+    :param require_count: number of tuples that must exactly satisfy the query (overrides *min_count* and *max_count*)
     :param offset_count: number of tuples to skip (defaults to none)
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
     :param engine: the database engine to use (uses the default engine, if not provided)
@@ -569,7 +662,7 @@ def db_insert(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of inserted tuples (0 ou 1), or 'None' if an error occurred
+    :return: the number of inserted tuples (0 ou 1), or *None* on error
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -608,9 +701,14 @@ def db_update(errors: list[str] | None,
     Update one or more tuples in the database, as defined by the command *update_stmt*.
 
     The values for this update are in *update_vals*, and/or specified by key-value pairs in *update_data*.
-    The values for selecting the tuples to be updated are in *where_vals*, and/ar specified
-    by key-value pairs in *where_data*. The target database engine, specified or default,
-    must have been previously configured.
+    The values for selecting the tuples to be updated are in *where_vals*, and/or additionally specified
+    by key-value pairs in *where_data*.
+    Care should be exercised if *where_clause* contains *IN* directives. In PostgreSQL, the list of values
+    for an attribute with the *IN* directive must be contained in a specific tuple, and the operation will
+    break for a list of values containing only 1 element. The safe way to specify *IN* directives is
+    to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
+
+    The target database engine, specified or default,  must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -625,7 +723,7 @@ def db_update(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of updated tuples, or 'None' if an error occurred
+    :return: the number of updated tuples, or *None* on error
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -680,8 +778,13 @@ def db_delete(errors: list[str] | None,
     """
     Delete one or more tuples in the database, as defined by the *delete_stmt* command.
 
-    The values for selecting the tuples to be deleted are in *where_vals*, or specified additionally
+    The values for selecting the tuples to be deleted are in *where_vals*, and/or additionally specified
     by key-value pairs in *where_data*.
+    Care should be exercised if *where_clause* contains *IN* directives. In PostgreSQL, the list of values
+    for an attribute with the *IN* directive must be contained in a specific tuple, and the operation will
+    break for a list of values containing only 1 element. The safe way to specify *IN* directives is
+    to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
+
     The target database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -695,7 +798,7 @@ def db_delete(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of deleted tuples, or 'None' if an error occurred
+    :return: the number of deleted tuples, or *None* on error
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -754,7 +857,7 @@ def db_bulk_insert(errors: list[str] | None,
     :param committable: whether to commit operation upon errorless completion
     :param identity_column: column whose values are generated by the database
     :param logger: optional logger
-    :return: the number of inserted tuples (1 for postgres), or 'None' if an error occurred
+    :return: the number of inserted tuples (1 for postgres), or *None* on error
     """
     # initialize the return variable
     result: int | None = None
@@ -783,6 +886,7 @@ def db_bulk_insert(errors: list[str] | None,
         # post-insert handling of identity columns
         if not op_errors and identity_column:
             # noinspection PyProtectedMember
+            # ruff: noqa: SLF001
             postgres_pomes._identity_post_insert(errors=op_errors,
                                                  insert_stmt=insert_stmt,
                                                  conn=connection,
@@ -808,6 +912,7 @@ def db_bulk_insert(errors: list[str] | None,
             # pre-insert handling of identity columns
             if identity_column:
                 # noinspection PyProtectedMember
+                # ruff: noqa: SLF001
                 sqlserver_pomes._identity_pre_insert(errors=op_errors,
                                                      insert_stmt=insert_stmt,
                                                      conn=connection,
@@ -823,6 +928,7 @@ def db_bulk_insert(errors: list[str] | None,
                 if not op_errors and identity_column:
                     from . import sqlserver_pomes
                     # noinspection PyProtectedMember
+                    # ruff: noqa: SLF001
                     sqlserver_pomes._identity_post_insert(errors=op_errors,
                                                           insert_stmt=insert_stmt,
                                                           conn=connection,
@@ -865,7 +971,7 @@ def db_bulk_update(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of updated tuples, or 'None' if an error occurred
+    :return: the number of updated tuples, or *None* on error
     """
     # initialize the return variable
     result: int | None = None
@@ -954,7 +1060,7 @@ def db_bulk_delete(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of inserted tuples (1 for postgres), or 'None' if an error occurred
+    :return: the number of inserted tuples (1 for postgres), or *None* on error
     """
     # initialize the return variable
     result: int | None = None
@@ -1037,7 +1143,7 @@ def db_update_lob(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: number of LOBs effectively copied, or 'None' if an error occurred
+    :return: number of LOBs effectively copied, or *None* on error
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -1117,7 +1223,7 @@ def db_execute(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the return value from the command execution, or 'None' if an error occurred
+    :return: the return value from the command execution, or *None* on error
     """
     # initialize the return variable
     result: int | None = None
@@ -1186,7 +1292,7 @@ def db_call_function(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the data returned by the function, or 'None' if an error occurred
+    :return: the data returned by the function, or *None* on error
     """
     # initialize the return variable
     result: Any = None
@@ -1251,7 +1357,7 @@ def db_call_procedure(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the data returned by the procedure, or 'None' if an error occurred
+    :return: the data returned by the procedure, or *None* on error
     """
     # initialize the return variable
     result: Any = None

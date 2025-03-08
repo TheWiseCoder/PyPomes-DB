@@ -8,6 +8,7 @@ from .db_common import (
 from .db_pomes import db_connect, db_count
 
 
+# ruff: noqa: C901 PLR0912 PLR0915
 def db_migrate_data(errors: list[str] | None,
                     source_engine: DbEngine,
                     source_table: str,
@@ -54,6 +55,9 @@ def db_migrate_data(errors: list[str] | None,
     to retrieve in each SELECT operation, and *batch_size_out* indicates the maximum number of tuples
     to write in each INSERT operation. They are ignored if non-integers, or if less than 1.
 
+    Further, if result set sorting has not been specified in *orderby_clause*, the parameters
+    *batch_size_in* and *offset_count* are ignored.
+
     The parameters *source_committable* and *target_committable* are relevant only
     if *source_conn* and *target_conn* are provided, respectively, and are otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -94,6 +98,12 @@ def db_migrate_data(errors: list[str] | None,
                                                       engine=target_engine,
                                                       logger=logger)
     if curr_source_conn and curr_target_conn:
+
+        # definite whether it is possible to retrieve tuples in batches
+        if not orderby_clause:
+            batch_size_in = 0
+            offset_count = 0
+
         # define the number of rows to skip
         if offset_count == -1:
             offset_count = db_count(errors=op_errors,
@@ -115,24 +125,33 @@ def db_migrate_data(errors: list[str] | None,
         if not target_columns:
             target_columns = source_columns
 
-        # buid the SELECT query
+        # buid the SELECT query:
+        #   SELECT * FROM <table>
+        #     WHERE <where-clause>
+        #     ORDER BY <column>
+        #     FETCH FIRST <n> ROWS ONLY
+        #   or
+        #   SELECT * FROM <table>
+        #     WHERE <where-clause>
+        #     ORDER BY <column>
+        #     OFFSET <n> ROWS
+        #     FETCH NEXT <n> ROWS ONLY
         cols: str = ", ".join(source_columns)
         sel_stmt: str = f"SELECT {cols} FROM {source_table}"
         if where_clause:
             sel_stmt += f" WHERE {where_clause}"
         if orderby_clause:
             sel_stmt += f" ORDER BY {orderby_clause}"
-            if offset_count or batch_size_in:
-                sel_stmt += " OFFSET @offset"
-            if limit_count or batch_size_in:
-                if source_engine == DbEngine.POSTGRES:
-                    sel_stmt += " ROWS LIMIT @limit"
-                elif source_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
-                    sel_stmt += " ROWS FETCH NEXT @limit ROWS ONLY"
-        else:
-            # these require an ORDER BY clause to have been provided
-            batch_size_in = 0
-            offset_count = 0
+
+        if offset_count or limit_count > batch_size_in:
+            sel_stmt += " OFFSET @offset ROWS"
+        if limit_count or batch_size_in:
+            if source_engine == DbEngine.POSTGRES:
+                sel_stmt += " LIMIT @limit"
+            elif source_engine == DbEngine.ORACLE:
+                sel_stmt += " FETCH @limit ROWS ONLY"
+            elif source_engine == DbEngine.SQLSERVER:
+                sel_stmt = sel_stmt.replace("SELECT ", "SELECT TOP @limit ", 1)
 
         # build the INSERT query
         if target_engine == DbEngine.POSTGRES:
@@ -151,14 +170,15 @@ def db_migrate_data(errors: list[str] | None,
 
         # log the migration start
         if logger:
-            logger.debug(msg=(f"Started migrating data, "
-                              f"from {source_engine}.{source_table} "
-                              f"to {target_engine}.{target_table}"))
+            logger.debug(msg=f"Started migrating data, "
+                             f"from {source_engine}.{source_table} "
+                             f"to {target_engine}.{target_table}")
 
         # pre-insert handling of identity columns on SQLServer
         if identity_column and target_engine == DbEngine.SQLSERVER:
             from . import sqlserver_pomes
             # noinspection PyProtectedMember
+            # ruff: noqa: SLF001
             sqlserver_pomes._identity_pre_insert(errors=op_errors,
                                                  insert_stmt=insert_stmt,
                                                  conn=target_conn,
@@ -175,12 +195,17 @@ def db_migrate_data(errors: list[str] | None,
 
                 # adjust the offset and limit
                 curr_stmt: str = sel_stmt
+                curr_limit: int = min(batch_size_in, limit_count)
+                if curr_limit == 0:
+                    curr_limit = max(batch_size_in, limit_count)
                 if offset_count:
-                    curr_stmt = curr_stmt.replace("@offset", str(offset_count))
+                    curr_stmt = curr_stmt.replace("@offset", str(offset_count), 1)\
+                                         .replace("@limit", str(curr_limit), 1)\
+                                         .replace(" FETCH ", " FETCH NEXT ", 1)
                 else:
-                    # no offset in initial query
-                    curr_stmt = curr_stmt.replace(" OFFSET @offset", "")
-                curr_stmt = curr_stmt.replace("@limit", str(min(limit_count, batch_size_in)))
+                    curr_stmt = curr_stmt.replace(" OFFSET @offset ROWS", "", 1)\
+                                         .replace("@limit", str(curr_limit), 1)\
+                                         .replace(" FETCH ", " FETCH FIRST ", 1)
 
                 # execute the query and retrieve the result set
                 source_cursor.execute(statement=curr_stmt)
@@ -190,8 +215,8 @@ def db_migrate_data(errors: list[str] | None,
                 while rows_in:
                     # log the retrieval operation
                     if logger:
-                        logger.debug(msg=(f"Read {len(rows_in)} tuples "
-                                          f"from {source_engine}.{source_table}"))
+                        logger.debug(msg=f"Read {len(rows_in)} tuples "
+                                         f"from {source_engine}.{source_table}")
                     pos_from: int = 0
 
                     # migrate the tuples
@@ -220,15 +245,17 @@ def db_migrate_data(errors: list[str] | None,
                         # increment the tuple migration counter and log the partial migration
                         result += len(rows_out)
                         if logger:
-                            logger.debug(msg=(f"Migrated {result} tuples, "
-                                              f"from {source_engine}.{source_table} "
-                                              f"to {target_engine}.{target_table}"))
+                            logger.debug(msg=f"Migrated {result} tuples, "
+                                             f"from {source_engine}.{source_table} "
+                                             f"to {target_engine}.{target_table}")
                     # read the next batch
-                    if batch_size_in and \
-                            (limit_count == 0 or limit_count > result):
-                        curr_limit: int = batch_size_in if limit_count == 0 else limit_count - result
-                        curr_stmt = sel_stmt.replace("@offset", str(offset_count + result))\
-                                            .replace("@limit", str(min(batch_size_in, curr_limit)))
+                    if limit_count > result or (batch_size_in and not limit_count):
+                        curr_limit = min(batch_size_in, limit_count - result)
+                        if curr_limit <= 0:
+                            curr_limit = max(batch_size_in, limit_count - result)
+                        curr_stmt = sel_stmt.replace("@offset", str(offset_count + result), 1)\
+                                            .replace("@limit", str(curr_limit), 1)\
+                                            .replace(" FETCH ", " FETCH NEXT ", 1)
                         source_cursor.execute(statement=curr_stmt)
                         rows_in = source_cursor.fetchall()
                     else:
@@ -244,6 +271,7 @@ def db_migrate_data(errors: list[str] | None,
                     if target_engine == DbEngine.POSTGRES:
                         from . import postgres_pomes
                         # noinspection PyProtectedMember
+                        # ruff: noqa: SLF001
                         postgres_pomes._identity_post_insert(errors=op_errors,
                                                              insert_stmt=insert_stmt,
                                                              conn=target_conn,
@@ -253,6 +281,7 @@ def db_migrate_data(errors: list[str] | None,
                     elif target_engine == DbEngine.SQLSERVER:
                         from . import sqlserver_pomes
                         # noinspection PyProtectedMember
+                        # ruff: noqa: SLF001
                         sqlserver_pomes._identity_post_insert(errors=op_errors,
                                                               insert_stmt=insert_stmt,
                                                               conn=target_conn,
@@ -292,9 +321,9 @@ def db_migrate_data(errors: list[str] | None,
             if logger:
                 logger.error(msg=err_msg)
         elif logger:
-            logger.debug(msg=(f"Finished migrating {result} tuples, "
-                              f"from {source_engine}.{source_table} "
-                              f"to {target_engine}.{target_table}"))
+            logger.debug(msg=f"Finished migrating {result} tuples, "
+                             f"from {source_engine}.{source_table} "
+                             f"to {target_engine}.{target_table}")
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -302,6 +331,7 @@ def db_migrate_data(errors: list[str] | None,
     return result
 
 
+# ruff: noqa: PLR0912 PLR0915
 def db_migrate_lobs(errors: list[str] | None,
                     source_engine: DbEngine,
                     source_table: str,
@@ -339,6 +369,9 @@ def db_migrate_lobs(errors: list[str] | None,
 
     The parameters *batch_size* and *limit_count* are used to limit the maximum number of tuples
     to retrieve in each SELECT operation. They are ignored if non-integers, or if less than 1.
+
+    Further, if *batch_size* or *offset_count* has been specified, but *orderby_clause* has not,
+    then an ORDER BY clause is constructed from the data in *source_pk_columns*.
 
     The parameters *source_committable* and *target_committable* are relevant only
     if *source_conn* and *target_conn* are provided, respectively, and are otherwise ignored.
@@ -382,6 +415,7 @@ def db_migrate_lobs(errors: list[str] | None,
                                                       engine=target_engine,
                                                       logger=logger)
     if curr_source_conn and curr_target_conn:
+
         # make sure to have a target column
         if not target_lob_column:
             target_lob_column = source_lob_column
@@ -413,18 +447,20 @@ def db_migrate_lobs(errors: list[str] | None,
         sel_stmt: str = f"SELECT {source_pks}, {source_lob_column} FROM {source_table}"
         if where_clause:
             sel_stmt += f" WHERE {where_clause}"
-        if not orderby_clause and \
-                (offset_count or batch_size or limit_count):
+        if not orderby_clause and (offset_count or batch_size):
             orderby_clause = ", ".join(source_pk_columns)
         if orderby_clause:
             sel_stmt += f" ORDER BY {orderby_clause}"
-            if offset_count or batch_size:
-                sel_stmt += " OFFSET @offset"
-            if limit_count or batch_size:
-                if source_engine == DbEngine.POSTGRES:
-                    sel_stmt += " ROWS LIMIT @limit"
-                elif source_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
-                    sel_stmt += " ROWS FETCH NEXT @limit ROWS ONLY"
+
+        if offset_count or limit_count > batch_size:
+            sel_stmt += " OFFSET @offset ROWS"
+        if limit_count or batch_size:
+            if source_engine == DbEngine.POSTGRES:
+                sel_stmt += " LIMIT @limit"
+            elif source_engine == DbEngine.ORACLE:
+                sel_stmt += " FETCH @limit ROWS ONLY"
+            elif source_engine == DbEngine.SQLSERVER:
+                sel_stmt = sel_stmt.replace("SELECT ", "SELECT TOP @limit ", 1)
 
         # build the UPDATE query
         lob_index: int = len(source_pk_columns)
@@ -449,9 +485,9 @@ def db_migrate_lobs(errors: list[str] | None,
 
         # log the migration start
         if logger:
-            logger.debug(msg=(f"Started migrating LOBs, "
-                              f"from {source_engine}.{source_table}.{source_lob_column} "
-                              f"to {target_engine}.{target_table}.{target_lob_column}"))
+            logger.debug(msg=f"Started migrating LOBs, "
+                             f"from {source_engine}.{source_table}.{source_lob_column} "
+                             f"to {target_engine}.{target_table}.{target_lob_column}")
         # migrate the LOBs
         log_step: int = 0
         err_msg: str | None = None
@@ -461,13 +497,17 @@ def db_migrate_lobs(errors: list[str] | None,
 
             # adjust the offset and limit
             curr_stmt: str = sel_stmt
+            curr_limit: int = min(batch_size, limit_count)
+            if curr_limit == 0:
+                curr_limit = max(batch_size, limit_count)
             if offset_count:
-                curr_stmt = curr_stmt.replace("@offset", str(offset_count))
+                curr_stmt = curr_stmt.replace("@offset", str(offset_count), 1)\
+                                     .replace("@limit", str(curr_limit), 1)\
+                                     .replace(" FETCH ", " FETCH NEXT ", 1)
             else:
-                # no offset in initial query
-                curr_stmt = curr_stmt.replace(" OFFSET @offset", "")
-            curr_stmt = curr_stmt.replace("@limit", str(min(limit_count, batch_size)))
-
+                curr_stmt = curr_stmt.replace(" OFFSET @offset ROWS", "", 1)\
+                                     .replace("@limit", str(curr_limit), 1)\
+                                     .replace(" FETCH ", " FETCH FIRST ", 1)
             # go for the data
             next_rs: bool = True
             while next_rs:
@@ -512,7 +552,7 @@ def db_migrate_lobs(errors: list[str] | None,
                                 from psycopg2 import Binary
                                 # remove append indication on initial update
                                 update_pg: str = update_stmt if offset > 1 else \
-                                    update_stmt.replace(f"{target_lob_column} || ", "")
+                                    update_stmt.replace(f"{target_lob_column} || ", "", 1)
 
                                 # string data may come from a LOB (Oracle's NCLOB is a good example)
                                 col_data: str | Binary = Binary(lob_data) if isinstance(lob_data, bytes) else lob_data
@@ -522,7 +562,7 @@ def db_migrate_lobs(errors: list[str] | None,
                                 from pyodbc import Binary
                                 # remove append indication on initial update
                                 update_sqls: str = update_stmt if offset > 1 else \
-                                    update_stmt.replace(f"{target_lob_column} || ", "")
+                                    update_stmt.replace(f"{target_lob_column} || ", "", 1)
 
                                 # string data may come from a LOB (Oracle's NCLOB is a good example)
                                 col_data: str | Binary = Binary(lob_data) if isinstance(lob_data, bytes) else lob_data
@@ -540,20 +580,22 @@ def db_migrate_lobs(errors: list[str] | None,
 
                     # log partial result at each 'log_trigger' LOBs migrated
                     if logger and log_step >= log_trigger:
-                        logger.debug(msg=(f"Migrated {result} LOBs, "
-                                          f"from {source_engine}.{source_table}.{source_lob_column} "
-                                          f"to {target_engine}.{target_table}.{target_lob_column}"))
+                        logger.debug(msg=f"Migrated {result} LOBs, "
+                                         f"from {source_engine}.{source_table}.{source_lob_column} "
+                                         f"to {target_engine}.{target_table}.{target_lob_column}")
                         log_step = 0
 
                     # retrieve the next row
                     row = source_cursor.fetchone()
 
                 # adjust the new offset and limit
-                if next_rs and batch_size and \
-                        (limit_count == 0 or limit_count > result):
-                    curr_limit: int = batch_size if limit_count == 0 else limit_count - result
-                    curr_stmt = sel_stmt.replace("@offset", str(offset_count + result))\
-                                        .replace("@limit", str(min(batch_size, curr_limit)))
+                if next_rs and (limit_count > result or (batch_size and not limit_count)):
+                    curr_limit = min(batch_size, limit_count - result)
+                    if curr_limit <= 0:
+                        curr_limit = max(batch_size, limit_count - result)
+                    curr_stmt = sel_stmt.replace("@offset", str(offset_count + result), 1)\
+                                        .replace("@limit", str(curr_limit), 1)\
+                                        .replace(" FETCH ", " FETCH NEXT ", 1)
                 else:
                     # signal end of migration
                     next_rs = False
@@ -589,9 +631,9 @@ def db_migrate_lobs(errors: list[str] | None,
             if logger:
                 logger.error(msg=err_msg)
         elif logger:
-            logger.debug(msg=(f"Finished migrating {result} LOBs, "
-                              f"from {source_engine}.{source_table}.{source_lob_column} "
-                              f"to {target_engine}.{target_table}.{target_lob_column}"))
+            logger.debug(msg=f"Finished migrating {result} LOBs, "
+                             f"from {source_engine}.{source_table}.{source_lob_column} "
+                             f"to {target_engine}.{target_table}.{target_lob_column}")
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -628,6 +670,9 @@ def db_stream_lobs(errors: list[str] | None,
     The parameter *offset_count* is used to offset the retrieval of tuples. If it is set to -1,
     its value is set from a *COUNT* operation in *target_table*, with *where_clause* if specified.
     It is ignored for all other values different from a positive integer.
+
+    Further, if *batch_size* or *offset_count* has been specified, but *orderby_clause* has not,
+    then an ORDER BY clause is constructed from the data in *pk_columns*.
 
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -687,24 +732,25 @@ def db_stream_lobs(errors: list[str] | None,
         sel_stmt += f", {lob_column} FROM {table}"
         if where_clause:
             sel_stmt += f" WHERE {where_clause}"
-        if not orderby_clause and \
-                (offset_count or batch_size or limit_count):
+        if not orderby_clause and (offset_count or batch_size):
             orderby_clause = ", ".join(pk_columns)
         if orderby_clause:
             sel_stmt += f" ORDER BY {orderby_clause}"
-            if offset_count or batch_size:
-                sel_stmt += " OFFSET @offset"
-            if limit_count or batch_size:
-                if engine == DbEngine.POSTGRES:
-                    sel_stmt += " ROWS LIMIT @limit"
-                elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
-                    sel_stmt += " ROWS FETCH NEXT @limit ROWS ONLY"
+
+        if offset_count or limit_count > batch_size:
+            sel_stmt += " OFFSET @offset ROWS"
+        if limit_count or batch_size:
+            if engine == DbEngine.POSTGRES:
+                sel_stmt += " LIMIT @limit"
+            elif engine == DbEngine.ORACLE:
+                sel_stmt += " FETCH @limit ROWS ONLY"
+            elif engine == DbEngine.SQLSERVER:
+                sel_stmt = sel_stmt.replace("SELECT ", "SELECT TOP @limit ", 1)
 
         # log the migration start
         if logger:
-            logger.debug(msg=(f"Started streaming LOBs "
-                              f"from {engine}.{table}.{lob_column}"))
-
+            logger.debug(msg=f"Started streaming LOBs "
+                             f"from {engine}.{table}.{lob_column}")
         # stream the LOBs
         log_step: int = 0
         lob_count: int = 0
@@ -714,13 +760,17 @@ def db_stream_lobs(errors: list[str] | None,
 
             # adjust the offset and limit
             curr_stmt: str = sel_stmt
+            curr_limit: int = min(batch_size, limit_count)
+            if curr_limit == 0:
+                curr_limit = max(batch_size, limit_count)
             if offset_count:
-                curr_stmt = curr_stmt.replace("@offset", str(offset_count))
+                curr_stmt = curr_stmt.replace("@offset", str(offset_count), 1)\
+                                     .replace("@limit", str(curr_limit), 1)\
+                                     .replace(" FETCH ", " FETCH NEXT ", 1)
             else:
-                # no offset in initial query
-                curr_stmt = curr_stmt.replace(" OFFSET @offset", "")
-            curr_stmt = curr_stmt.replace("@limit", str(min(limit_count, batch_size)))
-
+                curr_stmt = curr_stmt.replace(" OFFSET @offset ROWS", "", 1)\
+                                     .replace("@limit", str(curr_limit), 1)\
+                                     .replace(" FETCH ", " FETCH FIRST ", 1)
             # go for the data
             next_rs: bool = True
             while next_rs:
@@ -768,19 +818,21 @@ def db_stream_lobs(errors: list[str] | None,
 
                     # log partial result at each 'log_trigger' LOBs migrated
                     if logger and log_step >= log_trigger:
-                        logger.debug(msg=(f"Streamed {lob_count} LOBs "
-                                          f"from {engine}.{table}.{lob_column}"))
+                        logger.debug(msg=f"Streamed {lob_count} LOBs "
+                                         f"from {engine}.{table}.{lob_column}")
                         log_step = 0
 
                     # retrieve the next row
                     row = source_cursor.fetchone()
 
                 # adjust the new offset and limit
-                if next_rs and batch_size and \
-                        (limit_count == 0 or limit_count > lob_count):
-                    curr_limit: int = batch_size if limit_count == 0 else limit_count - lob_count
-                    curr_stmt = sel_stmt.replace("@offset", str(offset_count + lob_count))\
-                                        .replace("@limit", str(min(batch_size, curr_limit)))
+                if next_rs and (limit_count > lob_count or (batch_size and not limit_count)):
+                    curr_limit = min(batch_size, limit_count - lob_count)
+                    if curr_limit <= 0:
+                        curr_limit = max(batch_size, limit_count - lob_count)
+                    curr_stmt = sel_stmt.replace("@offset", str(offset_count + lob_count), 1)\
+                                        .replace("@limit", str(curr_limit), 1)\
+                                        .replace(" FETCH ", " FETCH NEXT ", 1)
                 else:
                     # signal end of migration
                     next_rs = False
@@ -808,8 +860,8 @@ def db_stream_lobs(errors: list[str] | None,
             if logger:
                 logger.error(msg=err_msg)
         elif logger:
-            logger.debug(msg=(f"Finished streaming {lob_count} LOBs "
-                              f"from {engine}.{table}.{lob_column}"))
+            logger.debug(msg=f"Finished streaming {lob_count} LOBs "
+                             f"from {engine}.{table}.{lob_column}")
 
     # acknowledge local errors
     if isinstance(errors, list):

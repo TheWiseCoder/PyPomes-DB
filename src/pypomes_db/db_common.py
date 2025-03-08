@@ -8,6 +8,9 @@ from typing import Any, Final
 
 
 class DbEngine(StrEnum):
+    """
+    Supported database engines.
+    """
     MYSQL = auto()
     ORACLE = auto()
     POSTGRES = auto()
@@ -15,6 +18,9 @@ class DbEngine(StrEnum):
 
 
 class DbParam(StrEnum):
+    """
+    Parameters for connecting to database engines.
+    """
     NAME = auto()
     USER = auto()
     PWD = auto()
@@ -79,7 +85,7 @@ for _db_engine in _DB_ENGINES:
         _DB_CONN_DATA[_db_engine][DbParam.DRIVER] = env_get_str(key=f"{APP_PREFIX}_{_prefix}_DRIVER")
 
 
-def _assert_engine(errors: list[str],
+def _assert_engine(errors: list[str] | None,
                    engine: DbEngine) -> DbEngine:
     """
     Verify if *engine* is in the list of supported engines.
@@ -98,14 +104,14 @@ def _assert_engine(errors: list[str],
         result = _DB_ENGINES[0]
     elif engine in _DB_ENGINES:
         result = engine
-    else:
+    elif isinstance(errors, list):
         err_msg = f"Database engine '{engine}' unknown or not configured"
         errors.append(err_msg)
 
     return result
 
 
-def _assert_query_quota(errors: list[str],
+def _assert_query_quota(errors: list[str] | None,
                         engine: DbEngine,
                         query: str,
                         where_vals: tuple,
@@ -232,7 +238,7 @@ def _bind_columns(engine: DbEngine,
                   concat: str,
                   start_index: int) -> str:
     """
-    Concatenate a list of column names bindings, appropriate for the engine sepcified.
+    Concatenate a list of column names bindings, appropriate for the DB engine *engine*.
 
     The concatenation term *concat* is typically *AND*, if the bindings are aimed at a
     *WHERE* clause, or *,* otherwise.
@@ -240,7 +246,7 @@ def _bind_columns(engine: DbEngine,
     :param engine: the reference database engine
     :param columns: the columns to concatenate
     :param concat: the concatenation term
-    :param start_index: the index to start the enumeration (relevant to oracle, only)
+    :param start_index: the index to start the enumeration (relevant to *oracle*, only)
     :return: the concatenated string
     """
     # initialize the return variable
@@ -251,8 +257,8 @@ def _bind_columns(engine: DbEngine,
             pass
         case DbEngine.ORACLE:
             result = concat.join([f"{column} = :{inx}"
-                                 for inx, column in enumerate(iterable=columns,
-                                                              start=start_index)])
+                                  for inx, column in enumerate(iterable=columns,
+                                                               start=start_index)])
         case DbEngine.POSTGRES:
             result = concat.join([f"{column} = %s" for column in columns])
         case DbEngine.SQLSERVER:
@@ -316,15 +322,17 @@ def _combine_search_data(query_stmt: str,
         where = "WHERE"
 
     # extract 'ORDER BY' clause
-    if " order by " in query_stmt.lower():
-        pos = query_stmt.lower().index(" order by ")
+    pos = query_stmt.lower().find(" order by ")
+    if pos > 0:
         orderby_clause = query_stmt[pos+1:]
         query_stmt = query_stmt[:pos]
+    elif orderby_clause:
+        orderby_clause = f"ORDER BY {orderby_clause}"
 
     # extract 'GROUP BY' clause
     group_by: str | None = None
-    if " group by " in query_stmt.lower():
-        pos = query_stmt.lower().index(" group by ")
+    pos = query_stmt.lower().find(" group by ")
+    if pos > 0:
         group_by = query_stmt[pos+1:]
         query_stmt = query_stmt[:pos]
 
@@ -332,45 +340,37 @@ def _combine_search_data(query_stmt: str,
     if where_clause:
         query_stmt += f" {where} {where_clause}"
 
-    # process the key-value search parameters
+    # process the search parameters
     if where_data:
         if where_vals:
             where_vals = list(where_vals)
-            query_stmt = query_stmt.replace(f"{where} ", f"{where} (") + ")"
-            for key, value in where_data.items():
-                if isinstance(value, list | tuple):
-                    if engine == DbEngine.POSTGRES:
-                        where_vals.append(value)
-                        query_stmt += f" AND {key} IN {DB_BIND_META_TAG}"
-                    else:
-                        where_vals.extend(value)
-                        query_stmt += f" AND {key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
-                        query_stmt = f"{query_stmt[:-2]})"
-                else:
-                    where_vals.append(value)
-                    query_stmt += f" AND {key} = {DB_BIND_META_TAG}"
         else:
             where_vals = []
-            if where in query_stmt:
-                query_stmt = query_stmt.replace(f"{where} ", f"{where} (") + ") AND "
-            else:
-                query_stmt += f" {where} "
-            for key, value in where_data.items():
-                if isinstance(value, list | tuple):
-                    if engine == DbEngine.POSTGRES:
-                        where_vals.append(value)
-                        query_stmt += f"{key} IN {DB_BIND_META_TAG} AND "
-                    else:
-                        where_vals.extend(value)
-                        query_stmt += f"{key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
-                        query_stmt = f"{query_stmt[:-2]}) AND "
-                else:
-                    where_vals.append(value)
-                    query_stmt += f"{key} = {DB_BIND_META_TAG} AND "
-            query_stmt = query_stmt[:-5]
 
-    # set 'WHERE' values to tuple
-    where_vals = tuple(where_vals or [])
+        if where in query_stmt:
+            query_stmt = query_stmt.replace(f"{where} ", f"{where} (") + ") AND "
+        else:
+            query_stmt += f" {where} "
+
+        # process key-value pairs
+        for key, value in where_data.items():
+            if isinstance(value, list | tuple):
+                if len(value) == 1:
+                    where_vals.append(value[0])
+                    query_stmt += f"{key} = {DB_BIND_META_TAG} AND "
+                elif engine == DbEngine.POSTGRES:
+                    where_vals.append(tuple(value))
+                    query_stmt += f"{key} IN {DB_BIND_META_TAG} AND "
+                else:
+                    where_vals.extend(value)
+                    query_stmt += f"{key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
+                    query_stmt = f"{query_stmt[:-2]}) AND "
+            else:
+                where_vals.append(value)
+                query_stmt += f"{key} = {DB_BIND_META_TAG} AND "
+        query_stmt = query_stmt[:-5]
+        # set 'WHERE' values back to tuple
+        where_vals = tuple(where_vals)
 
     # put back 'GROUP BY' clause
     if group_by:
