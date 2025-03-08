@@ -102,7 +102,7 @@ def db_get_params(engine: DbEngine = None) -> dict[str, Any]:
     """
     Return the current connection parameters as a *dict*.
 
-    The returned *dict* contains the keys *engine*, *name*, *user*, *pwd*, *host*, and *port*.
+    The returned *dict* contains the keys *name*, *user*, *pwd*, *host*, and *port*.
     For *oracle* engines, the returned *dict* contains the extra key *client*.
     For *sqlserver* engines, the returned *dict* contains the extra key *driver*.
     The meaning of these parameters may vary between different database engines.
@@ -118,7 +118,6 @@ def db_get_params(engine: DbEngine = None) -> dict[str, Any]:
     if db_params:
         # noinspection PyTypeChecker
         result = {k.value: v for (k, v) in db_params.items()}
-        result["engine"] = DbEngine.value
 
     return result
 
@@ -244,18 +243,21 @@ def db_bind_args(query_stmt: str,
     # determine the database engine
     curr_engine: DbEngine = _assert_engine(errors=None,
                                            engine=engine)
+    # establish the correct bind tags
+    query_stmt = db_bind_stmt(stmt=query_stmt,
+                              engine=curr_engine)
     # bind the arguments
     for bind_val in bind_vals:
         pos: int = 0
         quote: str = "" if isinstance(bind_val, int | float) else "'"
         val: str = f"{quote}{bind_val}{quote}"
-        if curr_engine in [DbEngine.MYSQL, DbEngine.SQLSERVER]:
-            result = query_stmt.replace("?", val, 1)
-        elif curr_engine == DbEngine.POSTGRES:
-            result = query_stmt.replace("%s", val, 1)
+        tag: str = "?"  # DbEngine.MYSQL, DbEngine.SQLSERVER
+        if curr_engine == DbEngine.POSTGRES:
+            tag = "%s"
         elif curr_engine == DbEngine.ORACLE:
             pos += 1
-            result = query_stmt.replace(f":{pos}", val, 1)
+            tag = f":{pos}"
+        result = query_stmt.replace(tag, val, 1)
 
     return result
 
