@@ -159,7 +159,7 @@ def db_get_index_ddl(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
     :param logger: optional logger
-    :return: the DDL script used to create the index, or *None* on error or if the index does not exist
+    :return: the DDL script used to create the index, or *None* if error or if the index does not exist
     """
     # initialize the return variable
     result: str | None = None

@@ -65,6 +65,48 @@ def db_setup(engine: DbEngine,
     return result
 
 
+def db_assert_access(errors: list[str] | None,
+                     engine: DbEngine = None,
+                     logger: Logger = None) -> bool:
+    """
+    Determine whether the *engine*'s current configuration allows for a safe connection.
+
+    This function should be invoked once, at application's initialization time.
+
+    :param errors: incidental errors
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param logger: optional logger
+    :return: *True* if the connection attempt succeeded, *False* otherwise
+    """
+    # initialize the return variable
+    result: bool = False
+
+    # initialize the local errors list
+    op_errors: list[str] = []
+
+    # determine the database engine
+    curr_engine: DbEngine = _assert_engine(errors=op_errors,
+                                           engine=engine)
+    proceed: bool = True
+    if curr_engine == DbEngine.ORACLE:
+        from . import oracle_pomes
+        proceed = oracle_pomes.initialize(errors=op_errors,
+                                          logger=logger)
+    if proceed:
+        conn: Any = db_connect(errors=op_errors,
+                               engine=curr_engine,
+                               logger=logger)
+        if conn:
+            conn.close()
+            result = True
+
+    # acknowledge local errors
+    if isinstance(errors, list):
+        errors.extend(op_errors)
+
+    return result
+
+
 def db_get_engines() -> list[DbEngine]:
     """
     Retrieve and return the list of configured engines.
@@ -179,8 +221,8 @@ def db_get_version(engine: DbEngine = None) -> str:
     return result
 
 
-def db_bind_stmt(stmt: str,
-                 engine: DbEngine = None) -> str:
+def db_adjust_placeholders(stmt: str,
+                           engine: DbEngine = None) -> str:
     """
     Replace the occurrences of bind meta-tag in *stmt*, with the appropriate placeholder for *engine*.
 
@@ -201,23 +243,25 @@ def db_bind_stmt(stmt: str,
     # determine the database engine
     curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
 
+    # adjust the placeholders
     match curr_engine:
         case DbEngine.POSTGRES:
             result = stmt.replace(DB_BIND_META_TAG, "%s")
         case DbEngine.ORACLE:
-            pos: int = 0
-            while result != stmt:
+            pos: int = 1
+            result = stmt
+            while result.find(f":{pos}") > 0:
+                result = result.replace(DB_BIND_META_TAG, f":{pos}", 1)
                 pos += 1
-                result = stmt.replace(DB_BIND_META_TAG, f":{pos}", 1)
         case DbEngine.MYSQL | DbEngine.SQLSERVER:
             result = stmt.replace(DB_BIND_META_TAG, "?")
 
     return result
 
 
-def db_bind_args(query_stmt: str,
-                 bind_vals: list[Any],
-                 engine: DbEngine = None) -> str:
+def db_bind_arguments(stmt: str,
+                      bind_vals: list[Any],
+                      engine: DbEngine = None) -> str:
     """
     Replace the placeholders in *query_stmt* with the values in *bind_vals*, and return the modified query statement.
 
@@ -229,10 +273,11 @@ def db_bind_args(query_stmt: str,
         - postgres:  %s
         - sqlserver: ?
 
-    Note that using a statement in case values for types other than *str*, *int* or *float* were replaced,
-    may cause a query to break, as the standard string representations for these other types are used.
+    Note that using a statement in a situation where values for types other than *bool*, *str*, *int*, *float*,
+    *date*, or *datetime* were replaced, may bring about undesirable consequences, as the standard string
+    representations for these other types would be used.
 
-    :param query_stmt: the query statement
+    :param stmt: the query statement
     :param bind_vals: the values to replace the placeholders with
     :param engine: the database engine to use (uses the default engine, if not provided)
     :return: the query statement with the placeholders replaced with their corresponding values
@@ -244,61 +289,25 @@ def db_bind_args(query_stmt: str,
     curr_engine: DbEngine = _assert_engine(errors=None,
                                            engine=engine)
     # establish the correct bind tags
-    query_stmt = db_bind_stmt(stmt=query_stmt,
-                              engine=curr_engine)
+    stmt = db_adjust_placeholders(stmt=stmt,
+                                  engine=curr_engine)
     # bind the arguments
-    for bind_val in bind_vals:
-        pos: int = 0
-        quote: str = "" if isinstance(bind_val, int | float) else "'"
-        val: str = f"{quote}{bind_val}{quote}"
-        tag: str = "?"  # DbEngine.MYSQL, DbEngine.SQLSERVER
-        if curr_engine == DbEngine.POSTGRES:
-            tag = "%s"
-        elif curr_engine == DbEngine.ORACLE:
-            pos += 1
-            tag = f":{pos}"
-        result = query_stmt.replace(tag, val, 1)
-
-    return result
-
-
-def db_assert_access(errors: list[str] | None,
-                     engine: DbEngine = None,
-                     logger: Logger = None) -> bool:
-    """
-    Determine whether the *engine*'s current configuration allows for a safe connection.
-
-    :param errors: incidental errors
-    :param engine: the database engine to use (uses the default engine, if not provided)
-    :param logger: optional logger
-    :return: *True* if the connection attempt succeeded, *False* otherwise
-    """
-    # initialize the return variable
-    result: bool = False
-
-    # initialize the local errors list
-    op_errors: list[str] = []
-
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    proceed: bool = True
-    if curr_engine == DbEngine.ORACLE:
+    if curr_engine == DbEngine.MYSQL:
+        from . import mysql_pomes
+        result = mysql_pomes.bind_arguments(stmt=stmt,
+                                            bind_vals=bind_vals)
+    elif curr_engine == DbEngine.ORACLE:
         from . import oracle_pomes
-        proceed = oracle_pomes.initialize(errors=op_errors,
-                                          logger=logger)
-    if proceed:
-        conn: Any = db_connect(errors=op_errors,
-                               engine=curr_engine,
-                               logger=logger)
-        if conn:
-            conn.close()
-            result = True
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
-
+        result = oracle_pomes.bind_arguments(stmt=stmt,
+                                             bind_vals=bind_vals)
+    elif curr_engine == DbEngine.POSTGRES:
+        from . import postgres_pomes
+        result = postgres_pomes.bind_arguments(stmt=stmt,
+                                               bind_vals=bind_vals)
+    elif curr_engine == DbEngine.SQLSERVER:
+        from . import sqlserver_pomes
+        result = sqlserver_pomes.bind_arguments(stmt=stmt,
+                                                bind_vals=bind_vals)
     return result
 
 
@@ -326,6 +335,7 @@ def db_connect(errors: list[str] | None,
     # determine the database engine
     curr_engine: DbEngine = _assert_engine(errors=op_errors,
                                            engine=engine)
+    # connect to the database
     if curr_engine == DbEngine.MYSQL:
         pass
     elif curr_engine == DbEngine.ORACLE:
@@ -434,7 +444,7 @@ def db_count(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: *True* if at least one tuple was found, *False* otherwise, *None* on error
+    :return: the number of tuples counted, or *None* if error
     """
     # initialize the return variable
     result: int | None = None
@@ -492,7 +502,7 @@ def db_exists(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: *True* if at least one tuple was found, *False* otherwise, *None* on error
+    :return: *True* if at least one tuple was found, *False* otherwise, *None* if error
     """
     # initialize the return variable
     result: bool | None = None
@@ -568,7 +578,7 @@ def db_select(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: list of tuples containing the search result, *[]* on empty search, or *None* on error
+    :return: list of tuples containing the search result, *[]* on empty search, or *None* if error
     """
     # initialize the return variable
     result: list[tuple] | None = None
@@ -590,8 +600,8 @@ def db_select(errors: list[str] | None,
                                                     engine=curr_engine)
     # establish the correct bind tags
     if where_vals and DB_BIND_META_TAG in sel_stmt:
-        sel_stmt = db_bind_stmt(stmt=sel_stmt,
-                                engine=curr_engine)
+        sel_stmt = db_adjust_placeholders(stmt=sel_stmt,
+                                          engine=curr_engine)
 
     if curr_engine == DbEngine.MYSQL:
         pass
@@ -664,7 +674,7 @@ def db_insert(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of inserted tuples (0 ou 1), or *None* on error
+    :return: the number of inserted tuples (0 ou 1), or *None* if error
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -725,7 +735,7 @@ def db_update(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of updated tuples, or *None* on error
+    :return: the number of updated tuples, or *None* if error
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -800,7 +810,7 @@ def db_delete(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of deleted tuples, or *None* on error
+    :return: the number of deleted tuples, or *None* if error
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -859,7 +869,7 @@ def db_bulk_insert(errors: list[str] | None,
     :param committable: whether to commit operation upon errorless completion
     :param identity_column: column whose values are generated by the database
     :param logger: optional logger
-    :return: the number of inserted tuples (1 for postgres), or *None* on error
+    :return: the number of inserted tuples (1 for postgres), or *None* if error
     """
     # initialize the return variable
     result: int | None = None
@@ -973,7 +983,7 @@ def db_bulk_update(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of updated tuples, or *None* on error
+    :return: the number of updated tuples, or *None* if error
     """
     # initialize the return variable
     result: int | None = None
@@ -1062,7 +1072,7 @@ def db_bulk_delete(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of inserted tuples (1 for postgres), or *None* on error
+    :return: the number of inserted tuples (1 for postgres), or *None* if error
     """
     # initialize the return variable
     result: int | None = None
@@ -1145,7 +1155,7 @@ def db_update_lob(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: number of LOBs effectively copied, or *None* on error
+    :return: number of LOBs effectively copied, or *None* if error
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -1225,7 +1235,7 @@ def db_execute(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the return value from the command execution, or *None* on error
+    :return: the return value from the command execution, or *None* if error
     """
     # initialize the return variable
     result: int | None = None
@@ -1238,8 +1248,8 @@ def db_execute(errors: list[str] | None,
                                            engine=engine)
     # establish the correct bind tags
     if bind_vals and DB_BIND_META_TAG in exc_stmt:
-        exc_stmt = db_bind_stmt(stmt=exc_stmt,
-                                engine=curr_engine)
+        exc_stmt = db_adjust_placeholders(stmt=exc_stmt,
+                                          engine=curr_engine)
     if curr_engine == DbEngine.MYSQL:
         pass
     elif curr_engine == DbEngine.ORACLE:
@@ -1294,7 +1304,7 @@ def db_call_function(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the data returned by the function, or *None* on error
+    :return: the data returned by the function, or *None* if error
     """
     # initialize the return variable
     result: Any = None
@@ -1359,7 +1369,7 @@ def db_call_procedure(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the data returned by the procedure, or *None* on error
+    :return: the data returned by the procedure, or *None* if error
     """
     # initialize the return variable
     result: Any = None
