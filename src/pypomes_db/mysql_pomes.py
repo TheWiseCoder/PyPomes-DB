@@ -17,7 +17,7 @@ def bind_arguments(stmt: str,
     :return: the query statement with the placeholders replaced with their corresponding values
     """
     # initialize the return variable
-    result: str | None = None
+    result: str = stmt
 
     # bind the arguments
     for bind_val in bind_vals:
@@ -32,6 +32,6 @@ def bind_arguments(stmt: str,
             val = f"STR_TO_DATE('{bind_val.strftime(format=DATETIME_FORMAT_INV)}', '%Y-%m-%d %H:%i:%s')"
         else:
             val = f"'{bind_val}'"
-        result = stmt.replace("?", val, 1)
+        result = result.replace("?", val, 1)
 
     return result
