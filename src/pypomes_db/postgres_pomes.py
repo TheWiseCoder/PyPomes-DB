@@ -32,11 +32,11 @@ def get_connection_string() -> str:
             f"{db_params.get(DbParam.PORT)}/{db_params.get(DbParam.NAME)}")
 
 
-def get_version() -> str:
+def get_version() -> str | None:
     """
     Obtain and return the current version of the database engine.
 
-    :return: the engine's current version
+    :return: the engine's current version, or *None* if error
     """
     reply: list[tuple] = select(errors=None,
                                 sel_stmt="SELECT version()",
@@ -55,7 +55,7 @@ def get_version() -> str:
 
 def connect(errors: list[str],
             autocommit: bool | None,
-            logger: Logger | None) -> connection:
+            logger: Logger | None) -> connection | None:
     """
     Obtain and return a connection to the database.
 
@@ -64,7 +64,7 @@ def connect(errors: list[str],
     :param errors: incidental error messages
     :param autocommit: whether the connection is to be in autocommit mode (defaults to *False*)
     :param logger: optional logger
-    :return: the connection to the database
+    :return: the connection to the database, or *None* if error
     """
     # initialize the return variable
     result: connection | None = None
@@ -140,7 +140,7 @@ def select(errors: list[str] | None,
            limit_count: int | None,
            conn: connection | None,
            committable: bool | None,
-           logger: Logger | None) -> list[tuple]:
+           logger: Logger | None) -> list[tuple] | None:
     """
     Query the database and return all tuples that satisfy the *sel_stmt* command.
 
@@ -245,7 +245,7 @@ def execute(errors: list[str] | None,
             bind_vals: tuple | None,
             conn: connection | None,
             committable: bool | None,
-            logger: Logger | None) -> int:
+            logger: Logger | None) -> int | None:
     """
     Execute the command *exc_stmt* on the database.
 
@@ -267,7 +267,7 @@ def execute(errors: list[str] | None,
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the return value from the command execution
+    :return: the return value from the command execution, or *None* if error
     """
     # initialize the return variable
     result: int | None = None
@@ -316,7 +316,7 @@ def bulk_execute(errors: list[str],
                  exc_vals: list[tuple],
                  conn: connection,
                  committable: bool,
-                 logger: Logger) -> int:
+                 logger: Logger) -> int | None:
     """
     Bulk-update the database with the statement defined in *execute_stmt*, and the values in *execute_vals*.
 
@@ -338,7 +338,7 @@ def bulk_execute(errors: list[str],
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of inserted or updated tuples, or None if an error occurred
+    :return: the number of inserted or updated tuples, or *None* if error
     """
     # initialize the return variable
     result: int | None = None
@@ -487,7 +487,7 @@ def call_procedure(errors: list[str] | None,
                    proc_vals: tuple | None,
                    conn: connection | None,
                    committable: bool | None,
-                   logger: Logger | None) -> list[tuple]:
+                   logger: Logger | None) -> list[tuple] | None:
     """
     Execute the stored procedure *proc_name*, with the arguments given in *proc_vals*.
 
@@ -500,10 +500,10 @@ def call_procedure(errors: list[str] | None,
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the data returned by the procedure
+    :return: the data returned by the procedure, or *None* if error
     """
     # initialize the return variable
-    result: list[tuple] = [()]
+    result: list[tuple] | None = None
 
     # make sure to have a connection
     curr_conn: connection = conn or connect(errors=errors,

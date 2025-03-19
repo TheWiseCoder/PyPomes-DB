@@ -471,7 +471,7 @@ def _remove_nulls(rows: list[tuple]) -> list[tuple]:
         # traverse the values
         for val in row:
             # is 'val' a string containing NULLs ?
-            if isinstance(val, str) and val.count(chr(0)) > 0:
+            if isinstance(val, str) and val.find(chr(0)) > 0:
                 # yes, clean it up
                 cleaned_row.append(val.replace(chr(0), ""))
             else:

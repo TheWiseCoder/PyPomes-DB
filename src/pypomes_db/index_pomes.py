@@ -144,7 +144,7 @@ def db_get_index_ddl(errors: list[str] | None,
                      engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
-                     logger: Logger = None) -> str:
+                     logger: Logger = None) -> str | None:
     """
     Retrieve and return the DDL script used to create the index *index_name*.
 

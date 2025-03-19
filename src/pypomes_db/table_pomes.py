@@ -10,7 +10,7 @@ def db_get_tables(errors: list[str] | None,
                   engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
-                  logger: Logger = None) -> list[str]:
+                  logger: Logger = None) -> list[str] | None:
     """
     Retrieve and return the list of schema-qualified tables in the database.
 
@@ -23,7 +23,7 @@ def db_get_tables(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation on errorless completion
     :param logger: optional logger
-    :return: the schema-qualified table names found, or 'None' if an error ocurred
+    :return: the schema-qualified table names found, or *None* if error
     """
     # initialize the return variable
     result: list[str] | None = None
@@ -71,7 +71,7 @@ def db_table_exists(errors: list[str] | None,
                     engine: DbEngine = None,
                     connection: Any = None,
                     committable: bool = None,
-                    logger: Logger = None) -> bool:
+                    logger: Logger = None) -> bool | None:
     """
     Determine whether the table *table_name* exists in the database.
 
@@ -85,7 +85,7 @@ def db_table_exists(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation on errorless completion
     :param logger: optional logger
-    :return: 'True' if the table was found, 'False' otherwise, or 'None' if an error ocurred
+    :return: *True* if the table was found, *False* otherwise, or *None* if error
     """
     # initialize the return variable
     result: bool | None = None
@@ -213,7 +213,7 @@ def db_get_table_ddl(errors: list[str] | None,
                      engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
-                     logger: Logger = None) -> str:
+                     logger: Logger = None) -> str | None:
     """
     Retrieve and return the DDL script used to create the table *table_name*.
 
@@ -230,7 +230,7 @@ def db_get_table_ddl(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation on errorless completion
     :param logger: optional logger
-    :return: the DDL script used to create the index, or 'None' if the index does not exist, or an error ocurred
+    :return: the DDL script used to create the index, or *None* if error or the index does not exist
     """
     # initialize the return variable
     result: str | None = None

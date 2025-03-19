@@ -1,6 +1,6 @@
 from logging import Logger
 from pathlib import Path
-from pypomes_core import str_sanitize
+from pypomes_core import dict_jsonify, str_sanitize
 from typing import Any, BinaryIO
 
 from .db_common import (
@@ -109,12 +109,13 @@ def db_assert_access(errors: list[str] | None,
 
 def db_get_engines() -> list[DbEngine]:
     """
-    Retrieve and return the list of configured engines.
+    Retrieve and return the *list* of configured engines.
 
-    This list may include any of the supported engines:
+    This *list* may include any of the supported engines:
     *mysql*, *oracle*, *postgres*, *sqlserver*.
+    Note that the values in the returned *list* are instances of *DbEngine*, not strings.
 
-    :return: the list of configured engines
+    :return: the *list* of configured engines
     """
     # SANITY-CHECK: return a cloned 'list'
     return _DB_ENGINES.copy()
@@ -125,9 +126,9 @@ def db_get_param(key: DbParam,
     """
     Return the current value for connection parameter *key*.
 
-    The connection key should be one of *name*, *user*, *pwd*, *host*, and *port*.
+    The *key* should be one of *name*, *user*, *pwd*, *host*, and *port*.
     For *oracle* and *sqlserver* engines, the extra keys *client* and *driver*
-    might be used, respectively.
+    may be used, respectively.
 
     :param key: the reference parameter
     :param engine: the reference database engine (the default engine, if not provided)
@@ -148,20 +149,15 @@ def db_get_params(engine: DbEngine = None) -> dict[str, Any]:
     For *oracle* engines, the returned *dict* contains the extra key *client*.
     For *sqlserver* engines, the returned *dict* contains the extra key *driver*.
     The meaning of these parameters may vary between different database engines.
+    Note that the keys in the returned *dict* are strings, not *DbParam* instances.
 
     :param engine: the reference database engine (the default engine, if not provided)
     :return: the current connection parameters for the engine
     """
-    # initialize the return variable
-    result: dict[str, Any] | None = None
-
     curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
-    db_params: dict[DbParam, Any] = _DB_CONN_DATA.get(curr_engine)
-    if db_params:
-        # noinspection PyTypeChecker
-        result = {k.value: v for (k, v) in db_params.items()}
-
-    return result
+    return dict_jsonify(source=_DB_CONN_DATA.get(curr_engine),
+                        jsonify_keys=True,
+                        jsonify_values=False)
 
 
 def db_get_connection_string(engine: DbEngine = None) -> str:
@@ -419,7 +415,7 @@ def db_count(errors: list[str] | None,
              engine: DbEngine = None,
              connection: Any = None,
              committable: bool = None,
-             logger: Logger = None) -> int:
+             logger: Logger = None) -> int | None:
     """
     Obtain and return the number of tuples in *table* meeting the criteria defined in *where_data*.
 
@@ -478,7 +474,7 @@ def db_exists(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = None) -> bool:
+              logger: Logger = None) -> bool | None:
     """
     Determine whether at least one tuple in *table* meets the criteria defined in *where_data*.
 
@@ -543,7 +539,7 @@ def db_select(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = None) -> list[tuple]:
+              logger: Logger = None) -> list[tuple] | None:
     """
     Query the database and return all tuples that satisfy the *sel_stmt* command.
 
@@ -658,7 +654,7 @@ def db_insert(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = None) -> int:
+              logger: Logger = None) -> int | None:
     """
     Insert a tuple, with values defined in *insert_vals*, into the database.
 
@@ -708,7 +704,7 @@ def db_update(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = None) -> int:
+              logger: Logger = None) -> int | None:
     """
     Update one or more tuples in the database, as defined by the command *update_stmt*.
 
@@ -786,7 +782,7 @@ def db_delete(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = None) -> int:
+              logger: Logger = None) -> int | None:
     """
     Delete one or more tuples in the database, as defined by the *delete_stmt* command.
 
@@ -847,7 +843,7 @@ def db_bulk_insert(errors: list[str] | None,
                    connection: Any = None,
                    committable: bool = None,
                    identity_column: str = None,
-                   logger: Logger = None) -> int:
+                   logger: Logger = None) -> int | None:
     """
     Insert into *target_table* the values defined in *insert_vals*.
 
@@ -899,6 +895,7 @@ def db_bulk_insert(errors: list[str] | None,
         if not op_errors and identity_column:
             # noinspection PyProtectedMember
             # ruff: noqa: SLF001
+            #   SLF001: private-member-access - Checks for accesses on "private" class members
             postgres_pomes._identity_post_insert(errors=op_errors,
                                                  insert_stmt=insert_stmt,
                                                  conn=connection,
@@ -925,6 +922,7 @@ def db_bulk_insert(errors: list[str] | None,
             if identity_column:
                 # noinspection PyProtectedMember
                 # ruff: noqa: SLF001
+                #   SLF001: private-member-access - Checks for accesses on "private" class members
                 sqlserver_pomes._identity_pre_insert(errors=op_errors,
                                                      insert_stmt=insert_stmt,
                                                      conn=connection,
@@ -941,6 +939,7 @@ def db_bulk_insert(errors: list[str] | None,
                     from . import sqlserver_pomes
                     # noinspection PyProtectedMember
                     # ruff: noqa: SLF001
+                    #   SLF001: private-member-access - Checks for accesses on "private" class members
                     sqlserver_pomes._identity_post_insert(errors=op_errors,
                                                           insert_stmt=insert_stmt,
                                                           conn=connection,
@@ -962,7 +961,7 @@ def db_bulk_update(errors: list[str] | None,
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
-                   logger: Logger = None) -> int:
+                   logger: Logger = None) -> int | None:
     """
     Update *where_attrs* in *target_table* with values defined in *update_vals*.
 
@@ -1054,7 +1053,7 @@ def db_bulk_delete(errors: list[str] | None,
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
-                   logger: Logger = None) -> int:
+                   logger: Logger = None) -> int | None:
     """
     Delete from *target_table* with values defined in *where_vals*.
 
@@ -1212,7 +1211,7 @@ def db_execute(errors: list[str] | None,
                engine: DbEngine = None,
                connection: Any = None,
                committable: bool = None,
-               logger: Logger = None) -> int:
+               logger: Logger = None) -> int | None:
     """
     Execute the command *exc_stmt* on the database.
 
@@ -1289,7 +1288,7 @@ def db_call_function(errors: list[str] | None,
                      engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
-                     logger: Logger = None) -> list[tuple]:
+                     logger: Logger = None) -> list[tuple] | None:
     """
     Execute the stored function *func_name* in the database, with the parameters given in *func_vals*.
 
@@ -1354,7 +1353,7 @@ def db_call_procedure(errors: list[str] | None,
                       engine: DbEngine = None,
                       connection: Any = None,
                       committable: bool = None,
-                      logger: Logger = None) -> list[tuple]:
+                      logger: Logger = None) -> list[tuple] | None:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 

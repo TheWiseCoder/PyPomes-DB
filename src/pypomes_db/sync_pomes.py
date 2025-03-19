@@ -11,6 +11,9 @@ from .db_pomes import (
 
 
 # ruff: noqa: C901 PLR0912 PLR0915
+#   C901:    complex-structure -   Checks for functions with a high McCabe complexity
+#   PLR0912: too-many-branches -   Checks for functions or methods with too many branches
+#   PLR0915: too-many-statements - Checks for functions or methods with too many statements
 def db_sync_data(errors: list[str] | None,
                  source_engine: DbEngine,
                  source_table: str,
@@ -26,7 +29,7 @@ def db_sync_data(errors: list[str] | None,
                  batch_size: int = None,
                  has_nulls: bool = None,
                  logger: Logger = None,
-                 log_trigger: int = 10000) -> tuple[int, int, int]:
+                 log_trigger: int = 10000) -> tuple[int, int, int] | None:
     """
     Synchronize data in *target_table*, as per the contents of *source_table*.
 
@@ -65,7 +68,7 @@ def db_sync_data(errors: list[str] | None,
     :param has_nulls: indicates that one or more string-type source columns have nulls
     :param logger: optional logger
     :param log_trigger: number of LOBs to trigger logging info on migration (defaults to 10000 LOBs)
-    :return: the number of tuples effectively deleted, inserted, and updated in the target table
+    :return: the number of tuples effectively deleted, inserted, and updated in the target table, or *None* if error
     """
     # helper function to obtain a primary key tuple from a row
     def get_pk_data(row: tuple, pk_cols: list[str]) -> tuple:
@@ -76,7 +79,7 @@ def db_sync_data(errors: list[str] | None,
         return tuple(row[pos] for pos in range(len(pk_cols), len(pk_cols) + len(sync_cols)))
 
     # initialize the return variable
-    result: tuple[int, int, int] = (0, 0, 0)
+    result: tuple[int, int, int] | None = (0, 0, 0)
 
     # initialize the local errors list
     op_errors: list[str] = []
@@ -278,6 +281,7 @@ def db_sync_data(errors: list[str] | None,
             log_count = 0
             err_msg = _except_msg(exception=e,
                                   engine=source_engine)
+            result = None
         finally:
             # close the connections, if locally acquired
             if curr_source_conn and not source_conn:
