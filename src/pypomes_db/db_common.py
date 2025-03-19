@@ -199,7 +199,7 @@ def _except_msg(exception: Exception,
     """
     db_data: dict[DbParam, Any] = _DB_CONN_DATA.get(engine) or {}
     return (f"Error accessing '{db_data.get(DbParam.NAME)}' "
-            f"at '{db_data.get(DbParam.HOST)}': {str_sanitize(f'{exception}')}")
+            f"at '{db_data.get(DbParam.HOST)}': {str_sanitize(target_str=f'{exception}')}")
 
 
 def _build_query_msg(query_stmt: str,
@@ -213,7 +213,7 @@ def _build_query_msg(query_stmt: str,
     :param bind_vals: values associated with the query command
     :return: message indicative of empty search
     """
-    result: str = str_sanitize(query_stmt)
+    result: str = str_sanitize(target_str=query_stmt)
 
     for inx, val in enumerate(bind_vals or [], 1):
         if isinstance(val, str):

@@ -157,7 +157,7 @@ def db_get_params(engine: DbEngine = None) -> dict[str, Any]:
     # determine the database engine
     curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
 
-    return dict_jsonify(source=_DB_CONN_DATA.get(curr_engine),
+    return dict_jsonify(source=_DB_CONN_DATA.get(curr_engine).copy(),
                         jsonify_keys=True,
                         jsonify_values=False)
 
