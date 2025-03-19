@@ -154,7 +154,9 @@ def db_get_params(engine: DbEngine = None) -> dict[str, Any]:
     :param engine: the reference database engine (the default engine, if not provided)
     :return: the current connection parameters for the engine
     """
+    # determine the database engine
     curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+
     return dict_jsonify(source=_DB_CONN_DATA.get(curr_engine),
                         jsonify_keys=True,
                         jsonify_values=False)
