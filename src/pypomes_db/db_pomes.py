@@ -167,7 +167,7 @@ def db_get_connection_string(engine: DbEngine = None) -> str:
     Build and return the connection string for connecting to the database.
 
     :param engine: the reference database engine (the default engine, if not provided)
-    :return: the connection string
+    :return: the connection string, or *None* if error
     """
     # initialize the return variable
     result: str | None = None
@@ -215,6 +215,74 @@ def db_get_version(engine: DbEngine = None) -> str:
         case DbEngine.SQLSERVER:
             from . import sqlserver_pomes
             result = sqlserver_pomes.get_version()
+
+    return result
+
+
+def db_get_reserved_words(engine: DbEngine = None) -> list[str] | None:
+    """
+    Obtain and return the list of reserved words for *engine*.
+
+    Reserved words can not be used to name database objects like tables, columns, triggers, constraints, etc.
+
+    :param engine: the reference database engine (the default engine, if not provided)
+    :return: the engine's list of reserved words, or *None* if error
+    """
+    # initialize the return variable
+    result: list[str] | None = None
+
+    # determine the database engine
+    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+
+    match curr_engine:
+        case DbEngine.MYSQL:
+            from . import mysql_pomes
+            result = mysql_pomes.RESERVED_WORDS
+        case DbEngine.ORACLE:
+            from . import oracle_pomes
+            result = oracle_pomes.RESERVED_WORDS
+        case DbEngine.POSTGRES:
+            from . import postgres_pomes
+            result = postgres_pomes.RESERVED_WORDS
+        case DbEngine.SQLSERVER:
+            from . import sqlserver_pomes
+            result = sqlserver_pomes.RESERVED_WORDS
+
+    return result
+
+
+def db_is_reserved_word(word: str,
+                        engine: DbEngine = None) -> bool | None:
+    """
+    Verify whether *word* is a reserved word for *engine*.
+
+    Reserved words can not be used to name database objects like tables, columns, triggers, constraints, etc.
+
+    :param word: the word to verify
+    :param engine: the reference database engine (the default engine, if not provided)
+    :return: *True* if *word* is a reserved word for *engine*, *False* otherwise, *None* on error
+    """
+    # initialize the return variable
+    result: bool | None = None
+
+    # determine the database engine
+    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+
+    if isinstance(word, str):
+        word = word.upper()
+    match curr_engine:
+        case DbEngine.MYSQL:
+            from . import mysql_pomes
+            result = word in mysql_pomes.RESERVED_WORDS
+        case DbEngine.ORACLE:
+            from . import oracle_pomes
+            result = word in oracle_pomes.RESERVED_WORDS
+        case DbEngine.POSTGRES:
+            from . import postgres_pomes
+            result = word in postgres_pomes.RESERVED_WORDS
+        case DbEngine.SQLSERVER:
+            from . import sqlserver_pomes
+            result = word in sqlserver_pomes.RESERVED_WORDS
 
     return result
 

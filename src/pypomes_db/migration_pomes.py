@@ -169,8 +169,8 @@ def db_migrate_data(errors: list[str] | None,
         if logger:
             logger.debug(msg=f"Started migrating data, "
                              f"from {source_engine}.{source_table} to {target_engine}.{target_table}, "
-                             f"reading batch size {batch_size_in}, writing batch size {batch_size_out}, "
-                             f"reading offset {offset_count}, limit {limit_count}")
+                             f"limit {limit_count}, offset {offset_count}, "
+                             f"batch size in {batch_size_in}, batch size out {batch_size_out}")
 
         # pre-insert handling of identity columns on SQLServer
         if identity_column and target_engine == DbEngine.SQLSERVER:
@@ -355,7 +355,6 @@ def db_migrate_lobs(errors: list[str] | None,
                     limit_count: int = None,
                     batch_size: int = None,
                     chunk_size: int = None,
-                    accept_empty: bool = None,
                     logger: Logger = None,
                     log_trigger: int = 10000) -> int | None:
     """
@@ -400,7 +399,6 @@ def db_migrate_lobs(errors: list[str] | None,
     :param limit_count: maximum number of tuples to migrate (defaults to no limit)
     :param batch_size: maximum number of tuples to read in each batch (defaults to no limit)
     :param chunk_size: size in bytes of the data chunk to read/write (defaults to no limit)
-    :param accept_empty: account for all LOBs, even empty ones
     :param logger: optional logger
     :param log_trigger: number of LOBs to trigger logging info on migration (defaults to 10000 LOBs)
     :return: the number of LOBs effectively migrated, or *None* if error
@@ -444,7 +442,6 @@ def db_migrate_lobs(errors: list[str] | None,
         limit_count = __normalize_value(value=limit_count)
         batch_size = __normalize_value(value=batch_size)
         chunk_size = __normalize_value(value=chunk_size) or -1
-        accept_empty = isinstance(accept_empty, bool) and accept_empty
 
         # buid the SELECT query
         source_pks: str = ", ".join(source_pk_columns)
@@ -539,14 +536,16 @@ def db_migrate_lobs(errors: list[str] | None,
                         ora_lob = lob_var.getValue()
 
                     # access the LOB in chunks and write it to database
+                    first: bool = True
                     offset: int = 1
-                    has_data: bool = accept_empty
+                    is_migrated: bool = False
                     lob: Any = row[lob_index]
                     lob_data: bytes | str = lob.read(offset=offset,
-                                                     amount=chunk_size) if lob else None
-                    while lob_data:
-                        size: int = len(lob_data)
-                        has_data = True
+                                                     amount=chunk_size) if lob is not None else None
+                    # make sure to skip null LOBs, and to migrate empty ones
+                    while lob_data is not None and (first or len(lob_data) > 0):
+                        first = False
+                        is_migrated = True
                         match target_engine:
                             case DbEngine.MYSQL:
                                 pass
@@ -559,7 +558,7 @@ def db_migrate_lobs(errors: list[str] | None,
                                 update_pg: str = update_stmt if offset > 1 else \
                                     update_stmt.replace(f"{target_lob_column} || ", "", 1)
 
-                                # string data may come from a LOB (Oracle's NCLOB is a good example)
+                                # string data may come from a LOB (Oracle's CLOB is a good example)
                                 col_data: str | Binary = Binary(lob_data) if isinstance(lob_data, bytes) else lob_data
                                 target_cursor.execute(query=update_pg,
                                                       vars=(col_data, *pk_vals))
@@ -574,12 +573,13 @@ def db_migrate_lobs(errors: list[str] | None,
                                 target_cursor.execute(sql=update_sqls,
                                                       params=(col_data, *pk_vals))
                         # read the next chunk
-                        offset += size
-                        lob_data = lob.read(offset=offset,
-                                            amount=chunk_size)
+                        if len(lob_data) > 0:
+                            offset += len(lob_data)
+                            lob_data = lob.read(offset=offset,
+                                                amount=chunk_size)
 
                     # increment the LOB migration counter, if applicable
-                    if has_data:
+                    if is_migrated:
                         result += 1
                         log_step += 1
 
@@ -646,237 +646,9 @@ def db_migrate_lobs(errors: list[str] | None,
     return result
 
 
-def db_stream_lobs(errors: list[str] | None,
-                   table: str,
-                   lob_column: str,
-                   pk_columns: list[str],
-                   ref_column: str = None,
-                   engine: DbEngine = None,
-                   connection: Any = None,
-                   committable: bool = None,
-                   where_clause: str = None,
-                   orderby_clause: str = None,
-                   offset_count: int = None,
-                   limit_count: int = None,
-                   batch_size: int = None,
-                   chunk_size: int = None,
-                   accept_empty: bool = None,
-                   logger: Logger = None,
-                   log_trigger: int = 10000) -> None:
-    """
-    Stream data in large binary objects (LOBs) from a database.
-
-    This is accomplished with the implementation of the *generator* pattern, whereby an *iterator*
-    is returned, allowing the invoker to iterate over the values being streamed.
-    The origin database must be in the list of databases configured and
-    supported by this package. One or more columns making up a primary key, or a unique
-    row identifier, must exist on *source_table*, and be provided in *source_pk_columns*.
-
-    The parameter *offset_count* is used to offset the retrieval of tuples. If it is set to -1,
-    its value is set from a *COUNT* operation in *target_table*, with *where_clause* if specified.
-    It is ignored for all other values different from a positive integer.
-
-    Further, if *batch_size* or *offset_count* has been specified, but *orderby_clause* has not,
-    then an ORDER BY clause is constructed from the data in *pk_columns*.
-
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
-    :param errors: incidental error messages
-    :param table: the table holding the LOBs
-    :param lob_column: the column holding the LOB
-    :param pk_columns: columns making up a primary key, or a unique identifier for a tuple, in database
-    :param ref_column: optional column whose content to return when yielding
-    :param engine: the database engine to use (uses the default engine, if not provided)
-    :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
-    :param where_clause: the criteria for tuple selection
-    :param orderby_clause: optional retrieval order
-    :param offset_count: number of tuples to skip in source table (defaults to none)
-    :param limit_count: maximum number of tuples to migrate (defaults to no limit)
-    :param batch_size: maximum number of tuples to read in each batch (defaults to no limit)
-    :param chunk_size: size in bytes of the data chunk to read/write (defaults to no limit)
-    :param accept_empty: account for all LOBs, even empty ones
-    :param logger: optional logger
-    :param log_trigger: number of tuples to trigger logging info on migration (defaults to 10000 tuples)
-    """
-    # initialize the local errors list
-    op_errors: list[str] = []
-
-    # make sure to have a connection to the source database
-    curr_conn: Any = connection or db_connect(errors=op_errors,
-                                              engine=engine,
-                                              logger=logger)
-    if curr_conn:
-        # define the number of rows to skip
-        if offset_count == -1:
-            offset_count = db_count(errors=op_errors,
-                                    table=table,
-                                    where_clause=where_clause,
-                                    engine=engine,
-                                    connection=connection,
-                                    committable=committable,
-                                    logger=logger)
-        else:
-            offset_count = __normalize_value(value=offset_count)
-
-        # normalize these parameters
-        limit_count = __normalize_value(value=limit_count)
-        batch_size = __normalize_value(value=batch_size)
-        chunk_size = __normalize_value(value=chunk_size) or -1
-        accept_empty = isinstance(accept_empty, bool) and accept_empty
-
-        # buid the SELECT query
-        ref_columns: list[str] = pk_columns.copy()
-        lob_index: int = len(pk_columns)
-        sel_stmt: str = f"SELECT {', '.join(pk_columns)}"
-        if ref_column and ref_column not in pk_columns:
-            sel_stmt += f", {ref_column}"
-            lob_index += 1
-            ref_columns.append(ref_column)
-        sel_stmt += f", {lob_column} FROM {table}"
-        if where_clause:
-            sel_stmt += f" WHERE {where_clause}"
-        if not orderby_clause and (offset_count or batch_size):
-            orderby_clause = ", ".join(pk_columns)
-        if orderby_clause:
-            sel_stmt += f" ORDER BY {orderby_clause}"
-        sel_stmt += " OFFSET @offset ROWS"
-
-        if limit_count or batch_size:
-            if engine == DbEngine.POSTGRES:
-                sel_stmt += " LIMIT @limit"
-            elif engine == DbEngine.ORACLE:
-                sel_stmt += " FETCH @limit ROWS ONLY"
-            elif engine == DbEngine.SQLSERVER:
-                sel_stmt = sel_stmt.replace("SELECT ", "SELECT TOP @limit ", 1)
-
-        # log the migration start
-        if logger:
-            logger.debug(msg=f"Started streaming LOBs "
-                             f"from {engine}.{table}.{lob_column}"
-                             f"reading batch size {batch_size}, reading offset {offset_count}, "
-                             f"limit {limit_count}, chunk size {chunk_size}")
-        # stream the LOBs
-        log_step: int = 0
-        lob_count: int = 0
-        err_msg: str | None = None
-        try:
-            source_cursor: Any = curr_conn.cursor()
-
-            # adjust the offset and limit
-            curr_stmt: str = sel_stmt
-            curr_limit: int = min(batch_size, limit_count)
-            if curr_limit == 0:
-                curr_limit = max(batch_size, limit_count)
-            if offset_count:
-                curr_stmt = curr_stmt.replace("@offset", str(offset_count), 1)\
-                                     .replace("@limit", str(curr_limit), 1)\
-                                     .replace(" FETCH ", " FETCH NEXT ", 1)
-            else:
-                curr_stmt = curr_stmt.replace(" OFFSET @offset ROWS", "", 1)\
-                                     .replace("@limit", str(curr_limit), 1)\
-                                     .replace(" FETCH ", " FETCH FIRST ", 1)
-            # go for the data
-            next_rs: bool = True
-            while next_rs:
-                next_rs = False
-
-                # execute the query
-                # (parameter name is 'statement' for oracle, 'query' for postgres, 'sql' for sqlserver)
-                source_cursor.execute(curr_stmt)
-
-                # traverse the result set
-                row: tuple = source_cursor.fetchone()
-                while row:
-                    next_rs = True
-
-                    # retrieve the values of the primary key and reference columns (leave LOB column out)
-                    ref_vals: tuple = tuple([row[inx] for inx in range(lob_index)])
-                    identifier: dict[str, Any] = {}
-                    for inx, pk_val in enumerate(ref_vals):
-                        identifier[ref_columns[inx]] = pk_val
-                    # send the LOB's metadata
-                    yield identifier
-
-                    # access the LOB's bytes in chunks and stream them
-                    offset: int = 1
-                    has_data: bool = accept_empty
-                    lob: Any = row[lob_index]
-                    lob_data: bytes | str = lob.read(offset=offset,
-                                                     amount=chunk_size) if lob else None
-                    while lob_data:
-                        # send a data chunk
-                        yield lob_data
-                        size: int = len(lob_data)
-                        has_data = True
-                        # read the next chunk
-                        offset += size
-                        lob_data = lob.read(offset=offset,
-                                            amount=chunk_size)
-                    if has_data:
-                        # increment the LOB migration counter, if applicable
-                        lob_count += 1
-                        log_step += 1
-
-                    # signal that sending data chunks for the current LOB is finished
-                    yield None
-
-                    # log partial result at each 'log_trigger' LOBs migrated
-                    if logger and log_step >= log_trigger:
-                        logger.debug(msg=f"Streamed {lob_count} LOBs "
-                                         f"from {engine}.{table}.{lob_column}")
-                        log_step = 0
-
-                    # retrieve the next row
-                    row = source_cursor.fetchone()
-
-                # adjust the new offset and limit
-                if next_rs and (limit_count > lob_count or (batch_size and not limit_count)):
-                    curr_limit = min(batch_size, limit_count - lob_count)
-                    if curr_limit <= 0:
-                        curr_limit = max(batch_size, limit_count - lob_count)
-                    curr_stmt = sel_stmt.replace("@offset", str(offset_count + lob_count), 1)\
-                                        .replace("@limit", str(curr_limit), 1)\
-                                        .replace(" FETCH ", " FETCH NEXT ", 1)
-                else:
-                    # signal end of migration
-                    next_rs = False
-
-            # close the cursors and commit the transactions
-            source_cursor.close()
-            if committable or not connection:
-                curr_conn.commit()
-        except Exception as e:
-            # rollback the transactions
-            if curr_conn:
-                with suppress(Exception):
-                    curr_conn.rollback()
-            lob_count = 0
-            err_msg = _except_msg(exception=e,
-                                  engine=engine)
-        finally:
-            # close the connections, if locally acquired
-            if curr_conn and not connection:
-                curr_conn.close()
-
-        # log the stream finish
-        if err_msg:
-            op_errors.append(err_msg)
-            if logger:
-                logger.error(msg=err_msg)
-        elif logger:
-            logger.debug(msg=f"Finished streaming {lob_count} LOBs "
-                             f"from {engine}.{table}.{lob_column}")
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
-
-
 def __normalize_value(value: int) -> int:
     """
-    Normalize *size* to acceptable values.
+    Normalize *value* to an acceptable value.
 
     :param value: the value to normalized
     :return: the normalized value

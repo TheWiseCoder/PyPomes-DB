@@ -1,7 +1,7 @@
 from pypomes_core import (
     APP_PREFIX,
-    env_get_int, env_get_str, env_get_strs, env_get_path,
-    str_sanitize, str_positional
+    str_sanitize, str_positional,
+    env_get_int, env_get_str, env_get_strs, env_get_path
 )
 from enum import StrEnum, auto
 from typing import Any, Final
@@ -16,6 +16,9 @@ class DbEngine(StrEnum):
     POSTGRES = auto()
     SQLSERVER = auto()
 
+    def __str__(self) -> str:  # noqa: D105
+        return self.name
+
 
 class DbParam(StrEnum):
     """
@@ -28,6 +31,9 @@ class DbParam(StrEnum):
     PORT = auto()
     CLIENT = auto()
     DRIVER = auto()
+
+    def __str__(self) -> str:  # noqa: D105
+        return self.name
 
 
 # the bind meta-tag to use in DML statements

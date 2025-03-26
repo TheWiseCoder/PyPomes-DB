@@ -3,15 +3,38 @@ from contextlib import suppress
 from datetime import date, datetime
 from logging import Logger
 from pyodbc import Binary, Connection, Row
-from pypomes_core import DATE_FORMAT_INV, DATETIME_FORMAT_INV
+from pypomes_core import DateFormat, DatetimeFormat
 from pathlib import Path
 from pypomes_core import str_between
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Final
 
 from .db_common import (
     DbEngine, DbParam,
     _assert_query_quota, _build_query_msg, _get_params, _except_msg
 )
+
+RESERVED_WORDS: Final[list[str]] = [
+    "ADD", "ALL", "ALTER", "AND", "ANY", "AS", "ASC", "AUTHORIZATION", "BACKUP", "BEGIN", "BETWEEN",
+    "BREAK", "BROWSE", "BULK", "BY", "CASE", "CHECK", "CHECKPOINT", "CLOSE", "CLUSTERED", "COALESCE",
+    "COLUMN", "COMMIT", "COMPUTE", "CONSTRAINT", "CONTAINS", "CONTAINSTABLE", "CONTINUE", "CONVERT",
+    "CREATE", "CROSS", "CURRENT", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "CURRENT_USER",
+    "CURSOR", "DATABASE", "DBCC", "DEALLOCATE", "DECLARE", "DEFAULT", "DELETE", "DENY", "DESC", "DISK",
+    "DISTINCT", "DISTRIBUTED", "DOUBLE", "DROP", "DUMP", "ELSE", "END", "ERRLVL", "ESCAPE", "EXCEPT",
+    "EXEC", "EXECUTE", "EXISTS", "EXIT", "EXTERNAL", "FETCH", "FILE", "FILLFACTOR", "FOR", "FOREIGN",
+    "FREETEXT", "FREETEXTTABLE", "FROM", "FULL", "FUNCTION", "GOTO", "GRANT", "GROUP", "HAVING", "HOLDLOCK",
+    "IDENTITY", "IDENTITY_INSERT", "IDENTITYCOL", "IF", "IN", "INDEX", "INNER", "INSERT", "INTERSECT",
+    "INTO", "IS", "JOIN", "KEY", "KILL", "LEFT", "LIKE", "LINENO", "LOAD", "MERGE", "NATIONAL", "NOCHECK",
+    "NONCLUSTERED", "NOT", "NULL", "NULLIF", "OF", "OFF", "OFFSETS", "ON", "OPEN", "OPENDATASOURCE",
+    "OPENQUERY", "OPENROWSET", "OPENXML", "OPTION", "OR", "ORDER", "OUTER", "OVER", "PERCENT", "PIVOT",
+    "PLAN", "PRECISION", "PRIMARY", "PRINT", "PROC", "PROCEDURE", "PUBLIC", "RAISERROR", "READ",
+    "READTEXT", "RECONFIGURE", "REFERENCES", "REPLICATION", "RESTORE", "RESTRICT", "RETURN", "REVERT",
+    "REVOKE", "RIGHT", "ROLLBACK", "ROWCOUNT", "ROWGUIDCOL", "RULE", "SAVE", "SCHEMA", "SECURITYAUDIT",
+    "SELECT", "SEMANTICKEYPHRASETABLE", "SEMANTICSIMILARITYDETAILSTABLE", "SEMANTICSIMILARITYTABLE",
+    "SESSION_USER", "SET", "SETUSER", "SHUTDOWN", "SOME", "STATISTICS", "SYSTEM_USER", "TABLE",
+    "TABLESAMPLE", "TEXTSIZE", "THEN", "TO", "TOP", "TRAN", "TRANSACTION", "TRIGGER", "TRUNCATE",
+    "TRY_CONVERT", "TSEQUAL", "UNION", "UNIQUE", "UNPIVOT", "UPDATE", "UPDATETEXT", "USE", "USER",
+    "VALUES", "VARYING", "VIEW", "WAITFOR", "WHEN", "WHERE", "WHILE", "WITH", "WITHIN GROUP", "WRITETEXT"
+]
 
 
 def get_connection_string() -> str:
@@ -124,9 +147,9 @@ def bind_arguments(stmt: str,
         elif isinstance(bind_val, int | float):
             val = f"{bind_val}"
         elif isinstance(bind_val, date):
-            val = f"CONVERT(DATE, '{bind_val.strftime(format=DATE_FORMAT_INV)}', 23)"
+            val = f"CONVERT(DATE, '{bind_val.strftime(format=DateFormat.INV)}', 23)"
         elif isinstance(bind_val, datetime):
-            val = f"CONVERT(DATETIME, '{bind_val.strftime(format=DATETIME_FORMAT_INV)}', 120)"
+            val = f"CONVERT(DATETIME, '{bind_val.strftime(format=DatetimeFormat.INV)}', 120)"
         else:
             val = f"'{bind_val}'"
         result = result.replace("?", val, 1)

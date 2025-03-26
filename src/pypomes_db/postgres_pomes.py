@@ -3,18 +3,32 @@ from contextlib import suppress
 from datetime import date, datetime
 from logging import Logger
 from pathlib import Path
-from pypomes_core import DATE_FORMAT_INV, DATETIME_FORMAT_INV
+from pypomes_core import DateFormat, DatetimeFormat
 from psycopg2 import Binary
 from psycopg2.extras import execute_values
 # noinspection PyProtectedMember
 from psycopg2._psycopg import connection
 from pypomes_core import str_between
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Final
 
 from .db_common import (
     DbEngine, DbParam,
     _assert_query_quota, _build_query_msg, _get_params, _except_msg
 )
+
+RESERVED_WORDS: Final[list[str]] = [
+    "ALL", "ANALYSE", "ANALYZE", "AND", "ANY", "ARRAY", "AS", "ASC", "ASYMMETRIC", "AUTHORIZATION",
+    "BINARY", "BOTH", "CASE", "CAST", "CHECK", "COLLATE", "COLUMN", "CONSTRAINT", "CREATE",
+    "CROSS", "CURRENT_CATALOG", "CURRENT_DATE", "CURRENT_ROLE", "CURRENT_SCHEMA", "CURRENT_TIME",
+    "CURRENT_TIMESTAMP", "CURRENT_USER", "DEFAULT", "DEFERRABLE", "DESC", "DISTINCT",
+    "DO", "ELSE", "END", "EXCEPT", "FALSE", "FETCH", "FOR", "FOREIGN", "FREEZE", "FROM", "FULL",
+    "GRANT", "GROUP", "HAVING", "ILIKE", "IN", "INITIALLY", "INNER", "INTERSECT", "INTO", "IS", "ISNULL",
+    "JOIN", "LATERAL", "LEADING", "LEFT", "LIKE", "LIMIT", "LOCALTIME", "LOCALTIMESTAMP",
+    "NATURAL", "NOT", "NOTNULL", "NULL", "OFFSET", "ON", "ONLY", "OR", "ORDER", "OUTER", "OVER", "OVERLAPS",
+    "PLACING", "PRIMARY", "REFERENCES", "RETURNING", "RIGHT", "SELECT", "SESSION_USER", "SIMILAR",
+    "SOME", "SYMMETRIC", "TABLE", "THEN", "TO", "TRAILING", "TRUE", "UNION", "UNIQUE", "USER", "USING",
+    "VARIADIC", "VERBOSE", "WHEN", "WHERE", "WINDOW", "WITH"
+]
 
 
 def get_connection_string() -> str:
@@ -120,9 +134,9 @@ def bind_arguments(stmt: str,
         elif isinstance(bind_val, int | float):
             val = f"{bind_val}"
         elif isinstance(bind_val, date):
-            val = f"TO_TIMESTAMP('{bind_val.strftime(format=DATE_FORMAT_INV)}', 'YYYY-MM-DD')"
+            val = f"TO_TIMESTAMP('{bind_val.strftime(format=DateFormat.INV)}', 'YYYY-MM-DD')"
         elif isinstance(bind_val, datetime):
-            val = f"TO_TIMESTAMP('{bind_val.strftime(format=DATETIME_FORMAT_INV)}', 'YYYY-MM-DD H24:MI:SS')"
+            val = f"TO_TIMESTAMP('{bind_val.strftime(format=DatetimeFormat.INV)}', 'YYYY-MM-DD H24:MI:SS')"
         else:
             val = f"'{bind_val}'"
         result = result.replace("%s", val, 1)
