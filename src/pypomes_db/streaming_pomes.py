@@ -238,6 +238,7 @@ def db_stream_lobs(errors: list[str] | None,
         limit_count = __normalize_value(value=limit_count)
         batch_size = __normalize_value(value=batch_size)
         chunk_size = __normalize_value(value=chunk_size) or -1
+        log_trigger = __normalize_value(value=log_trigger)
 
         # buid the SELECT query
         ref_columns: list[str] = pk_columns.copy()
@@ -396,7 +397,7 @@ def db_stream_lobs(errors: list[str] | None,
 
 def __normalize_value(value: int) -> int:
     """
-    Normalize *value* to an acceptable value.
+    Normalize *value* to a consistent value.
 
     :param value: the value to normalized
     :return: the normalized value

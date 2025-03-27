@@ -16,9 +16,6 @@ class DbEngine(StrEnum):
     POSTGRES = auto()
     SQLSERVER = auto()
 
-    def __str__(self) -> str:  # noqa: D105
-        return self.name
-
 
 class DbParam(StrEnum):
     """
@@ -31,9 +28,6 @@ class DbParam(StrEnum):
     PORT = auto()
     CLIENT = auto()
     DRIVER = auto()
-
-    def __str__(self) -> str:  # noqa: D105
-        return self.name
 
 
 # the bind meta-tag to use in DML statements
