@@ -69,7 +69,7 @@ for _db_engine in _DB_ENGINES:
         _prefix: str = "DB"
         _default_setup = False
     else:
-        _prefix: str = str_positional(source=str(_db_engine),
+        _prefix: str = str_positional(source=_db_engine,
                                       list_origin=["mysql", "oracle", "postgres", "sqlserver"],
                                       list_dest=["MSQL", "ORCL", "PG", "SQLS"])
     _DB_CONN_DATA[_db_engine] = {

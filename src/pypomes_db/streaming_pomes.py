@@ -179,7 +179,7 @@ def db_stream_lobs(errors: list[str] | None,
                    table: str,
                    lob_column: str,
                    pk_columns: list[str],
-                   ref_column: str = None,
+                   ret_column: str = None,
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
@@ -212,7 +212,7 @@ def db_stream_lobs(errors: list[str] | None,
     :param table: the table holding the LOBs
     :param lob_column: the column holding the LOB
     :param pk_columns: columns making up a primary key, or a unique identifier for a tuple, in database
-    :param ref_column: optional column whose content to return when yielding
+    :param ret_column: optional column whose content to return when yielding
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -244,10 +244,10 @@ def db_stream_lobs(errors: list[str] | None,
         ref_columns: list[str] = pk_columns.copy()
         lob_index: int = len(pk_columns)
         sel_stmt: str = f"SELECT {', '.join(pk_columns)}"
-        if ref_column and ref_column not in pk_columns:
-            sel_stmt += f", {ref_column}"
+        if ret_column and ret_column not in pk_columns:
+            sel_stmt += f", {ret_column}"
             lob_index += 1
-            ref_columns.append(ref_column)
+            ref_columns.append(ret_column)
         sel_stmt += f", {lob_column} FROM {table}"
         if where_clause:
             sel_stmt += f" WHERE {where_clause}"

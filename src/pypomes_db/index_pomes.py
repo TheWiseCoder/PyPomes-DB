@@ -47,10 +47,10 @@ def db_get_indexes(errors: list[str] | None,
     # proceed, if no errors
     if not op_errors:
         # process table names
-        tbl_name = str_positional(source=str(curr_engine),
+        tbl_name = str_positional(source=curr_engine,
                                   list_origin=["oracle", "postgres", "sqlserver"],
                                   list_dest=["table_name", "LOWER(t.relname)", "LOWER(t.name)"])
-        sch_name = str_positional(source=str(curr_engine),
+        sch_name = str_positional(source=curr_engine,
                                   list_origin=["oracle", "postgres", "sqlserver"],
                                   list_dest=["aic.table_name",
                                              "LOWER(ns.nspname)", "SCHEMA_NAME(t.schema_id)"])
