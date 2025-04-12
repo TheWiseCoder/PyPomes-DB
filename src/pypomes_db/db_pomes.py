@@ -1,6 +1,7 @@
 from logging import Logger
 from pathlib import Path
 from pypomes_core import dict_jsonify, str_sanitize
+from pypomes_logging import PYPOMES_LOGGER
 from typing import Any, BinaryIO
 
 from .db_common import (
@@ -27,7 +28,7 @@ def db_setup(engine: DbEngine,
         - *db_client* may be provided for *oracle*, only
         - *db_driver* is required for *sqlserver*, only
 
-    :param engine: the database engine (one of [*mysql*, *oracle*, *postgres', *sqlserver*])
+    :param engine: the database engine (one of [*mysql*, *oracle*, *postgres*, *sqlserver*])
     :param db_name: the database or service name
     :param db_user: the logon user
     :param db_pwd: the logon password
@@ -67,7 +68,7 @@ def db_setup(engine: DbEngine,
 
 def db_assert_access(errors: list[str] | None,
                      engine: DbEngine = None,
-                     logger: Logger = None) -> bool:
+                     logger: Logger = PYPOMES_LOGGER) -> bool:
     """
     Determine whether the *engine*'s current configuration allows for a safe connection.
 
@@ -380,7 +381,7 @@ def db_bind_arguments(stmt: str,
 def db_connect(errors: list[str] | None,
                autocommit: bool = False,
                engine: DbEngine = None,
-               logger: Logger = None) -> Any:
+               logger: Logger = PYPOMES_LOGGER) -> Any:
     """
     Obtain and return a connection to the database, or *None* if the connection cannot be obtained.
 
@@ -428,7 +429,7 @@ def db_connect(errors: list[str] | None,
 
 def db_commit(errors: list[str] | None,
               connection: Any,
-              logger: Logger = None) -> None:
+              logger: Logger = PYPOMES_LOGGER) -> None:
     """
     Commit the current transaction on *connection*.
 
@@ -453,7 +454,7 @@ def db_commit(errors: list[str] | None,
 
 def db_rollback(errors: list[str] | None,
                 connection: Any,
-                logger: Logger = None) -> None:
+                logger: Logger = PYPOMES_LOGGER) -> None:
     """
     Rollback the current transaction on *connection*.
 
@@ -485,7 +486,7 @@ def db_count(errors: list[str] | None,
              engine: DbEngine = None,
              connection: Any = None,
              committable: bool = None,
-             logger: Logger = None) -> int | None:
+             logger: Logger = PYPOMES_LOGGER) -> int | None:
     """
     Obtain and return the number of tuples in *table* meeting the criteria defined in *where_data*.
 
@@ -541,10 +542,12 @@ def db_exists(errors: list[str] | None,
               where_clause: str = None,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
+              min_count: int = None,
+              max_count: int = None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = None) -> bool | None:
+              logger: Logger = PYPOMES_LOGGER) -> bool | None:
     """
     Determine whether at least one tuple in *table* meets the criteria defined in *where_data*.
 
@@ -555,6 +558,10 @@ def db_exists(errors: list[str] | None,
     break for a list of values containing only 1 element. The safe way to specify *IN* directives is
     to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
 
+    If not positive integers, *min_count* and *max_count* are ignored. If both *min_count* and *max_count*
+    are specified with equal values, then exactly that number of tuples must exist. If neither one is
+    specified, than at least one tuple is expected to exist.
+
     The targer database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -564,11 +571,13 @@ def db_exists(errors: list[str] | None,
     :param where_clause: optional criteria for tuple selection
     :param where_vals: values to be associated with the selection criteria
     :param where_data: the selection criteria specified as key-value pairs
+    :param min_count: optionally defines the minimum number of tuples expected to exist
+    :param max_count: optionally defines the maximum number of tuples expected to exist
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: *True* if at least one tuple was found, *False* otherwise, *None* if error
+    :return: *True* if the criteria for tuple existence were met, *False* otherwise, *None* if error
     """
     # initialize the return variable
     result: bool | None = None
@@ -577,18 +586,19 @@ def db_exists(errors: list[str] | None,
     op_errors: list[str] = []
 
     # count the tuples
-    recs: list[tuple] = db_select(errors=op_errors,
-                                  sel_stmt=f"SELECT * FROM {table}",
-                                  where_clause=where_clause,
-                                  where_vals=where_vals,
-                                  where_data=where_data,
-                                  limit_count=1,
-                                  engine=engine,
-                                  connection=connection,
-                                  committable=committable,
-                                  logger=logger)
+    count: int = db_count(errors=op_errors,
+                          table=table,
+                          where_clause=where_clause,
+                          where_vals=where_vals,
+                          where_data=where_data,
+                          engine=engine,
+                          connection=connection,
+                          committable=committable,
+                          logger=logger)
     if not op_errors:
-        result = len(recs) > 0
+        result = not (count == 0 or
+                      (isinstance(max_count, int) and 0 < max_count < count) or
+                      (isinstance(min_count, int) and min_count > 0 and min_count > count))
     elif isinstance(errors, list):
         errors.extend(op_errors)
 
@@ -603,13 +613,12 @@ def db_select(errors: list[str] | None,
               orderby_clause: str = None,
               min_count: int = None,
               max_count: int = None,
-              require_count: int = None,
               offset_count: int = None,
               limit_count: int = None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = None) -> list[tuple] | None:
+              logger: Logger = PYPOMES_LOGGER) -> list[tuple] | None:
     """
     Query the database and return all tuples that satisfy the *sel_stmt* command.
 
@@ -620,9 +629,10 @@ def db_select(errors: list[str] | None,
     break for a list of values containing only 1 element. The safe way to specify *IN* directives is
     to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
 
-    If not positive integers, *min_count*, *max_count*, and *require_count* are ignored.
-    If *require_count* is specified, then exactly that number of tuples must be returned by the query.
-    The parameter *offset_count* is used to offset the retrieval of tuples.
+    If not positive integers, *min_count*, *max_count*, *offset_count*, and *limit_count* are ignored.
+    If both *min_count* and *max_count* are specified with equal values, then exactly that number of
+    tuples must be returned by the query. The parameter *offset_count* is used to offset the retrieval
+    of tuples. If the search is empty, an empty list is returned.
 
     If the search is empty, an empty list is returned.
     The target database engine, specified or default, must have been previously configured.
@@ -637,7 +647,6 @@ def db_select(errors: list[str] | None,
     :param orderby_clause: optional retrieval order (ignored if *sel_stmt* contains a *ORDER BY* clause)
     :param min_count: optionally defines the minimum number of tuples expected
     :param max_count: optionally defines the maximum number of tuples expected
-    :param require_count: number of tuples that must exactly satisfy the query (overrides *min_count* and *max_count*)
     :param offset_count: number of tuples to skip (defaults to none)
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
     :param engine: the database engine to use (uses the default engine, if not provided)
@@ -678,7 +687,6 @@ def db_select(errors: list[str] | None,
                                      where_vals=where_vals,
                                      min_count=min_count,
                                      max_count=max_count,
-                                     require_count=require_count,
                                      offset_count=offset_count,
                                      limit_count=limit_count,
                                      conn=connection,
@@ -691,7 +699,6 @@ def db_select(errors: list[str] | None,
                                        where_vals=where_vals,
                                        min_count=min_count,
                                        max_count=max_count,
-                                       require_count=require_count,
                                        offset_count=offset_count,
                                        limit_count=limit_count,
                                        conn=connection,
@@ -704,7 +711,6 @@ def db_select(errors: list[str] | None,
                                         where_vals=where_vals,
                                         min_count=min_count,
                                         max_count=max_count,
-                                        require_count=require_count,
                                         offset_count=offset_count,
                                         limit_count=limit_count,
                                         conn=connection,
@@ -721,14 +727,16 @@ def db_insert(errors: list[str] | None,
               insert_stmt: str,
               insert_vals: tuple = None,
               insert_data: dict[str, Any] = None,
+              return_cols: dict[str, type] = None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = None) -> int | None:
+              logger: Logger = PYPOMES_LOGGER) -> tuple | int | None:
     """
-    Insert a tuple, with values defined in *insert_vals*, into the database.
+    Insert a tuple, with values defined in *insert_vals*, and *insert_data*, into the database.
 
     The target database engine, specified or default, must have been previously configured.
+    The optional *return_cols* indicate that the values of the columns therein should be returned.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
@@ -736,11 +744,12 @@ def db_insert(errors: list[str] | None,
     :param insert_stmt: the INSERT command
     :param insert_vals: values to be inserted
     :param insert_data: data to be inserted as key-value pairs
+    :param return_cols: optional columns and respective types, whose values are to be returned
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of inserted tuples (0 ou 1), or *None* if error
+    :return: the values of *return_cols*, or the number of inserted tuples (0 ou 1), or *None* if error
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -750,13 +759,14 @@ def db_insert(errors: list[str] | None,
         insert_stmt, insert_vals = _combine_insert_data(insert_stmt=insert_stmt,
                                                         insert_vals=insert_vals,
                                                         insert_data=insert_data)
-    result: int = db_execute(errors=op_errors,
-                             exc_stmt=insert_stmt,
-                             bind_vals=insert_vals,
-                             engine=engine,
-                             connection=connection,
-                             committable=committable,
-                             logger=logger)
+    result: tuple | int = db_execute(errors=op_errors,
+                                     exc_stmt=insert_stmt,
+                                     bind_vals=insert_vals,
+                                     return_cols=return_cols,
+                                     engine=engine,
+                                     connection=connection,
+                                     committable=committable,
+                                     logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -771,10 +781,13 @@ def db_update(errors: list[str] | None,
               where_clause: str = None,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
+              return_cols: dict[str, type] = None,
+              min_count: int = None,
+              max_count: int = None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = None) -> int | None:
+              logger: Logger = PYPOMES_LOGGER) -> tuple | int | None:
     """
     Update one or more tuples in the database, as defined by the command *update_stmt*.
 
@@ -786,6 +799,7 @@ def db_update(errors: list[str] | None,
     break for a list of values containing only 1 element. The safe way to specify *IN* directives is
     to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
 
+    The optional *return_cols* indicate that the values of the columns therein should be returned.
     The target database engine, specified or default,  must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -797,11 +811,14 @@ def db_update(errors: list[str] | None,
     :param where_clause: optional criteria for tuple selection (ignored if *upd_stmt* contains a *WHERE* clause)
     :param where_vals: values to be associated with the selection criteria
     :param where_data: selection criteria as key-value pairs
+    :param return_cols: optional columns and respective types, whose values are to be returned
+    :param min_count: optionally defines the minimum number of tuples to be updated
+    :param max_count: optionally defines the maximum number of tuples to be updated
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the number of updated tuples, or *None* if error
+    :return: the values of *return_cols*, or the number of updated tuples, or *None* if error
     """
     # initialize the local errors list
     op_errors: list[str] = []
@@ -830,13 +847,16 @@ def db_update(errors: list[str] | None,
     elif where_vals:
         bind_vals = where_vals
 
-    result: int = db_execute(errors=op_errors,
-                             exc_stmt=update_stmt,
-                             bind_vals=bind_vals,
-                             engine=engine,
-                             connection=connection,
-                             committable=committable,
-                             logger=logger)
+    result: tuple | int = db_execute(errors=op_errors,
+                                     exc_stmt=update_stmt,
+                                     bind_vals=bind_vals,
+                                     return_cols=return_cols,
+                                     min_count=min_count,
+                                     max_count=max_count,
+                                     engine=engine,
+                                     connection=connection,
+                                     committable=committable,
+                                     logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -849,10 +869,12 @@ def db_delete(errors: list[str] | None,
               where_clause: str = None,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
+              min_count: int = None,
+              max_count: int = None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = None) -> int | None:
+              logger: Logger = PYPOMES_LOGGER) -> int | None:
     """
     Delete one or more tuples in the database, as defined by the *delete_stmt* command.
 
@@ -872,6 +894,8 @@ def db_delete(errors: list[str] | None,
     :param where_clause: optional criteria for tuple selection (ignored if *delete_stmt* contains a *WHERE* clause)
     :param where_vals: values to be associated with the selection criteria
     :param where_data: selection criteria as key-value pairs
+    :param min_count: optionally defines the minimum number of tuples to be deleted
+    :param max_count: optionally defines the maximum number of tuples to be deleted
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
@@ -894,6 +918,8 @@ def db_delete(errors: list[str] | None,
     result: int = db_execute(errors=op_errors,
                              exc_stmt=delete_stmt,
                              bind_vals=where_vals,
+                             min_count=min_count,
+                             max_count=max_count,
                              engine=engine,
                              connection=connection,
                              committable=committable,
@@ -913,7 +939,7 @@ def db_bulk_insert(errors: list[str] | None,
                    connection: Any = None,
                    committable: bool = None,
                    identity_column: str = None,
-                   logger: Logger = None) -> int | None:
+                   logger: Logger = PYPOMES_LOGGER) -> int | None:
     """
     Insert into *target_table* the values defined in *insert_vals*.
 
@@ -1031,7 +1057,7 @@ def db_bulk_update(errors: list[str] | None,
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
-                   logger: Logger = None) -> int | None:
+                   logger: Logger = PYPOMES_LOGGER) -> int | None:
     """
     Update *where_attrs* in *target_table* with values defined in *update_vals*.
 
@@ -1123,7 +1149,7 @@ def db_bulk_delete(errors: list[str] | None,
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
-                   logger: Logger = None) -> int | None:
+                   logger: Logger = PYPOMES_LOGGER) -> int | None:
     """
     Delete from *target_table* with values defined in *where_vals*.
 
@@ -1203,7 +1229,7 @@ def db_update_lob(errors: list[str] | None,
                   engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
-                  logger: Logger = None) -> None:
+                  logger: Logger = PYPOMES_LOGGER) -> None:
     """
     Update a large binary object (LOB) in the given table and column.
 
@@ -1278,21 +1304,28 @@ def db_update_lob(errors: list[str] | None,
 def db_execute(errors: list[str] | None,
                exc_stmt: str,
                bind_vals: tuple = None,
+               return_cols: dict[str, type] = None,
+               min_count: int = None,
+               max_count: int = None,
                engine: DbEngine = None,
                connection: Any = None,
                committable: bool = None,
-               logger: Logger = None) -> int | None:
+               logger: Logger = PYPOMES_LOGGER) -> int | None:
     """
     Execute the command *exc_stmt* on the database.
 
-    This command might be a DML ccommand modifying the database, such as
-    inserting, updating or deleting tuples, or it might be a DDL statement,
-    or it might even be an environment-related command.
-    The optional bind values for this operation are in *bind_vals*.
-    The target database engine, specified or default, must have been previously configured.
-    The value returned is the value obtained from the execution of *exc_stmt*.
-    It might be the number of inserted, modified, or deleted tuples,
-    ou None if an error occurred.
+    This command might be a DML ccommand modifying the database, such as inserting, updating or
+    deleting tuples, or it might be a DDL statement, or it might even be an environment-related command.
+
+    The optional bind values for this operation are in *bind_vals*. The optional *return_cols* indicate that
+    the values of the columns therein should be returned upon execution of *exc_stmt*. This is typical for
+    *INSERT* or *UPDATE* statements on tables with *identity-type* columns, which are columns whose values
+    are generated by the database itself. Otherwise, the value returned is the number of inserted, modified,
+    or deleted tuples, or *None* if an error occurred.
+
+    The value returned by this operation (as *cursor.rowcount*) is verified against *min_count* or *max_count*,
+    if provided. An error is issued if a disagreement exists, followed by a rollback. This is an optional feature,
+    intended to minimize data loss due to programming mistakes.
 
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -1300,11 +1333,14 @@ def db_execute(errors: list[str] | None,
     :param errors: incidental error messages
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
+    :param return_cols: optional columns and respective types, whose values are to be returned
+    :param min_count: optionally defines the minimum number of tuples to be affected
+    :param max_count: optionally defines the maximum number of tuples to be affected
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the return value from the command execution, or *None* if error
+    :return: the values of *return_cols*, the return value from the command execution, or *None* if error
     """
     # initialize the return variable
     result: int | None = None
@@ -1326,6 +1362,9 @@ def db_execute(errors: list[str] | None,
         result = oracle_pomes.execute(errors=op_errors,
                                       exc_stmt=exc_stmt,
                                       bind_vals=bind_vals,
+                                      return_cols=return_cols,
+                                      min_count=min_count,
+                                      max_count=max_count,
                                       conn=connection,
                                       committable=committable,
                                       logger=logger)
@@ -1334,6 +1373,9 @@ def db_execute(errors: list[str] | None,
         result = postgres_pomes.execute(errors=op_errors,
                                         exc_stmt=exc_stmt,
                                         bind_vals=bind_vals,
+                                        return_cols=return_cols,
+                                        min_count=min_count,
+                                        max_count=max_count,
                                         conn=connection,
                                         committable=committable,
                                         logger=logger)
@@ -1342,6 +1384,9 @@ def db_execute(errors: list[str] | None,
         result = sqlserver_pomes.execute(errors=op_errors,
                                          exc_stmt=exc_stmt,
                                          bind_vals=bind_vals,
+                                         return_cols=return_cols,
+                                         min_count=min_count,
+                                         max_count=max_count,
                                          conn=connection,
                                          committable=committable,
                                          logger=logger)
@@ -1358,7 +1403,7 @@ def db_call_function(errors: list[str] | None,
                      engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
-                     logger: Logger = None) -> list[tuple] | None:
+                     logger: Logger = PYPOMES_LOGGER) -> list[tuple] | None:
     """
     Execute the stored function *func_name* in the database, with the parameters given in *func_vals*.
 
@@ -1423,7 +1468,7 @@ def db_call_procedure(errors: list[str] | None,
                       engine: DbEngine = None,
                       connection: Any = None,
                       committable: bool = None,
-                      logger: Logger = None) -> list[tuple] | None:
+                      logger: Logger = PYPOMES_LOGGER) -> list[tuple] | None:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 

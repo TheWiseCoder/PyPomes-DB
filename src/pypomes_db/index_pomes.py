@@ -1,5 +1,6 @@
 from logging import Logger
 from pypomes_core import str_positional
+from pypomes_logging import PYPOMES_LOGGER
 from typing import Any
 
 from .db_common import DbEngine, _assert_engine
@@ -13,7 +14,7 @@ def db_get_indexes(errors: list[str] | None,
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
-                   logger: Logger = None) -> list[str]:
+                   logger: Logger = PYPOMES_LOGGER) -> list[str]:
     """
     Retrieve and return the list of schema-qualified indexes in the database.
 
@@ -144,7 +145,7 @@ def db_get_index_ddl(errors: list[str] | None,
                      engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
-                     logger: Logger = None) -> str | None:
+                     logger: Logger = PYPOMES_LOGGER) -> str | None:
     """
     Retrieve and return the DDL script used to create the index *index_name*.
 

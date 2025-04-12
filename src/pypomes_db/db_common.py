@@ -114,11 +114,10 @@ def _assert_engine(errors: list[str] | None,
 def _assert_query_quota(errors: list[str] | None,
                         engine: DbEngine,
                         query: str,
-                        where_vals: tuple,
+                        where_vals: tuple | None,
                         count: int,
-                        min_count: int,
-                        max_count: int,
-                        require_count: int) -> bool:
+                        min_count: int | None,
+                        max_count: int | None) -> bool:
     """
     Verify whether the number of tuples returned is compliant with the constraints specified.
 
@@ -129,29 +128,28 @@ def _assert_query_quota(errors: list[str] | None,
     :param count: the number of tuples returned
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
-    :param require_count: number of tuples that must exactly satisfy the query
     :return: whether or not the number of tuples returned is compliant
     """
     # initialize the control message variable
     err_msg: str | None = None
 
     # has an exact number of tuples been defined but not returned ?
-    if isinstance(require_count, int) and \
-       require_count > 0 and require_count != count:
+    if isinstance(min_count, int) and isinstance(max_count, int) and \
+       min_count > 0 and min_count != count:
         # yes, report the error, if applicable
-        err_msg = f"{count} tuples returned, exactly {require_count} expected"
+        err_msg = f"{count} tuples affected, exactly {min_count} expected"
 
     # has a minimum number of tuples been defined but not returned ?
     elif (isinstance(min_count, int) and
           min_count > 0 and min_count > count):
         # yes, report the error, if applicable
-        err_msg = f"{count} tuples returned, at least {min_count} expected'"
+        err_msg = f"{count} tuples affected, at least {min_count} expected'"
 
     # has a maximum number of tuples been defined but not complied with ?
-    # INSANITY CHECK: expected to never occur
+    # SANITY CHECK: expected to never occur for SELECTs
     elif isinstance(max_count, int) and 0 < max_count < count:
         # yes, report the error, if applicable
-        err_msg = f"{count} tuples returned, up to {max_count} expected"
+        err_msg = f"{count} tuples affected, up to {max_count} expected"
 
     if err_msg:
         result: bool = False
@@ -204,7 +202,7 @@ def _except_msg(exception: Exception,
 
 def _build_query_msg(query_stmt: str,
                      engine: DbEngine,
-                     bind_vals: tuple) -> str:
+                     bind_vals: tuple | None) -> str:
     """
     Format and return the message indicative of a query problem.
 
@@ -429,7 +427,7 @@ def _combine_insert_data(insert_stmt: str,
     """
     Rebuild the insert statement *insert_stmt* and the list of bind values *insert_vals*.
 
-    This is done by adding to them the data specified by the key-value pairs in *update_data*.
+    This is done by adding to them the data specified by the key-value pairs in *insert_data*.
 
     :param insert_stmt: the insert statement to add to
     :param insert_vals: the insert values list to add to

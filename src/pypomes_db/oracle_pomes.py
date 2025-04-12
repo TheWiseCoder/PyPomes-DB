@@ -1,4 +1,5 @@
 import oracledb
+import re
 from contextlib import suppress
 from datetime import date, datetime
 from logging import Logger
@@ -54,7 +55,6 @@ def get_version() -> str | None:
                                 where_vals=None,
                                 min_count=None,
                                 max_count=None,
-                                require_count=None,
                                 offset_count=None,
                                 limit_count=1,
                                 conn=None,
@@ -148,7 +148,6 @@ def select(errors: list[str] | None,
            where_vals: tuple | None,
            min_count: int | None,
            max_count: int | None,
-           require_count: int | None,
            offset_count: int | None,
            limit_count: int | None,
            conn: Connection | None,
@@ -158,9 +157,10 @@ def select(errors: list[str] | None,
     Query the database and return all tuples that satisfy the *sel_stmt* command.
 
     The command can optionally contain selection criteria, with respective values given in *where_vals*.
-    If not positive integers, *min_count*, *max_count*, and *require_count* are ignored.
-    If *require_count* is specified, then exactly that number of tuples must be returned by the query.
-    If the search is empty, an empty list is returned.
+    If not positive integers, *min_count*, *max_count*, *offset_count*, and *limit_count* are ignored.
+    If both *min_count* and *max_count* are specified with equal values, then exactly that number of
+    tuples must be returned by the query. The parameter *offset_count* is used to offset the retrieval
+    of tuples. If the search is empty, an empty list is returned.
 
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -170,7 +170,6 @@ def select(errors: list[str] | None,
     :param where_vals: the values to be associated with the selection criteria
     :param min_count: optionally defines the minimum number of tuples expected
     :param max_count: optionally defines the maximum number of tuples expected
-    :param require_count: number of tuples that must exactly satisfy the query (overrides *min_count* and *max_count*)
     :param offset_count: number of tuples to skip (ignored if *sel_stmt* does not contain an *ORDER BY* clause)
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
     :param conn: optional connection to use (obtains a new one, if not provided)
@@ -186,10 +185,6 @@ def select(errors: list[str] | None,
                                             autocommit=False,
                                             logger=logger)
     if curr_conn:
-        # establish the appropriate query cardinality
-        if isinstance(require_count, int) and require_count > 0:
-            min_count = require_count
-            max_count = require_count
 
         # establish an offset into the result set
         if isinstance(offset_count, int) and offset_count > 0:
@@ -221,8 +216,7 @@ def select(errors: list[str] | None,
                                        where_vals=where_vals,
                                        count=count,
                                        min_count=min_count,
-                                       max_count=max_count,
-                                       require_count=require_count):
+                                       max_count=max_count):
                     # yes, retrieve the returned tuples
                     if count == 1 and sel_stmt.upper().startswith("SELECT DBMS_METADATA.GET_DDL"):
                         # in this instance, a CLOB may be returned
@@ -258,20 +252,27 @@ def select(errors: list[str] | None,
 def execute(errors: list[str] | None,
             exc_stmt: str,
             bind_vals: tuple | None,
+            return_cols: dict[str, type] | None,
+            min_count: int | None,
+            max_count: int | None,
             conn: Connection | None,
             committable: bool | None,
-            logger: Logger | None) -> int | None:
+            logger: Logger | None) -> tuple | int | None:
     """
     Execute the command *exc_stmt* on the database.
 
-    This command might be a DML ccommand modifying the database, such as
-    inserting, updating or deleting tuples, or it might be a DDL statement,
-    or it might even be an environment-related command.
+    This command might be a DML ccommand modifying the database, such as inserting, updating or
+    deleting tuples, or it might be a DDL statement, or it might even be an environment-related command.
 
-    The optional bind values for this operation are in *bind_vals*.
-    The value returned is the value obtained from the execution of *exc_stmt*.
-    It might be the number of inserted, modified, or deleted tuples,
-    ou None if an error occurred.
+    The optional bind values for this operation are in *bind_vals*. The optional *return_cols* indicate that
+    the values of the columns therein should be returned upon execution of *exc_stmt*. This is typical for
+    *INSERT* or *UPDATE* statements on tables with *identity-type* columns, which are columns whose values
+    are generated by the database itself. Otherwise, the value returned is the number of inserted, modified,
+    or deleted tuples, or *None* if an error occurred.
+
+    The value returned by this operation (as *cursor.rowcount*) is verified against *min_count* or *max_count*,
+    if provided. An error is issued if a disagreement exists, followed by a rollback. This is an optional feature,
+    intended to minimize data loss due to programming mistakes.
 
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -279,13 +280,16 @@ def execute(errors: list[str] | None,
     :param errors: incidental error messages
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
+    :param return_cols: optional columns and respective types, whose values are to be returned on *INSERT* or *UPDATE*
+    :param min_count: optionally defines the minimum number of tuples to be affected
+    :param max_count: optionally defines the maximum number of tuples to be affected
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
     :param logger: optional logger
-    :return: the return value from the command execution, or *None* if error
+    :return: the values of *return_cols*, the value returned by the operation, or *None* if error
     """
     # initialize the return variable
-    result: int | None = None
+    result: tuple | int | None = None
 
     # make sure to have a connection
     curr_conn: Connection = conn or connect(errors=errors,
@@ -293,12 +297,34 @@ def execute(errors: list[str] | None,
                                             logger=logger)
     if curr_conn:
         err_msg: str | None = None
+        # handle return columns
+        if return_cols:
+            inx: int = __last_placeholder(stmt=exc_stmt) + 1
+            binds: list[str] = [f":{i!s}" for i in range(inx, inx+len(return_cols))]
+            exc_stmt += f" RETURNING {', '.join(return_cols.keys())} INTO {', '.join(binds)}"
         try:
             # obtain a cursor and execute the operation
             with curr_conn.cursor() as cursor:
+                bind_vars: tuple = ()
+                if return_cols:
+                    bind_vars = tuple([cursor.var(v) for v in return_cols.values()])
+                    bind_vals += bind_vars
                 cursor.execute(statement=exc_stmt,
                                parameters=bind_vals)
-                result = cursor.rowcount
+
+                # has the query quota been satisfied ?
+                count: int = cursor.rowcount
+                if _assert_query_quota(errors=errors,
+                                       engine=DbEngine.ORACLE,
+                                       query=exc_stmt,
+                                       where_vals=None,
+                                       count=count,
+                                       min_count=min_count,
+                                       max_count=max_count):
+                    if bind_vars:
+                        result = tuple([var.getvalue() for var in bind_vars])
+                    else:
+                        result = count
 
             # commit the transaction, if appropriate
             if committable or not conn:
@@ -618,3 +644,16 @@ def initialize(errors: list[str],
             logger.debug(msg="Initializing the client")
 
     return result
+
+
+def __last_placeholder(stmt: str) -> int:
+    """
+    Retrieve and return the value of the last placeholer in *stmt*.
+
+    :param stmt: the stament to inspect
+    :return: the last placeholder, or *0* if no placeholder exists.
+    """
+    # retrieve the placeholders
+    placeholders: list[str] = re.findall(pattern=r":(\d+)",
+                                         string=stmt)
+    return max(map(int, placeholders)) if placeholders else 0

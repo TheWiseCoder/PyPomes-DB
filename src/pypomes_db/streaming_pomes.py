@@ -1,5 +1,6 @@
 from contextlib import suppress
 from logging import Logger
+from pypomes_logging import PYPOMES_LOGGER
 from typing import Any
 
 from .db_pomes import db_connect
@@ -18,7 +19,7 @@ def db_stream_data(errors: list[str] | None,
                    limit_count: int = None,
                    batch_size_in: int = None,
                    batch_size_out: int = None,
-                   logger: Logger = None) -> int | None:
+                   logger: Logger = PYPOMES_LOGGER) -> int | None:
     """
     Stream data from a database table.
 
@@ -189,7 +190,7 @@ def db_stream_lobs(errors: list[str] | None,
                    limit_count: int = None,
                    batch_size: int = None,
                    chunk_size: int = None,
-                   logger: Logger = None,
+                   logger: Logger = PYPOMES_LOGGER,
                    log_trigger: int = 10000) -> None:
     """
     Stream data in large binary objects (LOBs) from a database table.

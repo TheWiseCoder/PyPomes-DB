@@ -1,5 +1,6 @@
 from contextlib import suppress
 from logging import Logger
+from pypomes_logging import PYPOMES_LOGGER
 from typing import Any
 
 from .db_common import (
@@ -28,7 +29,7 @@ def db_sync_data(errors: list[str] | None,
                  identity_column: str = None,
                  batch_size: int = None,
                  has_nulls: bool = None,
-                 logger: Logger = None,
+                 logger: Logger = PYPOMES_LOGGER,
                  log_trigger: int = 10000) -> tuple[int, int, int] | None:
     """
     Synchronize data in *target_table*, as per the contents of *source_table*.

@@ -1,5 +1,6 @@
 from contextlib import suppress
 from logging import Logger
+from pypomes_logging import PYPOMES_LOGGER
 from typing import Any
 
 from .db_common import (
@@ -31,7 +32,7 @@ def db_migrate_data(errors: list[str] | None,
                     batch_size_out: int = None,
                     identity_column: str = None,
                     has_nulls: bool = None,
-                    logger: Logger = None) -> int | None:
+                    logger: Logger = PYPOMES_LOGGER) -> int | None:
     """
     Migrate data from one database to another database.
 
@@ -355,7 +356,7 @@ def db_migrate_lobs(errors: list[str] | None,
                     limit_count: int = None,
                     batch_size: int = None,
                     chunk_size: int = None,
-                    logger: Logger = None,
+                    logger: Logger = PYPOMES_LOGGER,
                     log_trigger: int = 10000) -> int | None:
     """
     Migrate large binary objects (LOBs) between databases.
