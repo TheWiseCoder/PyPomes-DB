@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pypomes_db"
-version = "2.1.5"
+version = "2.2.0"
 authors = [
   { name="GT Nunes", email="wisecoder01@gmail.com" }
 ]
@@ -19,10 +19,10 @@ classifiers = [
     "Operating System :: OS Independent"
 ]
 dependencies = [
-    "pypomes_core>=2.0.5",
-    "pypomes_logging>=0.6.1",
-#   "mysql-connector-python>=9.2.0"
-#   "oracledb>=3.1.0"
+    "pypomes_core>=2.2.9",
+    "pypomes_logging>=0.6.3",
+#   "mysql-connector-python>=9.3.0"
+#   "oracledb>=3.1.1"
 #   "psycopg2-binary>=2.9.10"
 #   "pyodbc>=5.2.0"
 ]

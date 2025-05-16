@@ -1,6 +1,6 @@
 from logging import Logger
 from pathlib import Path
-from pypomes_core import dict_jsonify, str_sanitize
+from pypomes_core import str_sanitize
 from pypomes_logging import PYPOMES_LOGGER
 from typing import Any, BinaryIO
 
@@ -49,6 +49,7 @@ def db_setup(engine: DbEngine,
        not (engine == DbEngine.SQLSERVER and not db_driver) and \
        isinstance(db_port, int) and db_port > 0:
         _DB_CONN_DATA[engine] = {
+            DbParam.ENGINE: engine.value,
             DbParam.NAME: db_name,
             DbParam.USER: db_user,
             DbParam.PWD: db_pwd,
@@ -133,18 +134,19 @@ def db_get_param(key: DbParam,
 
     :param key: the reference parameter
     :param engine: the reference database engine (the default engine, if not provided)
-    :return: the current value of the connection parameter
+    :return: the current value of the connection parameter, or *None* if not found
     """
     # determine the database engine
     curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
 
+    # return the connection parameter
     return _get_param(engine=curr_engine,
                       param=key)
 
 
-def db_get_params(engine: DbEngine = None) -> dict[str, Any]:
+def db_get_params(engine: DbEngine = None) -> dict[DbParam, Any] | None:
     """
-    Return the current connection parameters as a *dict*.
+    Return the current connection parameters for *engine* as a *dict*.
 
     The returned *dict* contains the keys *name*, *user*, *pwd*, *host*, and *port*.
     For *oracle* engines, the returned *dict* contains the extra key *client*.
@@ -153,14 +155,13 @@ def db_get_params(engine: DbEngine = None) -> dict[str, Any]:
     Note that the keys in the returned *dict* are strings, not *DbParam* instances.
 
     :param engine: the reference database engine (the default engine, if not provided)
-    :return: the current connection parameters for the engine
+    :return: the current connection parameters for *engine*, or *None* if not found
     """
     # determine the database engine
     curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
 
-    return dict_jsonify(source=_DB_CONN_DATA.get(curr_engine).copy(),
-                        jsonify_keys=True,
-                        jsonify_values=False)
+    # return the connection parameters
+    return _DB_CONN_DATA.get(curr_engine).copy() if _DB_CONN_DATA.get(curr_engine) else None
 
 
 def db_get_connection_string(engine: DbEngine = None) -> str:
@@ -191,12 +192,12 @@ def db_get_connection_string(engine: DbEngine = None) -> str:
     return result
 
 
-def db_get_version(engine: DbEngine = None) -> str:
+def db_get_version(engine: DbEngine = None) -> str | None:
     """
     Obtain and return the current version of *engine*.
 
     :param engine: the reference database engine (the default engine, if not provided)
-    :return: the engine's current version
+    :return: the engine's current version, or *None* if not found
     """
     # initialize the return variable
     result: str | None = None

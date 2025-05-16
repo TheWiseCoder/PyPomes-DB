@@ -21,6 +21,7 @@ class DbParam(StrEnum):
     """
     Parameters for connecting to database engines.
     """
+    ENGINE = auto()
     NAME = auto()
     USER = auto()
     PWD = auto()
@@ -51,7 +52,7 @@ DB_BIND_META_TAG: Final[str] = env_get_str(key=f"{APP_PREFIX}_DB_BIND_META_TAG",
 #   and for each engine, specify the set above, replacing 'DB' with
 #   'MSQL', 'ORCL', 'PG', and 'SQLS', respectively for the engines listed above
 
-_DB_CONN_DATA: dict = {}
+_DB_CONN_DATA: dict[DbEngine, dict[DbParam, Any]] = {}
 _DB_ENGINES: list[DbEngine] = []
 _engine: str = env_get_str(key=f"{APP_PREFIX}_DB_ENGINE",
                            values=list(map(str, DbEngine)))

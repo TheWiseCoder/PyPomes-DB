@@ -66,7 +66,7 @@ def get_version() -> str | None:
                                 min_count=None,
                                 max_count=None,
                                 offset_count=None,
-                                limit_count=1,
+                                limit_count=None,
                                 conn=None,
                                 committable=None,
                                 logger=None)
