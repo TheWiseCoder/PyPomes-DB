@@ -1,5 +1,4 @@
 from logging import Logger
-from pypomes_logging import PYPOMES_LOGGER
 from typing import Any, Literal
 
 from .db_common import DbEngine, _assert_engine
@@ -13,7 +12,7 @@ def db_get_views(errors: list[str] | None,
                  engine: DbEngine = None,
                  connection: Any = None,
                  committable: bool = None,
-                 logger: Logger = PYPOMES_LOGGER) -> list[str] | None:
+                 logger: Logger = None) -> list[str] | None:
     """
     Retrieve and return the list of views in the database.
 
@@ -115,7 +114,7 @@ def db_view_exists(errors: list[str] | None,
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
-                   logger: Logger = PYPOMES_LOGGER) -> bool | None:
+                   logger: Logger = None) -> bool | None:
     """
     Determine whether the view *view_name* exists in the database.
 
@@ -204,7 +203,7 @@ def db_drop_view(errors: list[str] | None,
                  engine: DbEngine = None,
                  connection: Any = None,
                  committable: bool = None,
-                 logger: Logger = PYPOMES_LOGGER) -> None:
+                 logger: Logger = None) -> None:
     """
     Drop the view given by the, possibly schema-qualified, *view_name*.
 
@@ -279,7 +278,7 @@ def db_get_view_ddl(errors: list[str] | None,
                     engine: DbEngine = None,
                     connection: Any = None,
                     committable: bool = None,
-                    logger: Logger = PYPOMES_LOGGER) -> str | None:
+                    logger: Logger = None) -> str | None:
     """
     Retrieve and return the DDL script used to create the view *view_name*.
 
@@ -374,7 +373,7 @@ def db_get_view_dependencies(errors: list[str] | None,
                              engine: DbEngine = None,
                              connection: Any = None,
                              committable: bool = None,
-                             logger: Logger = PYPOMES_LOGGER) -> list[str]:
+                             logger: Logger = None) -> list[str]:
     """
     Retrieve and return the schema-qualified names of the tables *view_name* depends on.
 

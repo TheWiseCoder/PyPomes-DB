@@ -1,7 +1,6 @@
 from logging import Logger
 from pathlib import Path
 from pypomes_core import str_sanitize
-from pypomes_logging import PYPOMES_LOGGER
 from typing import Any, BinaryIO
 
 from .db_common import (
@@ -69,7 +68,7 @@ def db_setup(engine: DbEngine,
 
 def db_assert_access(errors: list[str] | None,
                      engine: DbEngine = None,
-                     logger: Logger = PYPOMES_LOGGER) -> bool:
+                     logger: Logger = None) -> bool:
     """
     Determine whether the *engine*'s current configuration allows for a safe connection.
 
@@ -382,7 +381,7 @@ def db_bind_arguments(stmt: str,
 def db_connect(errors: list[str] | None,
                autocommit: bool = False,
                engine: DbEngine = None,
-               logger: Logger = PYPOMES_LOGGER) -> Any:
+               logger: Logger = None) -> Any:
     """
     Obtain and return a connection to the database, or *None* if the connection cannot be obtained.
 
@@ -430,7 +429,7 @@ def db_connect(errors: list[str] | None,
 
 def db_commit(errors: list[str] | None,
               connection: Any,
-              logger: Logger = PYPOMES_LOGGER) -> None:
+              logger: Logger = None) -> None:
     """
     Commit the current transaction on *connection*.
 
@@ -455,7 +454,7 @@ def db_commit(errors: list[str] | None,
 
 def db_rollback(errors: list[str] | None,
                 connection: Any,
-                logger: Logger = PYPOMES_LOGGER) -> None:
+                logger: Logger = None) -> None:
     """
     Rollback the current transaction on *connection*.
 
@@ -487,7 +486,7 @@ def db_count(errors: list[str] | None,
              engine: DbEngine = None,
              connection: Any = None,
              committable: bool = None,
-             logger: Logger = PYPOMES_LOGGER) -> int | None:
+             logger: Logger = None) -> int | None:
     """
     Obtain and return the number of tuples in *table* meeting the criteria defined in *where_data*.
 
@@ -548,7 +547,7 @@ def db_exists(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = PYPOMES_LOGGER) -> bool | None:
+              logger: Logger = None) -> bool | None:
     """
     Determine whether at least one tuple in *table* meets the criteria defined in *where_data*.
 
@@ -619,7 +618,7 @@ def db_select(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = PYPOMES_LOGGER) -> list[tuple] | None:
+              logger: Logger = None) -> list[tuple] | None:
     """
     Query the database and return all tuples that satisfy the *sel_stmt* command.
 
@@ -732,7 +731,7 @@ def db_insert(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = PYPOMES_LOGGER) -> tuple | int | None:
+              logger: Logger = None) -> tuple | int | None:
     """
     Insert a tuple, with values defined in *insert_vals*, and *insert_data*, into the database.
 
@@ -788,7 +787,7 @@ def db_update(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = PYPOMES_LOGGER) -> tuple | int | None:
+              logger: Logger = None) -> tuple | int | None:
     """
     Update one or more tuples in the database, as defined by the command *update_stmt*.
 
@@ -875,7 +874,7 @@ def db_delete(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
-              logger: Logger = PYPOMES_LOGGER) -> int | None:
+              logger: Logger = None) -> int | None:
     """
     Delete one or more tuples in the database, as defined by the *delete_stmt* command.
 
@@ -940,7 +939,7 @@ def db_bulk_insert(errors: list[str] | None,
                    connection: Any = None,
                    committable: bool = None,
                    identity_column: str = None,
-                   logger: Logger = PYPOMES_LOGGER) -> int | None:
+                   logger: Logger = None) -> int | None:
     """
     Insert into *target_table* the values defined in *insert_vals*.
 
@@ -1058,7 +1057,7 @@ def db_bulk_update(errors: list[str] | None,
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
-                   logger: Logger = PYPOMES_LOGGER) -> int | None:
+                   logger: Logger = None) -> int | None:
     """
     Update *where_attrs* in *target_table* with values defined in *update_vals*.
 
@@ -1150,7 +1149,7 @@ def db_bulk_delete(errors: list[str] | None,
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
-                   logger: Logger = PYPOMES_LOGGER) -> int | None:
+                   logger: Logger = None) -> int | None:
     """
     Delete from *target_table* with values defined in *where_vals*.
 
@@ -1230,7 +1229,7 @@ def db_update_lob(errors: list[str] | None,
                   engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
-                  logger: Logger = PYPOMES_LOGGER) -> None:
+                  logger: Logger = None) -> None:
     """
     Update a large binary object (LOB) in the given table and column.
 
@@ -1311,7 +1310,7 @@ def db_execute(errors: list[str] | None,
                engine: DbEngine = None,
                connection: Any = None,
                committable: bool = None,
-               logger: Logger = PYPOMES_LOGGER) -> int | None:
+               logger: Logger = None) -> int | None:
     """
     Execute the command *exc_stmt* on the database.
 
@@ -1404,7 +1403,7 @@ def db_call_function(errors: list[str] | None,
                      engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
-                     logger: Logger = PYPOMES_LOGGER) -> list[tuple] | None:
+                     logger: Logger = None) -> list[tuple] | None:
     """
     Execute the stored function *func_name* in the database, with the parameters given in *func_vals*.
 
@@ -1469,7 +1468,7 @@ def db_call_procedure(errors: list[str] | None,
                       engine: DbEngine = None,
                       connection: Any = None,
                       committable: bool = None,
-                      logger: Logger = PYPOMES_LOGGER) -> list[tuple] | None:
+                      logger: Logger = None) -> list[tuple] | None:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 

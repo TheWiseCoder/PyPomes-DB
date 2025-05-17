@@ -1,5 +1,4 @@
 from logging import Logger
-from pypomes_logging import PYPOMES_LOGGER
 from typing import Any
 
 from .db_common import DbEngine, _assert_engine
@@ -11,7 +10,7 @@ def db_get_tables(errors: list[str] | None,
                   engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
-                  logger: Logger = PYPOMES_LOGGER) -> list[str] | None:
+                  logger: Logger = None) -> list[str] | None:
     """
     Retrieve and return the list of schema-qualified tables in the database.
 
@@ -72,7 +71,7 @@ def db_table_exists(errors: list[str] | None,
                     engine: DbEngine = None,
                     connection: Any = None,
                     committable: bool = None,
-                    logger: Logger = PYPOMES_LOGGER) -> bool | None:
+                    logger: Logger = None) -> bool | None:
     """
     Determine whether the table *table_name* exists in the database.
 
@@ -143,7 +142,7 @@ def db_drop_table(errors: list[str] | None,
                   engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
-                  logger: Logger = PYPOMES_LOGGER) -> None:
+                  logger: Logger = None) -> None:
     """
     Drop the table given by the, possibly schema-qualified, *table_name*.
 
@@ -214,7 +213,7 @@ def db_get_table_ddl(errors: list[str] | None,
                      engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
-                     logger: Logger = PYPOMES_LOGGER) -> str | None:
+                     logger: Logger = None) -> str | None:
     """
     Retrieve and return the DDL script used to create the table *table_name*.
 
