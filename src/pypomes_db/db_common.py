@@ -129,7 +129,7 @@ def _assert_query_quota(errors: list[str] | None,
     :param count: the number of tuples returned
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
-    :return: whether or not the number of tuples returned is compliant
+    :return: whether the number of tuples returned is compliant
     """
     # initialize the control message variable
     err_msg: str | None = None
@@ -198,7 +198,7 @@ def _except_msg(exception: Exception,
     """
     db_data: dict[DbParam, Any] = _DB_CONN_DATA.get(engine) or {}
     return (f"Error accessing '{db_data.get(DbParam.NAME)}' "
-            f"at '{db_data.get(DbParam.HOST)}': {str_sanitize(target_str=f'{exception}')}")
+            f"at '{db_data.get(DbParam.HOST)}': {str_sanitize(source=f'{exception}')}")
 
 
 def _build_query_msg(query_stmt: str,
@@ -212,7 +212,7 @@ def _build_query_msg(query_stmt: str,
     :param bind_vals: values associated with the query command
     :return: message indicative of empty search
     """
-    result: str = str_sanitize(target_str=query_stmt)
+    result: str = str_sanitize(source=query_stmt)
 
     for inx, val in enumerate(bind_vals or [], 1):
         if isinstance(val, str):

@@ -442,7 +442,7 @@ def db_commit(errors: list[str] | None,
         connection.commit()
     except Exception as e:
         err_msg: str = (f"Error committing the transaction on '{connection}': "
-                        f"{str_sanitize(f'{e}')}")
+                        f"{str_sanitize(source=f'{e}')}")
         if logger:
             logger.error(msg=err_msg)
         if isinstance(errors, list):
@@ -467,7 +467,7 @@ def db_rollback(errors: list[str] | None,
         connection.rollback()
     except Exception as e:
         err_msg: str = (f"Error rolling back the transaction on '{connection}': "
-                        f"{str_sanitize(f'{e}')}")
+                        f"{str_sanitize(source=f'{e}')}")
         if logger:
             logger.error(msg=err_msg)
         if isinstance(errors, list):
