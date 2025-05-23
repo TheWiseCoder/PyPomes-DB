@@ -308,7 +308,9 @@ def execute(errors: list[str] | None,
         if return_cols:
             # 'DELETED' and 'INSERTED' refer to the old and new values, respectively
             cols: list[str] = [f"INSERTED.{col}" for col in return_cols]
-            pos: int = exc_stmt.find(" WHERE ")
+            pos: int = exc_stmt.find(" VALUES(")
+            if pos < 0:
+                pos = exc_stmt.find(" WHERE ")
             if pos > 0:
                 exc_stmt = exc_stmt[:pos] + f" OUTPUT {', '.join(cols)}" + exc_stmt[pos:]
             else:

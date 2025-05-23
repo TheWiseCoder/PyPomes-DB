@@ -438,10 +438,10 @@ def _combine_insert_data(insert_stmt: str,
     # handle the 'VALUES' clause
     if " values(" in insert_stmt.lower():
         pos = insert_stmt.lower().index(" values(")
-        values_clause: str = insert_stmt[pos + 1:].rstrip()[:-1]
+        values_clause: str = insert_stmt[pos:].rstrip()[:-1]
         insert_stmt = insert_stmt[:pos].rstrip()[:-1]
     else:
-        values_clause: str = "VALUES("
+        values_clause: str = " VALUES("
         insert_stmt += " ("
         insert_vals = ()
 
