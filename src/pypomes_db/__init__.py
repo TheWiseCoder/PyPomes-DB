@@ -23,8 +23,9 @@ from .sync_pomes import (
     db_sync_data
 )
 from .table_pomes import (
-    db_create_session_table, db_get_tables, db_table_exists,
-    db_drop_table, db_get_table_columns, db_get_table_ddl
+    db_create_session_table, get_session_table_prefix,
+    db_get_tables, db_table_exists, db_drop_table,
+    db_get_table_columns, db_get_table_ddl
 )
 from .view_pomes import (
     db_get_views, db_view_exists, db_drop_view,
@@ -51,8 +52,9 @@ __all__ = [
     # sync_pomes
     "db_sync_data",
     # table_pomes
-    "db_create_session_table", "db_get_tables", "db_table_exists",
-    "db_drop_table", "db_get_table_columns", "db_get_table_ddl",
+    "db_create_session_table", "get_session_table_prefix",
+    "db_get_tables", "db_table_exists", "db_drop_table",
+    "db_get_table_columns", "db_get_table_ddl",
     # view_pomes
     "db_get_views", "db_view_exists", "db_drop_view",
     "db_get_view_ddl", "db_get_view_dependencies"
