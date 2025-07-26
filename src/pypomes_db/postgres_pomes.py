@@ -3,12 +3,15 @@ from contextlib import suppress
 from datetime import date, datetime
 from logging import Logger
 from pathlib import Path
-from pypomes_core import DateFormat, DatetimeFormat
+from pypomes_core import (
+    DateFormat, DatetimeFormat,
+    str_as_list, list_get_coupled
+)
 from psycopg2 import Binary
 from psycopg2.extras import execute_values
 # noinspection PyProtectedMember
 from psycopg2._psycopg import connection
-from pypomes_core import str_between
+from pypomes_core import str_between, str_splice
 from typing import Any, BinaryIO, Final
 
 from .db_common import (
@@ -44,26 +47,6 @@ def get_connection_string() -> str:
     return (f"postgresql+psycopg2://{db_params.get(DbParam.USER)}:"
             f"{db_params.get(DbParam.PWD)}@{db_params.get(DbParam.HOST)}:"
             f"{db_params.get(DbParam.PORT)}/{db_params.get(DbParam.NAME)}")
-
-
-def get_version() -> str | None:
-    """
-    Obtain and return the current version of the database engine.
-
-    :return: the engine's current version, or *None* if error
-    """
-    reply: list[tuple] = select(errors=None,
-                                sel_stmt="SELECT version()",
-                                where_vals=None,
-                                min_count=None,
-                                max_count=None,
-                                offset_count=None,
-                                limit_count=None,
-                                conn=None,
-                                committable=None,
-                                logger=None)
-
-    return reply[0][0] if reply else None
 
 
 def connect(errors: list[str],
@@ -178,7 +161,7 @@ def select(errors: list[str] | None,
     :param offset_count: number of tuples to skip
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable:whether to commit operation upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: list of tuples containing the search result, *[]* on empty search, or *None* if error
     """
@@ -190,6 +173,7 @@ def select(errors: list[str] | None,
                                             autocommit=False,
                                             logger=logger)
     if curr_conn:
+
         # establish an offset into the result set
         if isinstance(offset_count, int) and offset_count > 0:
             sel_stmt += f" OFFSET {offset_count}"
@@ -207,6 +191,13 @@ def select(errors: list[str] | None,
                 # obtain the number of tuples returned
                 rows: list[tuple] = list(cursor)
                 count: int = len(rows)
+
+                # log the retrieval operation
+                if logger:
+                    from_table: str = str_splice(source=sel_stmt,
+                                                 seps=(" FROM ", " "))[1]
+                    logger.debug(msg=f"Read {count} tuples "
+                                     f"from {DbEngine.POSTGRES}.{from_table}, offset {offset_count}")
 
                 # has the query quota been satisfied ?
                 if _assert_query_quota(errors=errors,
@@ -281,7 +272,7 @@ def execute(errors: list[str] | None,
     :param min_count: optionally defines the minimum number of tuples to be affected
     :param max_count: optionally defines the maximum number of tuples to be affected
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable:whether to commit operation upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the values of *return_cols*, the value returned by the operation, or *None* if error
     """
@@ -345,20 +336,36 @@ def execute(errors: list[str] | None,
 def bulk_execute(errors: list[str],
                  exc_stmt: str,
                  exc_vals: list[tuple],
-                 conn: connection,
-                 committable: bool,
+                 template: str | None,
+                 conn: connection | None,
+                 committable: bool | None,
                  logger: Logger) -> int | None:
     """
     Bulk-update the database with the statement defined in *execute_stmt*, and the values in *execute_vals*.
 
+    *DELETE* operations require a special syntax using a *IN* clause:
+        DELETE FROM my_schema.my_table WHERE (id1, id2) IN (%s)
+
     For *INSERT* operations, the *VALUES* clause must be simply *VALUES %s*:
-        INSERT INTO my_tb (id, v1, v2) VALUES %s
+        INSERT INTO my_schema.my_table (v1, v2, ...) VALUES %s
 
     *UPDATE* operations require a special syntax, with *VALUES %s* combined with a *FROM* clause:
-        UPDATE my_tb SET v1 = data.v1, v2 = data.v2 FROM (VALUES %s) AS data (id, v1, v2) WHERE my_tb.id = data.id
+        UPDATE my_schema.my_table SET v1 = data.v1, v2 = data.v2, ...
+        FROM (VALUES %s) AS data (id, v1, , ...) WHERE my_schema.my_table.id = data.id
 
-    *DELETE* operations require a special syntax using a *IN* clause:
-        DELETE FROM my_tb WHERE (id1, id2) IN (%s)
+    Those special query syntaxes for *INSERT* and *UPDATE* operations present a distinct problem.
+    If most or all values passed for a given column are null values, Postgres will implicitly consider them
+    to be *TEXT*, and if the column's type is incompatible, an error message is returned due to the resulting
+    data type mismatch. The solution is two-fold:
+      - for *INSERTs*: add a *template* parameter, casting the values of the columns
+      - for *UPDATEs*: explicitly cast the value of the column in the corresponding query clauses
+
+    For illustration purposes, here are an example of the *UPDATE* query statement:
+            UPDATE my_schema.my_table SET v1 = data.v1::numeric, v2 = data.v2::timestamp, ...
+            FROM (VALUES %s) AS data (id, v1, v2, ...) WHERE my_schema.my_table.id = data.id
+
+    The data types (*int4*, *numeric*, *timestamp*, etc.) may be obtained by querying the columns' metadata.
+    Enriching the query statements in this manner is conveniently made available in *add_types()* below.
 
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -366,8 +373,9 @@ def bulk_execute(errors: list[str],
     :param errors: incidental error messages
     :param exc_stmt: the command to update the database with
     :param exc_vals: the list of values for tuple identification, and to update the database with
+    :param template: the snippet to merge to every item in *exc_vals* to compose the query
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable:whether to commit operation upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the number of inserted or updated tuples, or *None* if error
     """
@@ -379,7 +387,7 @@ def bulk_execute(errors: list[str],
                                             autocommit=False,
                                             logger=logger)
     if curr_conn:
-        # execute the bulk insert
+        # execute the bulk query
         err_msg: str | None = None
         try:
             # obtain a cursor and perform the operation
@@ -387,7 +395,8 @@ def bulk_execute(errors: list[str],
                 # 'cursor.rowcount' might end up with a wrong value
                 execute_values(cur=cursor,
                                sql=exc_stmt,
-                               argslist=exc_vals)
+                               argslist=exc_vals,
+                               template=template)
                 result = len(exc_vals)
 
             # commit the transaction, if appropriate
@@ -442,7 +451,7 @@ def update_lob(errors: list[str],
     :param lob_data: the LOB data (bytes, a file path, or a file pointer)
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable:whether to commit operation upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     """
     # make sure to have a connection
@@ -529,7 +538,7 @@ def call_procedure(errors: list[str] | None,
     :param proc_name: the name of the sotred procedure
     :param proc_vals: the arguments to be passed
     :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable:whether to commit operation upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param logger: optional logger
     :return: the data returned by the procedure, or *None* if error
     """
@@ -581,12 +590,12 @@ def call_procedure(errors: list[str] | None,
     return result
 
 
-def _identity_post_insert(errors: list[str] | None,
-                          insert_stmt: str,
-                          conn: connection,
-                          committable: bool,
-                          identity_column: str,
-                          logger: Logger) -> None:
+def identity_post_insert(errors: list[str] | None,
+                         insert_stmt: str,
+                         conn: connection,
+                         committable: bool,
+                         identity_column: str,
+                         logger: Logger) -> None:
     """
     Handle the post-insert for tables with identity columns.
 
@@ -596,7 +605,7 @@ def _identity_post_insert(errors: list[str] | None,
     :param errors: incidental error messages
     :param insert_stmt: the INSERT command
     :param conn: the connection to use
-    :param committable:whether to commit operation upon errorless completion
+    :param committable: whether to commit operation upon errorless completion
     :param identity_column: column whose values are generated by the database
     :param logger: optional logger
     """
@@ -628,3 +637,136 @@ def _identity_post_insert(errors: list[str] | None,
                 conn=conn,
                 committable=committable,
                 logger=logger)
+
+
+def build_typified_template(errors: list[str] | None,
+                            insert_stmt: str,
+                            nullable_only: bool,
+                            conn: connection,
+                            logger: Logger) -> str:
+    """
+    Build the typified template corresponding to the columns in *insert_stmt*, by setting the appropriate data types.
+
+    As an illustration, the statement
+        INSERT INTO my_schema.my_table (v1, v2, ...) VALUES %s
+
+    would yield the template
+        (%s:int4, %s:timestamp, ...)
+
+    depending on the nullability and types of the columns, and on the value of *nullable_only*.
+
+    :param errors: incidental error messages
+    :param insert_stmt: the bulk *INSERT* statement
+    :param nullable_only: whether to disregard non-nullable columns
+    :param conn: the connection to use
+    :param logger: optional logger
+    :return: the typified template, or *None* if error or no column was typified
+    """
+    # initialize the return variable
+    result: str | None = None
+
+    # retrieve the table name and schema
+    table_name: str = insert_stmt[12:insert_stmt.find(" (")]
+    table_schema: str
+    table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
+
+    # obtain the columns' metadata
+    sel_stmt: str = ("SELECT column_name, udt_name "
+                     "FROM information_schema.columns "
+                     f"WHERE table_name = '{table_name}'")
+    if table_schema:
+        sel_stmt += f" AND table_schema = '{table_schema}'"
+    if nullable_only:
+        sel_stmt += " AND is_nullable = 'YES'"
+    # noinspection PyTypeChecker
+    recs: list[tuple[str, str]] = select(errors=errors,
+                                         sel_stmt=sel_stmt,
+                                         where_vals=None,
+                                         min_count=None,
+                                         max_count=None,
+                                         offset_count=None,
+                                         limit_count=None,
+                                         conn=conn,
+                                         committable=False,
+                                         logger=logger)
+    # build the template
+    if not errors:
+        result = "("
+        # obtain the columns in the insert statement
+        columns_clause: str = insert_stmt[insert_stmt.index("(")+1:insert_stmt.index(")")]
+        columns: list[str] = str_as_list(source=columns_clause)
+        for column in columns:
+            result += "%s"
+            data_type: str = list_get_coupled(coupled_elements=recs,
+                                              primary_element=column)
+            if data_type:
+                result += f"::{data_type}"
+            result += ", "
+        if "::" in result:
+            result = result[:-2] + ")"
+        else:
+            result = None
+
+    return result
+
+
+def tipify_bulk_update(errors: list[str] | None,
+                       update_stmt: str,
+                       nullable_only: bool,
+                       conn: connection,
+                       logger: Logger) -> str:
+    """
+    Modify the bulk *update_stmt* statement by adding the appropriate data types.
+
+    As an illustration, the statement
+      - UPDATE my_schema.my_table SET v1 = data.v1, v2 = data.v2, ...
+        FROM (VALUES %s) AS data (id, v1, v2) WHERE my_schema.my_table.id = data.id
+
+    would result in the statement
+      - UPDATE my_schema.my_table SET v1 = data.v1::int4, v2 = data.v2::timestamp, ...
+        FROM (VALUES %s) AS data (id, v1, v2) WHERE my_schema.my_table.id = data.id
+
+    depending on the nullability and types of the columns, and on the value of *nullable_only*.
+
+    :param errors: incidental error messages
+    :param update_stmt: the bulk *UPDATE* statement
+    :param nullable_only: whether to disregard non-nullable columns
+    :param conn: the connection to use
+    :param logger: optional logger
+    :return: a new statement, enriched with the columns' data types, or *None* if error
+    """
+    # initialize the return variable
+    result: str | None = None
+
+    # retrieve the table name and schema
+    table_name: str = update_stmt[7:update_stmt.find(" SET")]
+    table_schema: str
+    table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
+
+    # obtain the columns' metadata
+    sel_stmt: str = ("SELECT column_name, udt_name "
+                     "FROM information_schema.columns "
+                     f"WHERE table_name = '{table_name}'")
+    if table_schema:
+        sel_stmt += f" AND table_schema = '{table_schema}'"
+    if nullable_only:
+        sel_stmt += " AND is_nullable = 'YES'"
+    # noinspection PyTypeChecker
+    recs: list[tuple[str, str]] = select(errors=errors,
+                                         sel_stmt=sel_stmt,
+                                         where_vals=None,
+                                         min_count=None,
+                                         max_count=None,
+                                         offset_count=None,
+                                         limit_count=None,
+                                         conn=conn,
+                                         committable=False,
+                                         logger=logger)
+    # tipify the columns
+    if not errors:
+        result = update_stmt
+        for rec in recs:
+            result = result.replace(f".{rec[0]},", f".{rec[0]}::{rec[1]},", 1)
+            result = result.replace(f".{rec[0]} FROM", f".{rec[0]}::{rec[1]} FROM", 1)
+
+    return result

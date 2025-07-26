@@ -1,7 +1,8 @@
 from pypomes_core import (
     APP_PREFIX,
     str_sanitize, str_positional,
-    env_get_int, env_get_str, env_get_strs, env_get_path
+    env_get_str,  env_get_int,
+    env_get_enum, env_get_enums, env_get_path
 )
 from enum import StrEnum, auto
 from typing import Any, Final
@@ -29,6 +30,7 @@ class DbParam(StrEnum):
     PORT = auto()
     CLIENT = auto()
     DRIVER = auto()
+    VERSION = auto()
 
 
 # the bind meta-tag to use in DML statements
@@ -54,31 +56,32 @@ DB_BIND_META_TAG: Final[str] = env_get_str(key=f"{APP_PREFIX}_DB_BIND_META_TAG",
 
 _DB_CONN_DATA: dict[DbEngine, dict[DbParam, Any]] = {}
 _DB_ENGINES: list[DbEngine] = []
-_engine: str = env_get_str(key=f"{APP_PREFIX}_DB_ENGINE",
-                           values=list(map(str, DbEngine)))
+_engine: DbEngine = env_get_enum(key=f"{APP_PREFIX}_DB_ENGINE",
+                                 enum_class=DbEngine)
 if _engine:
     _default_setup: bool = True
-    _DB_ENGINES.append(DbEngine(_engine))
+    _DB_ENGINES.append(_engine)
 else:
     _default_setup: bool = False
-    _engines: list[str] = env_get_strs(key=f"{APP_PREFIX}_DB_ENGINES",
-                                       values=list(map(str, DbEngine)))
+    _engines: list[DbEngine] = env_get_enums(key=f"{APP_PREFIX}_DB_ENGINES",
+                                             enum_class=DbEngine)
     if _engines:
-        _DB_ENGINES.extend([DbEngine(v) for v in _engines])
+        _DB_ENGINES.extend(_engines)
 for _db_engine in _DB_ENGINES:
     if _default_setup:
         _prefix: str = "DB"
         _default_setup = False
     else:
         _prefix: str = str_positional(source=_db_engine,
-                                      list_origin=["mysql", "oracle", "postgres", "sqlserver"],
-                                      list_dest=["MSQL", "ORCL", "PG", "SQLS"])
+                                      list_from=["mysql", "oracle", "postgres", "sqlserver"],
+                                      list_to=["MSQL", "ORCL", "PG", "SQLS"])
     _DB_CONN_DATA[_db_engine] = {
         DbParam.NAME: env_get_str(key=f"{APP_PREFIX}_{_prefix}_NAME"),
         DbParam.USER: env_get_str(key=f"{APP_PREFIX}_{_prefix}_USER"),
         DbParam.PWD: env_get_str(key=f"{APP_PREFIX}_{_prefix}_PWD"),
         DbParam.HOST: env_get_str(key=f"{APP_PREFIX}_{_prefix}_HOST"),
-        DbParam.PORT: env_get_int(key=f"{APP_PREFIX}_{_prefix}_PORT")
+        DbParam.PORT: env_get_int(key=f"{APP_PREFIX}_{_prefix}_PORT"),
+        DbParam.VERSION: ""
     }
     if _db_engine == DbEngine.ORACLE:
         _DB_CONN_DATA[_db_engine][DbParam.CLIENT] = env_get_path(key=f"{APP_PREFIX}_{_prefix}_CLIENT")

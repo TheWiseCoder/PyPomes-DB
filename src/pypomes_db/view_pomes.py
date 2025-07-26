@@ -14,7 +14,7 @@ def db_get_views(errors: list[str] | None,
                  committable: bool = None,
                  logger: Logger = None) -> list[str] | None:
     """
-    Retrieve and return the list of views in the database.
+    Retrieve the list of views in the database.
 
     The returned view names will be qualified with the schema they belong to.
     If a list of, possibly schema-qualified, table names is provided in *tables*, then only
@@ -280,7 +280,7 @@ def db_get_view_ddl(errors: list[str] | None,
                     committable: bool = None,
                     logger: Logger = None) -> str | None:
     """
-    Retrieve and return the DDL script used to create the view *view_name*.
+    Retrieve the DDL script used to create the view *view_name*.
 
     If *view_name* is schema-qualified, then the search will be pointed to the view in that schema.
     For Oracle databases, if the schema qualification is not provided, the search will fail.
@@ -308,12 +308,9 @@ def db_get_view_ddl(errors: list[str] | None,
                                            engine=engine)
     # proceed, if no errors
     if not op_errors:
-        # extract the schema, if possible
-        schema_name: str = ""
-        splits: list[str] = view_name.split(".")
-        if len(splits) > 1:
-            schema_name = splits[0]
-            view_name = splits[1]
+        # determine the view schema
+        view_schema: str
+        view_schema, view_name = view_name.split(sep=".") if "." in view_name else (None, view_name)
 
         # build the query
         sel_stmt: str | None = None
@@ -322,32 +319,32 @@ def db_get_view_ddl(errors: list[str] | None,
             vw_table: str = "all_mviews" if view_type == "M" else "all_views"
             vw_column: str = "mview_name" if view_type == "M" else "view_name"
             sel_stmt = (f"SELECT DBMS_METADATA.GET_DDL("
-                        f"'{vw_type}', '{view_name.upper()}', '{schema_name.upper()}') "
+                        f"'{vw_type}', '{view_name.upper()}', '{view_schema.upper()}') "
                         "FROM dual WHERE EXISTS "
                         f"(SELECT NULL FROM {vw_table} "
                         f"WHERE {vw_column} = '{view_name.upper()}' "
-                        f"AND owner = '{schema_name.upper()}')")
+                        f"AND owner = '{view_schema.upper()}')")
 
         elif view_type == "M":  # materialized view (postgres, sqlserver)
             if curr_engine == DbEngine.POSTGRES:
                 sel_stmt = ("SELECT definition FROM pg_matviews "
                             f"WHERE matviewname = '{view_name.lower()}'")
-                if schema_name:
-                    sel_stmt += f" AND schemaname = {schema_name.lower()}"
+                if view_schema:
+                    sel_stmt += f" AND schemaname = {view_schema.lower()}"
             elif curr_engine == DbEngine.SQLSERVER:
                 sel_stmt = ("SELECT view_definition "
                             "FROM information_schema.views AS v "
                             "INNER JOIN sys.indexes AS i ON OBJECT_NAME(i.object_id) = v.table_name "
                             f"WHERE i.index_id < 2 AND LOWER(v.table_name) = '{view_name.lower()}'")
-                if schema_name:
-                    sel_stmt += f" AND v.table_schema = '{schema_name.lower()}'"
+                if view_schema:
+                    sel_stmt += f" AND v.table_schema = '{view_schema.lower()}'"
 
         elif curr_engine in [DbEngine.POSTGRES, DbEngine.SQLSERVER]:
             sel_stmt = ("SELECT view_definition "
                         "FROM information_schema.views "
                         f"WHERE LOWER(table_name) = '{view_name.lower()}'")
-            if schema_name:
-                sel_stmt += f" AND LOWER(table_schema) = '{schema_name.lower()}'"
+            if view_schema:
+                sel_stmt += f" AND LOWER(table_schema) = '{view_schema.lower()}'"
 
         # execute the query
         recs: list[tuple[str]] = db_select(errors=op_errors,
@@ -375,7 +372,7 @@ def db_get_view_dependencies(errors: list[str] | None,
                              committable: bool = None,
                              logger: Logger = None) -> list[str]:
     """
-    Retrieve and return the schema-qualified names of the tables *view_name* depends on.
+    Retrieve the schema-qualified names of the tables *view_name* depends on.
 
     If *view_name* is schema-qualified, then the search will be pointed to the view in that schema.
 
@@ -402,12 +399,9 @@ def db_get_view_dependencies(errors: list[str] | None,
                                            engine=engine)
     # proceed, if no errors
     if not op_errors:
-        # extract the schema, if possible
-        schema_name: str | None = None
-        splits: list[str] = view_name.split(".")
-        if len(splits) > 1:
-            schema_name = splits[0]
-            view_name = splits[1]
+        # determine the view schema
+        view_schema: str
+        view_schema, view_name = view_name.split(sep=".") if "." in view_name else (None, view_name)
 
         # build the query
         sel_stmt: str | None = None
@@ -420,8 +414,8 @@ def db_get_view_dependencies(errors: list[str] | None,
                             "FROM all_dependencies "
                             f"WHERE name = '{view_name.upper()}'"
                             f"AND type = '{vw_type}' AND referenced_type = 'TABLE'")
-                if schema_name:
-                    sel_stmt += f" AND owner = '{schema_name.upper()}'"
+                if view_schema:
+                    sel_stmt += f" AND owner = '{view_schema.upper()}'"
             case DbEngine.POSTGRES:
                 sel_stmt = ("SELECT DISTINCT nsp.nspname || '.' || cl1.relname "
                             "FROM pg_class AS cl1 "
@@ -431,20 +425,20 @@ def db_get_view_dependencies(errors: list[str] | None,
                             "INNER JOIN pg_class AS cl2 ON cl2.oid = d.refobjid "
                             f"WHERE LOWER(cl2.relname) = '{view_name.lower()}' AND cl2.relkind = ")
                 sel_stmt += "'m'" if view_type == "M" else "'v'"
-                if schema_name:
+                if view_schema:
                     sel_stmt += (" AND cl2.relnamespace = "
                                  f"(SELECT oid FROM pg_namespace "
-                                 f"WHERE LOWER(nspname) = '{schema_name.lower()}')")
+                                 f"WHERE LOWER(nspname) = '{view_schema.lower()}')")
             case DbEngine.SQLSERVER:
                 entity: str = view_name.lower()
-                if schema_name:
-                    entity = schema_name.lower() + "." + entity
+                if view_schema:
+                    entity = view_schema.lower() + "." + entity
                 sel_stmt = ("SELECT DISTINCT s.name || '.' || re.referencing_entity_name "
                             f"FROM sys.dm_sql_referencing_entities ('{entity}', 'OBJECT') AS re "
                             "INNER JOIN sys.objects AS o ON o.object_id = re.referencing_id "
                             "INNER JOIN sys.schemas AS s ON s.schema_id = o.schema_id")
-                if schema_name:
-                    sel_stmt += f" WHERE LOWER(referencing_schema_name) = '{schema_name.lower()}'"
+                if view_schema:
+                    sel_stmt += f" WHERE LOWER(referencing_schema_name) = '{view_schema.lower()}'"
 
         # execute the query
         recs: list[tuple[str]] = db_select(errors=op_errors,

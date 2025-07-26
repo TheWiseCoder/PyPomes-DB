@@ -10,10 +10,8 @@ from .db_pomes import (
 )
 
 
-# ruff: noqa: C901 PLR0912 PLR0915
-#   C901:    complex-structure -   Checks for functions with a high McCabe complexity
-#   PLR0912: too-many-branches -   Checks for functions or methods with too many branches
-#   PLR0915: too-many-statements - Checks for functions or methods with too many statements
+# ruff: noqa: PLR0912 (checks for functions or methods with too many branches)
+# ruff: noqa: PLR0915 (checks for functions or methods with too many statements)
 def db_sync_data(errors: list[str] | None,
                  source_engine: DbEngine,
                  source_table: str,
@@ -34,9 +32,10 @@ def db_sync_data(errors: list[str] | None,
     Synchronize data in *target_table*, as per the contents of *source_table*.
 
     The origin and destination databases must be in the list of databases configured and
-    supported by this package. The specified database columns must not be type LOB
-    (large binary object), and must have the same cardinality, and be of respectively
-    equivalent types, in both the origin and the destination databases.
+    supported by this package. The specified database columns must not be type *LOB*
+    (binary large object), and must be of respectively equivalent types, in both the origin
+    and the destination databases. Specifying a list of one or more columns in *pk_columns*
+    that uniquely identify the tuples is required.
 
     Specific handling is required for identity columns (i.e., columns with values generated
     directly by the database - typically, they are also primary keys), and thus they must be
@@ -79,18 +78,32 @@ def db_sync_data(errors: list[str] | None,
         return tuple(row[pos] for pos in range(len(pk_cols), len(pk_cols) + len(sync_cols)))
 
     # initialize the return variable
-    result: tuple[int, int, int] | None = (0, 0, 0)
+    result: tuple[int, int, int] | None = None
 
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # make sure to have connections to the source and destination databases
-    curr_source_conn: Any = source_conn or db_connect(errors=op_errors,
-                                                      engine=source_engine,
-                                                      logger=logger)
-    curr_target_conn: Any = target_conn or db_connect(errors=op_errors,
-                                                      engine=target_engine,
-                                                      logger=logger)
+    from_table: str = f"{source_engine}.{source_table}"
+    to_table: str = f"{target_engine}.{target_table}"
+
+    curr_source_conn: Any = None
+    curr_target_conn: Any = None
+    if pk_columns:
+        # make sure to have connections to the source and destination databases
+        curr_source_conn = source_conn or db_connect(errors=op_errors,
+                                                     engine=source_engine,
+                                                     logger=logger)
+        curr_target_conn = target_conn or db_connect(errors=op_errors,
+                                                     engine=target_engine,
+                                                     logger=logger)
+    else:
+        err_msg: str = (f"Cannot synchronize tables {source_engine}.{from_table} "
+                        f"and {target_engine}{to_table}: "
+                        f"no columns to uniquely identify tuples specified")
+        if logger:
+            logger.error(msg=err_msg)
+        errors.append(err_msg)
+
     if curr_source_conn and curr_target_conn:
         # buid the SELECT query
         all_cols: str = ", ".join(pk_columns + sync_columns)
@@ -116,10 +129,10 @@ def db_sync_data(errors: list[str] | None,
         # log the synchronization start
         if logger:
             logger.debug(msg=f"Started synchronizing data, "
-                             f"from {source_engine}.{source_table} "
-                             f"to {target_engine}.{target_table}")
+                             f"from {source_engine}.{from_table} to {target_engine}.{to_table}")
         # migrate the data
         log_count: int
+        sel_stmt: str
         log_step: int = 0
         err_msg: str | None = None
         try:
@@ -128,24 +141,28 @@ def db_sync_data(errors: list[str] | None,
             target_cursor: Any = curr_target_conn.cursor()
 
             # execute the queries
-            # (parameter is 'statement' for oracle, 'query' for postgres, 'sql' for sqlserver)
-            source_cursor.execute(statement=source_sel_stmt.replace("OFFSET @offset ROWS ", ""))
+            sel_stmt = source_sel_stmt.replace("OFFSET @offset ROWS ", "")
+            # parameter is 'statement' for Oracle, 'query' for PostgreSQL, 'sql' for SQLServer
+            source_cursor.execute(sel_stmt)
             source_rows: list[tuple] = source_cursor.fetchall()
+            row_count: int = len(source_rows)
+            source_offset: int = row_count
+            log_count = row_count
             # log query result
             if logger:
-                logger.debug(msg=f"Read {len(source_rows)} tuples "
-                                 f"from {source_engine}.{source_table}")
+                logger.debug(msg=f"Read {row_count} tuples from {source_engine}.{from_table}")
             if has_nulls and target_engine == "postges":
                 source_rows = _remove_nulls(rows=source_rows)
-            source_offset: int = len(source_rows)
-            target_cursor.execute(target_sel_stmt.replace("OFFSET @offset ROWS ", ""))
+
+            sel_stmt = target_sel_stmt.replace("OFFSET @offset ROWS ", "")
+            # parameter is 'statement' for Oracle, 'query' for PostgreSQL, 'sql' for SQLServer
+            target_cursor.execute(sel_stmt)
             target_rows: list[tuple] = target_cursor.fetchall()
             # log query result
             if logger:
                 logger.debug(msg=f"Read {len(target_rows)} tuples "
                                  f"from {target_engine}.{target_table}")
             target_offset: int = len(target_rows)
-            log_count = source_offset
 
             # traverse the result set
             source_row: tuple | None = None
@@ -185,16 +202,19 @@ def db_sync_data(errors: list[str] | None,
                     target_row = None
 
                 if source_offset and not source_rows:
-                    source_cursor.execute(source_sel_stmt.replace("@offset", str(source_offset)))
+                    sel_stmt = source_sel_stmt.replace("@offset", str(source_offset))
+                    # parameter is 'statement' for Oracle, 'query' for PostgreSQL, 'sql' for SQLServer
+                    source_cursor.execute(sel_stmt)
                     source_rows = source_cursor.fetchall()
                     if source_rows:
+                        row_count = len(source_rows)
+                        source_offset += row_count
+                        log_count += row_count
+                        log_step += row_count
                         # log query result
                         if logger:
-                            logger.debug(msg=f"Read {len(source_rows)} tuples "
-                                             f"from {source_engine}.{source_table}")
-                        source_offset += len(source_rows)
-                        log_count += source_offset
-                        log_step += source_offset
+                            logger.debug(msg=f"Read {row_count} tuples "
+                                             f"from {source_engine}.{from_table}, offset {source_offset}")
                         if has_nulls and target_engine == DbEngine.POSTGRES:
                             source_rows = _remove_nulls(rows=source_rows)
                     else:
@@ -202,13 +222,15 @@ def db_sync_data(errors: list[str] | None,
                         source_offset = 0
 
                 if target_offset and not target_rows:
-                    target_cursor.execute(target_sel_stmt.replace("@offset", str(target_offset)))
+                    sel_stmt = target_sel_stmt.replace("@offset", str(target_offset))
+                    # parameter is 'statement' for Oracle, 'query' for PostgreSQL, 'sql' for SQLServer
+                    target_cursor.execute(sel_stmt)
                     target_rows = target_cursor.fetchall()
                     if target_rows:
                         # log query result
                         if logger:
                             logger.debug(msg=f"Read {len(target_rows)} tuples "
-                                             f"from {target_engine}.{target_table}")
+                                             f"from {target_engine}.{target_table}, offset {target_offset}")
                         target_offset += len(target_rows)
                     else:
                         # no more tuples in target table
@@ -216,9 +238,8 @@ def db_sync_data(errors: list[str] | None,
 
                 # log partial result
                 if logger and log_step >= log_trigger:
-                    logger.debug(msg=f"Synchronizing {log_count} tuples, "
-                                     f"from {source_engine}.{source_table} "
-                                     f"to {target_engine}.{target_table}")
+                    logger.debug(msg=f"Synchronizing {log_step} tuples, "
+                                     f"from {source_engine}.{from_table} to {target_engine}.{to_table}")
                     log_step = 0
             # close the cursors
             source_cursor.close()
@@ -236,19 +257,6 @@ def db_sync_data(errors: list[str] | None,
                                committable=False,
                                logger=logger)
 
-            # process the rows flagged for update
-            if not op_errors and rows_for_update:
-                # update the rows
-                db_bulk_update(errors=op_errors,
-                               target_table=target_table,
-                               set_attrs=sync_columns,
-                               where_attrs=pk_columns,
-                               update_vals=rows_for_update,
-                               engine=target_engine,
-                               connection=curr_target_conn,
-                               committable=False,
-                               logger=logger)
-
             # process the rows flagged for insert
             if not op_errors and rows_for_insert:
                 # insert the rows
@@ -260,6 +268,19 @@ def db_sync_data(errors: list[str] | None,
                                connection=curr_target_conn,
                                committable=False,
                                identity_column=identity_column,
+                               logger=logger)
+
+            # process the rows flagged for update
+            if not op_errors and rows_for_update:
+                # update the rows
+                db_bulk_update(errors=op_errors,
+                               target_table=target_table,
+                               set_attrs=sync_columns,
+                               where_attrs=pk_columns,
+                               update_vals=rows_for_update,
+                               engine=target_engine,
+                               connection=curr_target_conn,
+                               committable=False,
                                logger=logger)
             if op_errors:
                 log_count = 0
@@ -281,7 +302,6 @@ def db_sync_data(errors: list[str] | None,
             log_count = 0
             err_msg = _except_msg(exception=e,
                                   engine=source_engine)
-            result = None
         finally:
             # close the connections, if locally acquired
             if curr_source_conn and not source_conn:
@@ -294,10 +314,10 @@ def db_sync_data(errors: list[str] | None,
             op_errors.append(err_msg)
             if logger:
                 logger.error(msg=err_msg)
-        if logger:
-            logger.debug(msg=f"Synchronized {log_count} tuples, "
-                             f"from {source_engine}.{source_table} "
-                             f"to {target_engine}.{target_table}")
+        elif not op_errors and logger:
+            logger.debug(msg=f"Synchronized {log_count} tuples from "
+                             f"{source_engine}.{from_table} to {target_engine}.{to_table}, "
+                             f"{result[0]} deleted, {result[1]} inserted, {result[2]} updated")
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)

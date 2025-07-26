@@ -5,7 +5,7 @@ from logging import Logger
 from pyodbc import Binary, Connection, Row
 from pypomes_core import DateFormat, DatetimeFormat
 from pathlib import Path
-from pypomes_core import str_between
+from pypomes_core import str_between, str_splice
 from typing import Any, BinaryIO, Final
 
 from .db_common import (
@@ -52,26 +52,6 @@ def get_connection_string() -> str:
         f"{db_params.get(DbParam.PWD)}@{db_params.get(DbParam.HOST)}:"
         f"{db_params.get(DbParam.PORT)}/{db_params.get(DbParam.NAME)}?driver={db_params.get(DbParam.DRIVER)}"
     )
-
-
-def get_version() -> str | None:
-    """
-    Obtain and return the current version of the database engine.
-
-    :return: the engine's current version, or *None* if error
-    """
-    reply: list[tuple] = select(errors=None,
-                                sel_stmt="SELECT @@VERSION",
-                                where_vals=None,
-                                min_count=None,
-                                max_count=None,
-                                offset_count=None,
-                                limit_count=None,
-                                conn=None,
-                                committable=None,
-                                logger=None)
-
-    return reply[0][0] if reply else None
 
 
 def connect(errors: list[str],
@@ -173,7 +153,8 @@ def select(errors: list[str] | None,
     If not positive integers, *min_count*, *max_count*, *offset_count*, and *limit_count* are ignored.
     If both *min_count* and *max_count* are specified with equal values, then exactly that number of
     tuples must be returned by the query. The parameter *offset_count* is used to offset the retrieval
-    of tuples. If the search is empty, an empty list is returned.
+    of tuples. For both *offset_count* and *limit_count* to be used together, an *ORDER BY* clause must
+    have been specifed, otherwise a runtime error is raised. If the search is empty, an empty list is returned.
 
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -198,12 +179,15 @@ def select(errors: list[str] | None,
                                             autocommit=False,
                                             logger=logger)
     if curr_conn:
-        # establish an offset into the result set
+        # establish offset and limit for query (TOP and OFFSET clauses cannot be used together)
         if isinstance(offset_count, int) and offset_count > 0:
-            sel_stmt += f" OFFSET {offset_count}"
-
-        # establish a limit to the number of tuples returned
-        if isinstance(limit_count, int) and limit_count > 0:
+            # establish an offset into the result set
+            sel_stmt += f" OFFSET {offset_count} ROWS"
+            if isinstance(limit_count, int) and limit_count > 0:
+                # establish a limit to the number of tuples returned
+                sel_stmt += f" FETCH NEXT {limit_count} ROWS ONLY"
+        elif isinstance(limit_count, int) and limit_count > 0:
+            # establish a limit to the number of tuples returned
             sel_stmt = sel_stmt.replace("SELECT ", f"SELECT TOP {limit_count} ", 1)
 
         err_msg: str | None = None
@@ -211,12 +195,20 @@ def select(errors: list[str] | None,
             # obtain a cursor and execute the operation
             with curr_conn.cursor() as cursor:
                 if where_vals:
-                    cursor.execute(sel_stmt, where_vals)
+                    cursor.execute(sel_stmt,
+                                   where_vals)
                 else:
                     cursor.execute(sel_stmt)
                 rows: list[Row] = cursor.fetchall()
                 # obtain the number of tuples returned
                 count: int = len(rows)
+
+                # log the retrieval operation
+                if logger:
+                    from_table: str = str_splice(source=sel_stmt,
+                                                 seps=(" FROM ", " "))[1]
+                    logger.debug(msg=f"Read {count} tuples "
+                                     f"from {DbEngine.SQLSERVER}.{from_table}, offset {offset_count}")
 
                 # has the query quota been satisfied ?
                 if _assert_query_quota(errors=errors,
@@ -320,7 +312,8 @@ def execute(errors: list[str] | None,
             with curr_conn.cursor() as cursor:
                 # SQLServer understands 'None' value as an effective bind value
                 if bind_vals:
-                    cursor.execute(exc_stmt, bind_vals)
+                    cursor.execute(exc_stmt,
+                                   bind_vals)
                 else:
                     cursor.execute(exc_stmt)
 
@@ -566,7 +559,8 @@ def call_procedure(errors: list[str] | None,
             # obtain a cursor and execute the operation
             with curr_conn.cursor() as cursor:
                 proc_stmt = f"SET NOCOUNT ON; EXEC {proc_name} {','.join(('?',) * len(proc_vals))}"
-                cursor.execute(proc_stmt, proc_vals)
+                cursor.execute(proc_stmt,
+                               proc_vals)
                 # retrieve the returned tuples
                 rows: list[Row] = cursor.fetchall()
                 result = [tuple(row) for row in rows]
@@ -597,10 +591,10 @@ def call_procedure(errors: list[str] | None,
     return result
 
 
-def _identity_pre_insert(errors: list[str] | None,
-                         insert_stmt: str,
-                         conn: Connection,
-                         logger: Logger) -> None:
+def identity_pre_insert(errors: list[str] | None,
+                        insert_stmt: str,
+                        conn: Connection,
+                        logger: Logger) -> None:
     """
     Handle the pre-insert for tables with identity columns.
 
@@ -626,12 +620,12 @@ def _identity_pre_insert(errors: list[str] | None,
             logger=logger)
 
 
-def _identity_post_insert(errors: list[str] | None,
-                          insert_stmt: str,
-                          conn: Connection,
-                          committable: bool,
-                          identity_column: str,
-                          logger: Logger) -> None:
+def identity_post_insert(errors: list[str] | None,
+                         insert_stmt: str,
+                         conn: Connection,
+                         committable: bool,
+                         identity_column: str,
+                         logger: Logger) -> None:
     """
     Handle the post-insert for tables with identity columns.
 

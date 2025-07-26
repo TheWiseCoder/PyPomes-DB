@@ -34,7 +34,7 @@ def db_setup(engine: DbEngine,
     :param db_host: the host URL
     :param db_port: the connection port (a positive integer)
     :param db_driver: the database driver (SQLServer only)
-    :param db_client: the path to the client software (optional, Oracle only)
+    :param db_client: the path to the client software (Oracle only)
     :return: *True* if the data was accepted, *False* otherwise
     """
     # initialize the return variable
@@ -53,7 +53,8 @@ def db_setup(engine: DbEngine,
             DbParam.USER: db_user,
             DbParam.PWD: db_pwd,
             DbParam.HOST: db_host,
-            DbParam.PORT: db_port
+            DbParam.PORT: db_port,
+            DbParam.VERSION: ""
         }
         if engine == DbEngine.ORACLE:
             _DB_CONN_DATA[engine][DbParam.CLIENT] = Path(db_client)
@@ -70,9 +71,12 @@ def db_assert_access(errors: list[str] | None,
                      engine: DbEngine = None,
                      logger: Logger = None) -> bool:
     """
-    Determine whether the *engine*'s current configuration allows for a safe connection.
+    Determine whether the *engine*'s current configuration allows for connections.
 
-    This function should be invoked once, at application's initialization time.
+    This function should be invoked once, at application's initialization time. This is necessary
+    to make sure connections are obtainable with the parameters specified, to establish the version
+    of the database engine in use, and, if applicable in the case of *Oracle*, to initialize access
+    to its client library.
 
     :param errors: incidental errors
     :param engine: the database engine to use (uses the default engine, if not provided)
@@ -88,18 +92,25 @@ def db_assert_access(errors: list[str] | None,
     # determine the database engine
     curr_engine: DbEngine = _assert_engine(errors=op_errors,
                                            engine=engine)
-    proceed: bool = True
-    if curr_engine == DbEngine.ORACLE:
-        from . import oracle_pomes
-        proceed = oracle_pomes.initialize(errors=op_errors,
-                                          logger=logger)
-    if proceed:
-        conn: Any = db_connect(errors=op_errors,
-                               engine=curr_engine,
-                               logger=logger)
-        if conn:
-            conn.close()
+    if not op_errors:
+        # determine if access to 'curr_engine' has been asserted
+        version: str = _DB_CONN_DATA[curr_engine].get(DbParam.VERSION)
+        if version:
             result = True
+        else:
+            # assert access to 'curr_engine'
+            if curr_engine == DbEngine.ORACLE:
+                from . import oracle_pomes
+                oracle_pomes.initialize(errors=op_errors,
+                                        logger=logger)
+            conn: Any = db_connect(errors=op_errors,
+                                   engine=curr_engine,
+                                   logger=logger)
+            if conn:
+                _DB_CONN_DATA[engine][DbParam.VERSION] = __get_version(engine=curr_engine,
+                                                                       connection=conn)
+                conn.close()
+                result = True
 
     # acknowledge local errors
     if isinstance(errors, list):
@@ -110,7 +121,7 @@ def db_assert_access(errors: list[str] | None,
 
 def db_get_engines() -> list[DbEngine]:
     """
-    Retrieve and return the *list* of configured engines.
+    Retrieve the *list* of configured engines.
 
     This *list* may include any of the supported engines:
     *mysql*, *oracle*, *postgres*, *sqlserver*.
@@ -187,35 +198,6 @@ def db_get_connection_string(engine: DbEngine = None) -> str:
     elif curr_engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
         result = sqlserver_pomes.get_connection_string()
-
-    return result
-
-
-def db_get_version(engine: DbEngine = None) -> str | None:
-    """
-    Obtain and return the current version of *engine*.
-
-    :param engine: the reference database engine (the default engine, if not provided)
-    :return: the engine's current version, or *None* if not found
-    """
-    # initialize the return variable
-    result: str | None = None
-
-    # determine the database engine
-    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
-
-    match curr_engine:
-        case DbEngine.MYSQL:
-            pass
-        case DbEngine.ORACLE:
-            from . import oracle_pomes
-            result = oracle_pomes.get_version()
-        case DbEngine.POSTGRES:
-            from . import postgres_pomes
-            result = postgres_pomes.get_version()
-        case DbEngine.SQLSERVER:
-            from . import sqlserver_pomes
-            result = sqlserver_pomes.get_version()
 
     return result
 
@@ -503,7 +485,7 @@ def db_count(errors: list[str] | None,
 
     :param errors: incidental error messages
     :param table: the table to be searched
-    :param count_clause: optional parameters in the *COUNT* clause (uses 'COUNT(*)' if omitted)
+    :param count_clause: optional parameters in the *COUNT* clause (defaults to 'COUNT(*)')
     :param where_clause: optional criteria for tuple selection
     :param where_vals: values to be associated with the selection criteria
     :param where_data: the selection criteria specified as key-value pairs
@@ -559,7 +541,7 @@ def db_exists(errors: list[str] | None,
     to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
 
     If not positive integers, *min_count* and *max_count* are ignored. If both *min_count* and *max_count*
-    are specified with equal values, then exactly that number of tuples must exist. If neither one is
+    are specified with equal values, then exactly that number of tuples must exist.  If neither one is
     specified, than at least one tuple is expected to exist.
 
     The targer database engine, specified or default, must have been previously configured.
@@ -627,12 +609,13 @@ def db_select(errors: list[str] | None,
     Care should be exercised if *where_clause* contains *IN* directives. In PostgreSQL, the list of values
     for an attribute with the *IN* directive must be contained in a specific tuple, and the operation will
     break for a list of values containing only 1 element. The safe way to specify *IN* directives is
-    to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
+    to put them in *where_data*, as the specifics of each DB flavor will then be properly dealt with.
 
     If not positive integers, *min_count*, *max_count*, *offset_count*, and *limit_count* are ignored.
     If both *min_count* and *max_count* are specified with equal values, then exactly that number of
     tuples must be returned by the query. The parameter *offset_count* is used to offset the retrieval
-    of tuples. If the search is empty, an empty list is returned.
+    of tuples. For both *offset_count* and *limit_count* to be used together with SQLServer, an *ORDER BY*
+    clause must have been specifed, otherwise a runtime error is raised.
 
     If the search is empty, an empty list is returned.
     The target database engine, specified or default, must have been previously configured.
@@ -666,7 +649,7 @@ def db_select(errors: list[str] | None,
                                            engine=engine)
 
     # process search data provided as key-value pairs
-    if where_clause or where_data:
+    if where_clause or where_data or orderby_clause:
         sel_stmt, where_vals = _combine_search_data(query_stmt=sel_stmt,
                                                     where_clause=where_clause,
                                                     where_vals=where_vals,
@@ -941,7 +924,7 @@ def db_bulk_insert(errors: list[str] | None,
                    identity_column: str = None,
                    logger: Logger = None) -> int | None:
     """
-    Insert into *target_table* the values defined in *insert_vals*.
+    Bulk insert rows into *target_table*, with values of *insert_attrs* defined in *insert_vals*.
 
     Bulk inserts may require non-standard syntax, depending on the database engine being targeted.
     The number of attributes in *insert_attrs* must match the number of bind values in *insert_vals* tuples.
@@ -981,23 +964,28 @@ def db_bulk_insert(errors: list[str] | None,
         if identity_column and insert_stmt.find("OVERRIDING SYSTEM VALUE") < 0:
             insert_stmt += " OVERRIDING SYSTEM VALUE"
         insert_stmt += " VALUES %s"
-        result = postgres_pomes.bulk_execute(errors=op_errors,
-                                             exc_stmt=insert_stmt,
-                                             exc_vals=insert_vals,
-                                             conn=connection,
-                                             committable=False if identity_column else committable,
-                                             logger=logger)
+        # obtain template to handle inserts of null values
+        template: str = postgres_pomes.build_typified_template(errors=errors,
+                                                               insert_stmt=insert_stmt,
+                                                               nullable_only=True,
+                                                               conn=connection,
+                                                               logger=logger)
+        if not op_errors:
+            result = postgres_pomes.bulk_execute(errors=op_errors,
+                                                 exc_stmt=insert_stmt,
+                                                 exc_vals=insert_vals,
+                                                 template=template,
+                                                 conn=connection,
+                                                 committable=False if identity_column else committable,
+                                                 logger=logger)
         # post-insert handling of identity columns
         if not op_errors and identity_column:
-            # noinspection PyProtectedMember
-            # ruff: noqa: SLF001
-            #   SLF001: private-member-access - Checks for accesses on "private" class members
-            postgres_pomes._identity_post_insert(errors=op_errors,
-                                                 insert_stmt=insert_stmt,
-                                                 conn=connection,
-                                                 committable=committable,
-                                                 identity_column=identity_column,
-                                                 logger=logger)
+            postgres_pomes.identity_post_insert(errors=op_errors,
+                                                insert_stmt=insert_stmt,
+                                                conn=connection,
+                                                committable=committable,
+                                                identity_column=identity_column,
+                                                logger=logger)
     elif curr_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
         bind_marks: str = _bind_marks(engine=curr_engine,
                                       start=1,
@@ -1016,13 +1004,10 @@ def db_bulk_insert(errors: list[str] | None,
             from . import sqlserver_pomes
             # pre-insert handling of identity columns
             if identity_column:
-                # noinspection PyProtectedMember
-                # ruff: noqa: SLF001
-                #   SLF001: private-member-access - Checks for accesses on "private" class members
-                sqlserver_pomes._identity_pre_insert(errors=op_errors,
-                                                     insert_stmt=insert_stmt,
-                                                     conn=connection,
-                                                     logger=logger)
+                sqlserver_pomes.identity_pre_insert(errors=op_errors,
+                                                    insert_stmt=insert_stmt,
+                                                    conn=connection,
+                                                    logger=logger)
             if not op_errors:
                 result = sqlserver_pomes.bulk_execute(errors=op_errors,
                                                       exc_stmt=insert_stmt,
@@ -1033,15 +1018,12 @@ def db_bulk_insert(errors: list[str] | None,
                 # post-insert handling of identity columns
                 if not op_errors and identity_column:
                     from . import sqlserver_pomes
-                    # noinspection PyProtectedMember
-                    # ruff: noqa: SLF001
-                    #   SLF001: private-member-access - Checks for accesses on "private" class members
-                    sqlserver_pomes._identity_post_insert(errors=op_errors,
-                                                          insert_stmt=insert_stmt,
-                                                          conn=connection,
-                                                          committable=committable,
-                                                          identity_column=identity_column,
-                                                          logger=logger)
+                    sqlserver_pomes.identity_post_insert(errors=op_errors,
+                                                         insert_stmt=insert_stmt,
+                                                         conn=connection,
+                                                         committable=committable,
+                                                         identity_column=identity_column,
+                                                         logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -1059,7 +1041,7 @@ def db_bulk_update(errors: list[str] | None,
                    committable: bool = None,
                    logger: Logger = None) -> int | None:
     """
-    Update *where_attrs* in *target_table* with values defined in *update_vals*.
+    Bulk update rows in *target_table*, with values of *where_attrs* defined in *update_vals*.
 
     Bulk updates require non-standard syntax, specific for the database engine being targeted.
     The number of attributes in *set_attrs*, plus the number of attributes in *where_attrs*,
@@ -1103,12 +1085,20 @@ def db_bulk_update(errors: list[str] | None,
                             f" SET {set_items[:-2]} "
                             f"FROM (VALUES %s) AS data ({', '.join(set_attrs + where_attrs)}) "
                             f"WHERE {where_items[:-5]}")
-        result = postgres_pomes.bulk_execute(errors=op_errors,
-                                             exc_stmt=update_stmt,
-                                             exc_vals=update_vals,
-                                             conn=connection,
-                                             committable=committable,
-                                             logger=logger)
+        # modify statement to handle updates of null values
+        update_stmt = postgres_pomes.tipify_bulk_update(errors=errors,
+                                                        update_stmt=update_stmt,
+                                                        nullable_only=True,
+                                                        conn=connection,
+                                                        logger=logger)
+        if not op_errors:
+            result = postgres_pomes.bulk_execute(errors=op_errors,
+                                                 exc_stmt=update_stmt,
+                                                 exc_vals=update_vals,
+                                                 template=None,
+                                                 conn=connection,
+                                                 committable=committable,
+                                                 logger=logger)
     elif curr_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
         set_items: str = _bind_columns(engine=curr_engine,
                                        columns=set_attrs,
@@ -1151,7 +1141,7 @@ def db_bulk_delete(errors: list[str] | None,
                    committable: bool = None,
                    logger: Logger = None) -> int | None:
     """
-    Delete from *target_table* with values defined in *where_vals*.
+    Bulk delete from *target_table*, with values of *where_attrs* defined in *where_vals*.
 
     Bulk deletes may require non-standard syntax, depending on the database engine being targeted.
     The number of attributes in *where_attrs* must match the number of bind values in *where_vals* tuples.
@@ -1187,6 +1177,7 @@ def db_bulk_delete(errors: list[str] | None,
         result = postgres_pomes.bulk_execute(errors=op_errors,
                                              exc_stmt=delete_stmt,
                                              exc_vals=where_vals,
+                                             template=None,
                                              conn=connection,
                                              committable=committable,
                                              logger=logger)
@@ -1523,5 +1514,38 @@ def db_call_procedure(errors: list[str] | None,
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
+
+    return result
+
+
+def __get_version(engine: DbEngine,
+                  connection: Any) -> str:
+    """
+    Obtain and return the current version of *engine*.
+
+    :param engine: the reference database engine (the default engine, if not provided)
+    :return: the engine's current version, or an empty string if not found
+    """
+    # initialize the return variable
+    result: str = ""
+
+    stmt: str | None = None
+    match engine:
+        case DbEngine.MYSQL:
+            pass
+        case DbEngine.ORACLE:
+            stmt = "SELECT version FROM v$instance"
+        case DbEngine.POSTGRES:
+            stmt = "SHOW server_version"
+        case DbEngine.SQLSERVER:
+            stmt = "SELECT @@VERSION"
+
+    if stmt:
+        reply: list[tuple[str]] = db_select(errors=None,
+                                            sel_stmt=stmt,
+                                            engine=engine,
+                                            connection=connection)
+        if reply:
+            result = reply[0][0]
 
     return result

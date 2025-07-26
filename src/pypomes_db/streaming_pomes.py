@@ -26,8 +26,9 @@ def db_stream_data(errors: list[str] | None,
     is returned, allowing the invoker to iterate over the values being streamed.
     The database in *engine* must be in the list of databases configured and supported by this package.
 
-    Care should be exercised when specifying the parameter *offset_count*, so as not to skip wanted tuples.
-    It is used to offset the retrieval of tuples, and is ignored for all values different from a positive integer.
+    If not positive integers, *offset_count*, *limit_count*, *batch_size_in*, and *chunk_size_out* are ignored.
+    Care should be exercised when specifying *offset_count*, so as not to skip wanted tuples,
+    as it is used to offset the retrieval of tuples.
 
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -63,6 +64,14 @@ def db_stream_data(errors: list[str] | None,
         limit_count = __normalize_value(value=limit_count)
         batch_size_in = __normalize_value(value=batch_size_in)
         batch_size_out = __normalize_value(value=batch_size_out)
+        if 0 < limit_count < batch_size_in:
+            batch_size_in = limit_count
+            if logger:
+                logger.debug(msg=f"Value of input batch size changed to {batch_size_in}")
+        if 0 < batch_size_in < batch_size_out:
+            batch_size_out = batch_size_in
+            if logger:
+                logger.debug(msg=f"Value of output batch size changed to {batch_size_out}")
 
         # buid the SELECT query
         sel_stmt: str = f"SELECT {', '.join(columns)} FROM {table}"
@@ -75,10 +84,8 @@ def db_stream_data(errors: list[str] | None,
         if limit_count or batch_size_in:
             if engine == DbEngine.POSTGRES:
                 sel_stmt += " LIMIT @limit"
-            elif engine == DbEngine.ORACLE:
+            elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                 sel_stmt += " FETCH @limit ROWS ONLY"
-            elif engine == DbEngine.SQLSERVER:
-                sel_stmt = sel_stmt.replace("SELECT ", "SELECT TOP @limit ", 1)
 
         # log the streaming start
         if logger:
@@ -96,16 +103,19 @@ def db_stream_data(errors: list[str] | None,
             curr_limit: int = min(batch_size_in, limit_count)
             if curr_limit == 0:
                 curr_limit = max(batch_size_in, limit_count)
+            if curr_limit:
+                curr_stmt = curr_stmt.replace("@limit", str(curr_limit), 1)
+            else:
+                curr_stmt = curr_stmt.replace(" LIMIT @limit", "", 1)
+                curr_stmt = curr_stmt.replace(" FETCH @limit ROWS ONLY", "", 1)
             if offset_count:
                 curr_stmt = curr_stmt.replace("@offset", str(offset_count), 1)\
-                                     .replace("@limit", str(curr_limit), 1)\
                                      .replace(" FETCH ", " FETCH NEXT ", 1)
             else:
                 curr_stmt = curr_stmt.replace(" OFFSET @offset ROWS", "", 1)\
-                                     .replace("@limit", str(curr_limit), 1)\
                                      .replace(" FETCH ", " FETCH FIRST ", 1)
             # execute the query
-            # (parameter name is 'statement' for oracle, 'query' for postgres, 'sql' for sqlserver)
+            # (parameter name is 'statement' for Oracle, 'query' for PostgreSQL, 'sql' for SQLServer)
             source_cursor.execute(curr_stmt)
             rows_in: list[tuple] = source_cursor.fetchall()
 
@@ -113,7 +123,8 @@ def db_stream_data(errors: list[str] | None,
             while rows_in:
                 # log the retrieval operation
                 if logger:
-                    logger.debug(msg=f"Read {len(rows_in)} tuples from {engine}.{table}")
+                    logger.debug(msg=f"Read {len(rows_in)} tuples from "
+                                     f"{engine}.{table}, offset {offset_count + result}")
                 pos_from: int = 0
 
                 # migrate the tuples
@@ -198,12 +209,17 @@ def db_stream_lobs(errors: list[str] | None,
     is returned, allowing the invoker to iterate over the values being streamed.
     The database in *engine* must be in the list of databases configured and supported by this package.
     One or more columns making up a primary key, or a unique row identifier, must exist on *source_table*,
-    and be provided in *source_pk_columns*.
+    and be provided in *source_pk_columns*. The content of these columns, along with the contents of the
+    optional *ret_column*, are returned as metadata on the first data chunk of each tuple.
 
-    Care should be exercised when specifying the parameter *offset_count*, so as not to skip wanted tuples.
-    It is used to offset the retrieval of tuples, and is ignored for all values different from a positive integer.
-    Further, if *batch_size* or *offset_count* has been specified, but *orderby_clause* has not,
-    then an ORDER BY clause is constructed from the data in *pk_columns*.
+    If not positive integers, *offset_count*, *limit_count*, *batch_size*, and *chunk_size* are ignored.
+    Further, if *batch_size* and *limit_count* are both defined, and *batch_size* is set to a larger value,
+    it is reduced accordingly. Finally, for both *offset_count* and *batch_size* or *limit_count* to be used
+    together with SQLServer, an *ORDER BY* clause must have been specifed, otherwise a runtime error is raised.
+
+    Care should be exercised when specifying *offset_count*, so as not to skip wanted tuples, as it is used
+    to offset the retrieval of tuples. Finally, if *batch_size* or *offset_count* has been specified,
+    but *orderby_clause* has not, then an ORDER BY clause is constructed from the data in *pk_columns*.
 
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -212,7 +228,7 @@ def db_stream_lobs(errors: list[str] | None,
     :param table: the table holding the LOBs
     :param lob_column: the column holding the LOB
     :param pk_columns: columns making up a primary key, or a unique identifier for a tuple, in database
-    :param ret_column: optional column whose content to return when yielding
+    :param ret_column: optional column whose content to return as metadata when yielding
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
@@ -239,6 +255,10 @@ def db_stream_lobs(errors: list[str] | None,
         batch_size = __normalize_value(value=batch_size)
         chunk_size = __normalize_value(value=chunk_size) or -1
         log_trigger = __normalize_value(value=log_trigger)
+        if 0 < limit_count < batch_size:
+            batch_size = limit_count
+            if logger:
+                logger.debug(msg=f"Value of batch size changed to {batch_size}")
 
         # buid the SELECT query
         ref_columns: list[str] = pk_columns.copy()
@@ -260,10 +280,8 @@ def db_stream_lobs(errors: list[str] | None,
         if limit_count or batch_size:
             if engine == DbEngine.POSTGRES:
                 sel_stmt += " LIMIT @limit"
-            elif engine == DbEngine.ORACLE:
+            elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                 sel_stmt += " FETCH @limit ROWS ONLY"
-            elif engine == DbEngine.SQLSERVER:
-                sel_stmt = sel_stmt.replace("SELECT ", "SELECT TOP @limit ", 1)
 
         # log the migration start
         if logger:
@@ -283,13 +301,16 @@ def db_stream_lobs(errors: list[str] | None,
             curr_limit: int = min(batch_size, limit_count)
             if curr_limit == 0:
                 curr_limit = max(batch_size, limit_count)
+            if curr_limit:
+                curr_stmt = curr_stmt.replace("@limit", str(curr_limit), 1)
+            else:
+                curr_stmt = curr_stmt.replace(" LIMIT @limit", "", 1)
+                curr_stmt = curr_stmt.replace(" FETCH @limit ROWS ONLY", "", 1)
             if offset_count:
                 curr_stmt = curr_stmt.replace("@offset", str(offset_count), 1)\
-                                     .replace("@limit", str(curr_limit), 1)\
                                      .replace(" FETCH ", " FETCH NEXT ", 1)
             else:
                 curr_stmt = curr_stmt.replace(" OFFSET @offset ROWS", "", 1)\
-                                     .replace("@limit", str(curr_limit), 1)\
                                      .replace(" FETCH ", " FETCH FIRST ", 1)
             # go for the data
             next_rs: bool = True
@@ -297,7 +318,7 @@ def db_stream_lobs(errors: list[str] | None,
                 next_rs = False
 
                 # execute the query
-                # (parameter name is 'statement' for oracle, 'query' for postgres, 'sql' for sqlserver)
+                # (parameter name is 'statement' for Oracle, 'query' for PostgreSQL, 'sql' for SQLServer)
                 source_cursor.execute(curr_stmt)
 
                 # traverse the result set
@@ -345,24 +366,26 @@ def db_stream_lobs(errors: list[str] | None,
 
                     # log partial result at each 'log_trigger' LOBs migrated
                     if logger and log_step >= log_trigger:
-                        logger.debug(msg=f"Streamed {lob_count} LOBs "
-                                         f"from {engine}.{table}.{lob_column}")
+                        logger.debug(msg=f"Streamed {log_step} LOBs "
+                                         f"from {engine}.{table}.{lob_column}, "
+                                         f"offset {offset_count + lob_count - log_step}")
                         log_step = 0
 
                     # retrieve the next row
                     row = source_cursor.fetchone()
 
                 # adjust the new offset and limit
-                if next_rs and (limit_count > lob_count or (batch_size and not limit_count)):
-                    curr_limit = min(batch_size, limit_count - lob_count)
-                    if curr_limit <= 0:
-                        curr_limit = max(batch_size, limit_count - lob_count)
-                    curr_stmt = sel_stmt.replace("@offset", str(offset_count + lob_count), 1)\
-                                        .replace("@limit", str(curr_limit), 1)\
-                                        .replace(" FETCH ", " FETCH NEXT ", 1)
-                else:
-                    # signal end of migration
-                    next_rs = False
+                if next_rs:
+                    if limit_count > lob_count or (batch_size and not limit_count):
+                        curr_limit = min(batch_size, limit_count - lob_count)
+                        if curr_limit <= 0:
+                            curr_limit = max(batch_size, limit_count - lob_count)
+                        curr_stmt = sel_stmt.replace("@offset", str(offset_count + lob_count), 1)\
+                                            .replace("@limit", str(curr_limit), 1)\
+                                            .replace(" FETCH ", " FETCH NEXT ", 1)
+                    else:
+                        # signal end of migration
+                        next_rs = False
 
             # close the cursors and commit the transactions
             source_cursor.close()
@@ -373,7 +396,6 @@ def db_stream_lobs(errors: list[str] | None,
             if curr_conn:
                 with suppress(Exception):
                     curr_conn.rollback()
-            lob_count = 0
             err_msg = _except_msg(exception=e,
                                   engine=engine)
         finally:
@@ -388,7 +410,7 @@ def db_stream_lobs(errors: list[str] | None,
                 logger.error(msg=err_msg)
         elif logger:
             logger.debug(msg=f"Finished streaming {lob_count} LOBs "
-                             f"from {engine}.{table}.{lob_column}")
+                             f"from {engine}.{table}.{lob_column}, offset {offset_count}")
 
     # acknowledge local errors
     if isinstance(errors, list):

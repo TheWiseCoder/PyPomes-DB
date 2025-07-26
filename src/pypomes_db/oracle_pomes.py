@@ -5,7 +5,7 @@ from datetime import date, datetime
 from logging import Logger
 from oracledb import Connection, init_oracle_client, makedsn
 from pathlib import Path
-from pypomes_core import DateFormat, DatetimeFormat
+from pypomes_core import DateFormat, DatetimeFormat, str_splice
 from typing import Any, BinaryIO, Final
 
 from .db_common import (
@@ -42,26 +42,6 @@ def get_connection_string() -> str:
                        port=db_params.get(DbParam.PORT),
                        service_name=db_params.get(DbParam.NAME))
     return f"oracle+oracledb://{db_params.get(DbParam.USER)}:{db_params.get(DbParam.PWD)}@{dsn}"
-
-
-def get_version() -> str | None:
-    """
-    Obtain and return the current version of the database engine.
-
-    :return: the engine's current version, or *None* if error
-    """
-    reply: list[tuple] = select(errors=None,
-                                sel_stmt="SELECT * FROM v$version",
-                                where_vals=None,
-                                min_count=None,
-                                max_count=None,
-                                offset_count=None,
-                                limit_count=None,
-                                conn=None,
-                                committable=None,
-                                logger=None)
-
-    return reply[0][0] if reply else None
 
 
 def connect(errors: list[str],
@@ -208,6 +188,13 @@ def select(errors: list[str] | None,
                 rows: list[tuple] = cursor.fetchall()
                 # obtain the number of tuples returned
                 count: int = len(rows)
+
+                # log the retrieval operation
+                if logger:
+                    from_table: str = str_splice(source=sel_stmt,
+                                                 seps=(" FROM ", " "))[1]
+                    logger.debug(msg=f"Read {count} tuples "
+                                     f"from {DbEngine.ORACLE}.{from_table}, offset {offset_count}")
 
                 # has the query quota been satisfied ?
                 if _assert_query_quota(errors=errors,
@@ -610,45 +597,30 @@ def call_procedure(errors: list[str] | None,
     return result
 
 
-__is_initialized: str | None = None
-
-
 def initialize(errors: list[str],
-               logger: Logger) -> bool:
+               logger: Logger) -> None:
     """
     Prepare the oracle engine to access the database throught the installed client software.
 
     :param errors: incidental error messages
     :param logger: optional logger
-    :return: False if an error happened, True otherwise
     """
-    # initialize the return variable
-    result: bool = True
-
-    global __is_initialized
-    if not __is_initialized:
-        err_msg: str | None = None
-        client: Path = _get_param(engine=DbEngine.ORACLE,
-                                  param=DbParam.CLIENT)
+    client: Path = _get_param(engine=DbEngine.ORACLE,
+                              param=DbParam.CLIENT)
+    if client:
         try:
             init_oracle_client(client.as_posix())
-            __is_initialized = True
+            if logger:
+                logger.debug(msg="Oracle client initialized")
         except Exception as e:
-            result = False
-            err_msg = _except_msg(exception=e,
-                                  engine=DbEngine.ORACLE)
-        # log the results
-        if err_msg and isinstance(errors, list):
-            errors.append(err_msg)
-        if logger:
-            logger.debug(msg="Initializing the client")
-
-    return result
+            if isinstance(errors, list):
+                errors.append(_except_msg(exception=e,
+                                          engine=DbEngine.ORACLE))
 
 
 def __last_placeholder(stmt: str) -> int:
     """
-    Retrieve and return the value of the last placeholer in *stmt*.
+    Retrieve the value of the last placeholer in *stmt*.
 
     :param stmt: the stament to inspect
     :return: the last placeholder, or *0* if no placeholder exists.

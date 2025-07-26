@@ -15,7 +15,7 @@ def db_get_indexes(errors: list[str] | None,
                    committable: bool = None,
                    logger: Logger = None) -> list[str]:
     """
-    Retrieve and return the list of schema-qualified indexes in the database.
+    Retrieve the list of schema-qualified indexes in the database.
 
     If the list of possibly schema-qualified table names *tables* is provided,
     only the indexes created on any of these tables' columns are returned.
@@ -48,12 +48,12 @@ def db_get_indexes(errors: list[str] | None,
     if not op_errors:
         # process table names
         tbl_name = str_positional(source=curr_engine,
-                                  list_origin=["oracle", "postgres", "sqlserver"],
-                                  list_dest=["table_name", "LOWER(t.relname)", "LOWER(t.name)"])
+                                  list_from=["oracle", "postgres", "sqlserver"],
+                                  list_to=["table_name", "LOWER(t.relname)", "LOWER(t.name)"])
         sch_name = str_positional(source=curr_engine,
-                                  list_origin=["oracle", "postgres", "sqlserver"],
-                                  list_dest=["aic.table_name",
-                                             "LOWER(ns.nspname)", "SCHEMA_NAME(t.schema_id)"])
+                                  list_from=["oracle", "postgres", "sqlserver"],
+                                  list_to=["aic.table_name",
+                                           "LOWER(ns.nspname)", "SCHEMA_NAME(t.schema_id)"])
         in_tables: str = ""
         where_tables: str = ""
         for table in tables:
@@ -146,7 +146,7 @@ def db_get_index_ddl(errors: list[str] | None,
                      committable: bool = None,
                      logger: Logger = None) -> str | None:
     """
-    Retrieve and return the DDL script used to create the index *index_name*.
+    Retrieve the DDL script used to create the index *index_name*.
 
     Note that *index_name* must be schema-qualified, or else the invocation will fail.
 
