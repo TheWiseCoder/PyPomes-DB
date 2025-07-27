@@ -74,7 +74,7 @@ def db_create_session_table(errors: list[str] | None,
                    logger=logger)
 
 
-def get_session_table_prefix(engine: DbEngine) -> str:
+def db_get_session_table_prefix(engine: DbEngine) -> str:
     """
     Return the prefix required in the table's name for it to be created as a session-scoped table.
 
