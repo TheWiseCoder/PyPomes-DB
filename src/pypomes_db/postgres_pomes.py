@@ -4,8 +4,7 @@ from datetime import date, datetime
 from logging import Logger
 from pathlib import Path
 from pypomes_core import (
-    DateFormat, DatetimeFormat,
-    str_as_list, list_get_coupled
+    DateFormat, DatetimeFormat, str_as_list, list_get_coupled
 )
 from psycopg2 import Binary
 from psycopg2.extras import execute_values
@@ -18,6 +17,7 @@ from .db_common import (
     DbEngine, DbParam,
     _assert_query_quota, _build_query_msg, _get_params, _except_msg
 )
+from .db_pomes import db_close
 
 RESERVED_WORDS: Final[list[str]] = [
     "ALL", "ANALYSE", "ANALYZE", "AND", "ANY", "ARRAY", "AS", "ASC", "ASYMMETRIC", "AUTHORIZATION",
@@ -49,16 +49,16 @@ def get_connection_string() -> str:
             f"{db_params.get(DbParam.PORT)}/{db_params.get(DbParam.NAME)}")
 
 
-def connect(errors: list[str],
-            autocommit: bool | None,
-            logger: Logger | None) -> connection | None:
+def connect(autocommit: bool = None,
+            errors: list[str] = None,
+            logger: Logger = None) -> connection | None:
     """
     Obtain and return a connection to the database.
 
     Return *None* if the connection could not be obtained.
 
-    :param errors: incidental error messages
     :param autocommit: whether the connection is to be in autocommit mode (defaults to *False*)
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the connection to the database, or *None* if error
     """
@@ -81,7 +81,7 @@ def connect(errors: list[str],
     except Exception as e:
         err_msg = _except_msg(exception=e,
                               engine=DbEngine.POSTGRES)
-    # log eventual errors
+    # log errors
     if err_msg:
         if isinstance(errors, list):
             errors.append(err_msg)
@@ -126,8 +126,7 @@ def bind_arguments(stmt: str,
     return result
 
 
-def select(errors: list[str] | None,
-           sel_stmt: str,
+def select(sel_stmt: str,
            where_vals: tuple | None,
            min_count: int | None,
            max_count: int | None,
@@ -135,7 +134,8 @@ def select(errors: list[str] | None,
            limit_count: int | None,
            conn: connection | None,
            committable: bool | None,
-           logger: Logger | None) -> list[tuple] | None:
+           errors: list[str] = None,
+           logger: Logger = None) -> list[tuple] | None:
     """
     Query the database and return all tuples that satisfy the *sel_stmt* command.
 
@@ -153,7 +153,6 @@ def select(errors: list[str] | None,
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the selection criteria
     :param min_count: optionally defines the minimum number of tuples expected
@@ -162,6 +161,7 @@ def select(errors: list[str] | None,
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: list of tuples containing the search result, *[]* on empty search, or *None* if error
     """
@@ -169,8 +169,8 @@ def select(errors: list[str] | None,
     result: list[tuple] = []
 
     # make sure to have a connection
-    curr_conn: connection = conn or connect(errors=errors,
-                                            autocommit=False,
+    curr_conn: connection = conn or connect(autocommit=False,
+                                            errors=errors,
                                             logger=logger)
     if curr_conn:
 
@@ -196,17 +196,17 @@ def select(errors: list[str] | None,
                 if logger:
                     from_table: str = str_splice(source=sel_stmt,
                                                  seps=(" FROM ", " "))[1]
-                    logger.debug(msg=f"Read {count} tuples "
-                                     f"from {DbEngine.POSTGRES}.{from_table}, offset {offset_count}")
+                    logger.debug(msg=f"Read {count} tuples from {DbEngine.POSTGRES}.{from_table}, "
+                                     f"offset {offset_count}, connection '{curr_conn}'")
 
                 # has the query quota been satisfied ?
-                if _assert_query_quota(errors=errors,
-                                       engine=DbEngine.POSTGRES,
+                if _assert_query_quota(engine=DbEngine.POSTGRES,
                                        query=sel_stmt,
                                        where_vals=where_vals,
                                        count=count,
                                        min_count=min_count,
-                                       max_count=max_count):
+                                       max_count=max_count,
+                                       errors=errors):
                     # yes, retrieve the returned tuples
                     result = rows
 
@@ -222,9 +222,9 @@ def select(errors: list[str] | None,
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
-                curr_conn.close()
-
-        # log eventual errors
+                db_close(connection=curr_conn,
+                         logger=logger)
+        # log errors
         if err_msg:
             if isinstance(errors, list):
                 errors.append(err_msg)
@@ -237,15 +237,15 @@ def select(errors: list[str] | None,
     return result
 
 
-def execute(errors: list[str] | None,
-            exc_stmt: str,
+def execute(exc_stmt: str,
             bind_vals: tuple | None,
             return_cols: dict[str, type] | None,
             min_count: int | None,
             max_count: int | None,
             conn: connection | None,
             committable: bool | None,
-            logger: Logger | None) -> tuple | int | None:
+            errors: list[str] = None,
+            logger: Logger = None) -> tuple | int | None:
     """
     Execute the command *exc_stmt* on the database.
 
@@ -265,7 +265,6 @@ def execute(errors: list[str] | None,
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
     :param return_cols: optional columns and respective types, whose values are to be returned on *INSERT* or *UPDATE*
@@ -273,6 +272,7 @@ def execute(errors: list[str] | None,
     :param max_count: optionally defines the maximum number of tuples to be affected
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the values of *return_cols*, the value returned by the operation, or *None* if error
     """
@@ -280,8 +280,8 @@ def execute(errors: list[str] | None,
     result: tuple | int | None = None
 
     # make sure to have a connection
-    curr_conn: connection = conn or connect(errors=errors,
-                                            autocommit=False,
+    curr_conn: connection = conn or connect(autocommit=False,
+                                            errors=errors,
                                             logger=logger)
     if curr_conn:
         err_msg: str | None = None
@@ -295,13 +295,13 @@ def execute(errors: list[str] | None,
 
                 # has the query quota been satisfied ?
                 count: int = cursor.rowcount
-                if _assert_query_quota(errors=errors,
-                                       engine=DbEngine.ORACLE,
+                if _assert_query_quota(engine=DbEngine.ORACLE,
                                        query=exc_stmt,
                                        where_vals=None,
                                        count=count,
                                        min_count=min_count,
-                                       max_count=max_count):
+                                       max_count=max_count,
+                                       errors=errors):
                     if return_cols:
                         result = tuple(cursor.fetchone())
                     else:
@@ -319,9 +319,9 @@ def execute(errors: list[str] | None,
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
-                curr_conn.close()
-
-        # log eventual errors
+                db_close(connection=curr_conn,
+                         logger=logger)
+        # log errors
         if err_msg:
             if isinstance(errors, list):
                 errors.append(err_msg)
@@ -333,13 +333,13 @@ def execute(errors: list[str] | None,
     return result
 
 
-def bulk_execute(errors: list[str],
-                 exc_stmt: str,
+def bulk_execute(exc_stmt: str,
                  exc_vals: list[tuple],
                  template: str | None,
                  conn: connection | None,
                  committable: bool | None,
-                 logger: Logger) -> int | None:
+                 errors: list[str] = None,
+                 logger: Logger = None) -> int | None:
     """
     Bulk-update the database with the statement defined in *execute_stmt*, and the values in *execute_vals*.
 
@@ -370,12 +370,12 @@ def bulk_execute(errors: list[str],
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param exc_stmt: the command to update the database with
     :param exc_vals: the list of values for tuple identification, and to update the database with
     :param template: the snippet to merge to every item in *exc_vals* to compose the query
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the number of inserted or updated tuples, or *None* if error
     """
@@ -383,8 +383,8 @@ def bulk_execute(errors: list[str],
     result: int | None = None
 
     # make sure to have a connection
-    curr_conn: connection = conn or connect(errors=errors,
-                                            autocommit=False,
+    curr_conn: connection = conn or connect(autocommit=False,
+                                            errors=errors,
                                             logger=logger)
     if curr_conn:
         # execute the bulk query
@@ -411,9 +411,10 @@ def bulk_execute(errors: list[str],
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
-                curr_conn.close()
+                db_close(connection=curr_conn,
+                         logger=logger)
 
-        # log eventual errors
+        # log errors
         if err_msg:
             if isinstance(errors, list):
                 errors.append(err_msg)
@@ -424,8 +425,7 @@ def bulk_execute(errors: list[str],
     return result
 
 
-def update_lob(errors: list[str],
-               lob_table: str,
+def update_lob(lob_table: str,
                lob_column: str,
                pk_columns: list[str],
                pk_vals: tuple,
@@ -433,7 +433,8 @@ def update_lob(errors: list[str],
                chunk_size: int,
                conn: connection | None,
                committable: bool | None,
-               logger: Logger | None) -> None:
+               errors: list[str] = None,
+               logger: Logger = None) -> None:
     """
     Update a large binary object (LOB) in the given table and column.
 
@@ -443,7 +444,6 @@ def update_lob(errors: list[str],
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param lob_table: the table to be update with the new LOB
     :param lob_column: the column to be updated with the new LOB
     :param pk_columns: columns making up a primary key, or a unique identifier for the tuple
@@ -452,11 +452,12 @@ def update_lob(errors: list[str],
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     """
     # make sure to have a connection
-    curr_conn: connection = conn or connect(errors=errors,
-                                            autocommit=False,
+    curr_conn: connection = conn or connect(autocommit=False,
+                                            errors=errors,
                                             logger=logger)
     if curr_conn:
         if isinstance(lob_data, str):
@@ -509,9 +510,9 @@ def update_lob(errors: list[str],
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
-                curr_conn.close()
-
-        # log eventual errors
+                db_close(connection=curr_conn,
+                         logger=logger)
+        # log errors
         if err_msg:
             if isinstance(errors, list):
                 errors.append(err_msg)
@@ -522,23 +523,23 @@ def update_lob(errors: list[str],
                                                   bind_vals=pk_vals))
 
 
-def call_procedure(errors: list[str] | None,
-                   proc_name: str,
+def call_procedure(proc_name: str,
                    proc_vals: tuple | None,
                    conn: connection | None,
                    committable: bool | None,
-                   logger: Logger | None) -> list[tuple] | None:
+                   errors: list[str] = None,
+                   logger: Logger = None) -> list[tuple] | None:
     """
     Execute the stored procedure *proc_name*, with the arguments given in *proc_vals*.
 
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors:  incidental error messages
     :param proc_name: the name of the sotred procedure
     :param proc_vals: the arguments to be passed
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the data returned by the procedure, or *None* if error
     """
@@ -546,8 +547,8 @@ def call_procedure(errors: list[str] | None,
     result: list[tuple] | None = None
 
     # make sure to have a connection
-    curr_conn: connection = conn or connect(errors=errors,
-                                            autocommit=False,
+    curr_conn: connection = conn or connect(autocommit=False,
+                                            errors=errors,
                                             logger=logger)
     if curr_conn:
         # build the command
@@ -575,9 +576,9 @@ def call_procedure(errors: list[str] | None,
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
-                curr_conn.close()
-
-        # log eventual errors
+                db_close(connection=curr_conn,
+                         logger=logger)
+        # log errors
         if err_msg:
             if isinstance(errors, list):
                 errors.append(err_msg)
@@ -590,31 +591,30 @@ def call_procedure(errors: list[str] | None,
     return result
 
 
-def identity_post_insert(errors: list[str] | None,
-                         insert_stmt: str,
+def identity_post_insert(insert_stmt: str,
                          conn: connection,
                          committable: bool,
                          identity_column: str,
-                         logger: Logger) -> None:
+                         errors: list[str] = None,
+                         logger: Logger = None) -> None:
     """
     Handle the post-insert for tables with identity columns.
 
     Identity columns are columns whose values are generated directly by the database, and as such,
     require special handling before and after bulk inserts.
 
-    :param errors: incidental error messages
     :param insert_stmt: the INSERT command
     :param conn: the connection to use
     :param committable: whether to commit operation upon errorless completion
     :param identity_column: column whose values are generated by the database
+    :param errors: incidental error messages
     :param logger: optional logger
     """
     # obtain the maximum value inserted
     table_name: str = str_between(source=insert_stmt.upper(),
                                   from_str=" INTO ",
                                   to_str=" ")
-    recs: list[tuple[int]] = select(errors=errors,
-                                    sel_stmt=(f"SELECT MAX({identity_column}) "
+    recs: list[tuple[int]] = select(sel_stmt=(f"SELECT MAX({identity_column}) "
                                               f"FROM {table_name}"),
                                     where_vals=None,
                                     min_count=None,
@@ -623,27 +623,28 @@ def identity_post_insert(errors: list[str] | None,
                                     limit_count=None,
                                     conn=conn,
                                     committable=False,
+                                    errors=errors,
                                     logger=logger)
     if not errors:
         sel_stmt: str = (f"SELECT setval("
                          f"pg_get_serial_sequence('{table_name}', '{identity_column}'), "
                          f"{recs[0][0]})")
-        execute(errors=errors,
-                exc_stmt=sel_stmt,
+        execute(exc_stmt=sel_stmt,
                 bind_vals=None,
                 return_cols=None,
                 min_count=None,
                 max_count=None,
                 conn=conn,
                 committable=committable,
+                errors=errors,
                 logger=logger)
 
 
-def build_typified_template(errors: list[str] | None,
-                            insert_stmt: str,
+def build_typified_template(insert_stmt: str,
                             nullable_only: bool,
                             conn: connection,
-                            logger: Logger) -> str:
+                            errors: list[str] = None,
+                            logger: Logger = None) -> str:
     """
     Build the typified template corresponding to the columns in *insert_stmt*, by setting the appropriate data types.
 
@@ -655,10 +656,10 @@ def build_typified_template(errors: list[str] | None,
 
     depending on the nullability and types of the columns, and on the value of *nullable_only*.
 
-    :param errors: incidental error messages
     :param insert_stmt: the bulk *INSERT* statement
     :param nullable_only: whether to disregard non-nullable columns
     :param conn: the connection to use
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the typified template, or *None* if error or no column was typified
     """
@@ -679,8 +680,7 @@ def build_typified_template(errors: list[str] | None,
     if nullable_only:
         sel_stmt += " AND is_nullable = 'YES'"
     # noinspection PyTypeChecker
-    recs: list[tuple[str, str]] = select(errors=errors,
-                                         sel_stmt=sel_stmt,
+    recs: list[tuple[str, str]] = select(sel_stmt=sel_stmt,
                                          where_vals=None,
                                          min_count=None,
                                          max_count=None,
@@ -688,6 +688,7 @@ def build_typified_template(errors: list[str] | None,
                                          limit_count=None,
                                          conn=conn,
                                          committable=False,
+                                         errors=errors,
                                          logger=logger)
     # build the template
     if not errors:
@@ -710,11 +711,11 @@ def build_typified_template(errors: list[str] | None,
     return result
 
 
-def tipify_bulk_update(errors: list[str] | None,
-                       update_stmt: str,
+def tipify_bulk_update(update_stmt: str,
                        nullable_only: bool,
                        conn: connection,
-                       logger: Logger) -> str:
+                       errors: list[str] = None,
+                       logger: Logger = None) -> str:
     """
     Modify the bulk *update_stmt* statement by adding the appropriate data types.
 
@@ -728,10 +729,10 @@ def tipify_bulk_update(errors: list[str] | None,
 
     depending on the nullability and types of the columns, and on the value of *nullable_only*.
 
-    :param errors: incidental error messages
     :param update_stmt: the bulk *UPDATE* statement
     :param nullable_only: whether to disregard non-nullable columns
     :param conn: the connection to use
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: a new statement, enriched with the columns' data types, or *None* if error
     """
@@ -752,8 +753,7 @@ def tipify_bulk_update(errors: list[str] | None,
     if nullable_only:
         sel_stmt += " AND is_nullable = 'YES'"
     # noinspection PyTypeChecker
-    recs: list[tuple[str, str]] = select(errors=errors,
-                                         sel_stmt=sel_stmt,
+    recs: list[tuple[str, str]] = select(sel_stmt=sel_stmt,
                                          where_vals=None,
                                          min_count=None,
                                          max_count=None,
@@ -761,6 +761,7 @@ def tipify_bulk_update(errors: list[str] | None,
                                          limit_count=None,
                                          conn=conn,
                                          committable=False,
+                                         errors=errors,
                                          logger=logger)
     # tipify the columns
     if not errors:

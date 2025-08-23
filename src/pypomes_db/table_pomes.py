@@ -2,16 +2,18 @@ from logging import Logger
 from typing import Any
 
 from . import DbParam
-from .db_common import DbEngine, _assert_engine, _get_param
+from .db_common import (
+    _DB_CONN_DATA, DbEngine, _assert_engine, _get_param
+)
 from .db_pomes import db_execute, db_select
 
 
-def db_create_session_table(errors: list[str] | None,
-                            engine: DbEngine,
+def db_create_session_table(engine: DbEngine,
                             connection: Any,
                             table_name: str,
                             column_data: list[str],
-                            logger: Logger) -> None:
+                            errors: list[str] = None,
+                            logger: Logger = None) -> None:
     """
     Create the session-scoped table *table_name*, with the list of columns specifications in *column_data*.
 
@@ -27,51 +29,55 @@ def db_create_session_table(errors: list[str] | None,
     For *SQLServer*, session-scoped temporary table names must start with the hash symbol *#*, an error
     being raised if otherwise.
 
-    :param errors: incidental error messages
     :param engine: the reference database engine
     :param connection: the connection defining the session
-    :param table_name: the name of the table to be created
+    :param table_name: the, possibly schema-qualified, name of the table to be created
     :param column_data: this list of column information for the table cration
+    :param errors: incidental error messages
     :param logger: optional logger
     """
-    stmt: str | None = None
-    match engine:
-        case DbEngine.POSTGRES:
-            # - 'TEMP' or 'TEMPORARY' creates a session-scoped table
-            # - 'ON COMMIT PRESERVE ROWS' ensures rows are kept until session ends
-            stmt = (f"CREATE TEMP TABLE {table_name} "
-                    f"({', '.join(column_data)}) ON COMMIT PRESERVE ROWS")
-        case DbEngine.MYSQL:
-            # 'TEMPORARY' ensures the table is dropped when the session ends
-            stmt = f"CREATE TEMPORARY TABLE {table_name} ({', '.join(column_data)})"
-        case DbEngine.ORACLE:
-            # private, session-scoped, temporary tables require:
-            #   - database version 18c or later
-            #   - name starting with 'ORA$PTT_'
-            version: str = _get_param(engine=engine,
-                                      param=DbParam.VERSION)
-            if version and version > "18" and table_name.upper().startswith("ORA$PTT_"):
-                # 'ON COMMIT PRESERVE DEFINITION' ensures the table lasts for the session
-                stmt = (f"CREATE PRIVATE TEMPORARY TABLE {table_name.upper()} "
-                        f"({', '.join(column_data)}) ON COMMIT PRESERVE DEFINITION")
-            elif not db_table_exists(errors=errors,
-                                     table_name=table_name,
-                                     engine=DbEngine.ORACLE,
-                                     logger=logger) and not errors:
-                # - the table definition remains in the database permanently, but the data is session-specific
-                # - 'ON COMMIT PRESERVE ROWS' keeps data for the entire session
-                stmt = (f"CREATE GLOBAL TEMPORARY TABLE {table_name} "
-                        f"({'. '.join(column_data)}) ON COMMIT PRESERVE ROWS")
-        case DbEngine.SQLSERVER:
-            # 'table_name' must be prepended with '#', which creates a local, session-scoped, temporary table
-            stmt = f"CREATE TABLE {table_name} ({', '.join(column_data)})"
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=errors)
+    if engine:
+        stmt: str | None = None
+        match engine:
+            case DbEngine.POSTGRES:
+                # - 'TEMP' or 'TEMPORARY' creates a session-scoped table
+                # - 'ON COMMIT PRESERVE ROWS' ensures rows are kept until session ends
+                stmt = (f"CREATE TEMP TABLE {table_name} "
+                        f"({', '.join(column_data)}) ON COMMIT PRESERVE ROWS")
+            case DbEngine.MYSQL:
+                # 'TEMPORARY' ensures the table is dropped when the session ends
+                stmt = f"CREATE TEMPORARY TABLE {table_name} ({', '.join(column_data)})"
+            case DbEngine.ORACLE:
+                # private, session-scoped, temporary tables require:
+                #   - database version 18c or later
+                #   - name starting with 'ORA$PTT_'
+                version: str = _get_param(engine=engine,
+                                          param=DbParam.VERSION)
+                if version and version > "18" and table_name.upper().startswith("ORA$PTT_"):
+                    # 'ON COMMIT PRESERVE DEFINITION' ensures the table lasts for the session
+                    stmt = (f"CREATE PRIVATE TEMPORARY TABLE {table_name.upper()} "
+                            f"({', '.join(column_data)}) ON COMMIT PRESERVE DEFINITION")
+                elif not db_table_exists(table_name=table_name,
+                                         engine=DbEngine.ORACLE,
+                                         errors=errors,
+                                         logger=logger) and not errors:
+                    # - the table definition remains in the database permanently, but the data is session-specific
+                    # - 'ON COMMIT PRESERVE ROWS' keeps data for the entire session
+                    stmt = (f"CREATE GLOBAL TEMPORARY TABLE {table_name} "
+                            f"({'. '.join(column_data)}) ON COMMIT PRESERVE ROWS")
+            case DbEngine.SQLSERVER:
+                # 'table_name' must be prepended with '#', which creates a local, session-scoped, temporary table
+                stmt = f"CREATE TABLE {table_name} ({', '.join(column_data)})"
 
-    if stmt:
-        db_execute(errors=errors,
-                   exc_stmt=stmt,
-                   engine=engine,
-                   connection=connection,
-                   logger=logger)
+        if stmt:
+            db_execute(exc_stmt=stmt,
+                       engine=engine,
+                       connection=connection,
+                       errors=errors,
+                       logger=logger)
 
 
 def db_get_session_table_prefix(engine: DbEngine) -> str:
@@ -87,6 +93,9 @@ def db_get_session_table_prefix(engine: DbEngine) -> str:
     # initialize the return variable
     result: str = ""
 
+    # assert the database engine
+    engine = next(iter(_DB_CONN_DATA)) if not engine and _DB_CONN_DATA else engine
+
     if engine == DbEngine.ORACLE:
         version: str = _get_param(engine=engine,
                                   param=DbParam.VERSION)
@@ -98,11 +107,11 @@ def db_get_session_table_prefix(engine: DbEngine) -> str:
     return result
 
 
-def db_get_tables(errors: list[str] | None,
-                  schema: str = None,
+def db_get_tables(schema: str = None,
                   engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
+                  errors: list[str] = None,
                   logger: Logger = None) -> list[str] | None:
     """
     Retrieve the list of schema-qualified tables in the database.
@@ -110,11 +119,11 @@ def db_get_tables(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param schema: optional name of the schema to restrict the search to
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the schema-qualified table names found, or *None* if error
     """
@@ -124,13 +133,12 @@ def db_get_tables(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    # proceed, if no errors
-    if not op_errors:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
+    if engine:
         # build the query
-        if curr_engine == DbEngine.ORACLE:
+        if engine == DbEngine.ORACLE:
             sel_stmt: str = "SELECT schema_name || '.' || table_name FROM all_tables"
             if schema:
                 sel_stmt += f" WHERE owner = '{schema.upper()}'"
@@ -142,28 +150,28 @@ def db_get_tables(errors: list[str] | None,
                 sel_stmt += f" AND LOWER(table_schema) = '{schema.lower()}'"
 
         # execute the query
-        recs: list[tuple[str]] = db_select(errors=op_errors,
-                                           sel_stmt=sel_stmt,
-                                           engine=curr_engine,
+        recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
+                                           engine=engine,
                                            connection=connection,
                                            committable=committable,
+                                           errors=op_errors,
                                            logger=logger)
         # process the query result
         if not op_errors:
             result = [rec[0] for rec in recs]
 
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
     return result
 
 
-def db_table_exists(errors: list[str] | None,
-                    table_name: str,
+def db_table_exists(table_name: str,
                     engine: DbEngine = None,
                     connection: Any = None,
                     committable: bool = None,
+                    errors: list[str] = None,
                     logger: Logger = None) -> bool | None:
     """
     Determine whether the table *table_name* exists in the database.
@@ -172,11 +180,11 @@ def db_table_exists(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param table_name: the, possibly schema-qualified, name of the table to look for
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: *True* if the table was found, *False* otherwise, or *None* if error
     """
@@ -186,17 +194,16 @@ def db_table_exists(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    # proceed, if no errors
-    if not op_errors:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
+    if engine:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
 
         # build the query
-        if curr_engine == DbEngine.ORACLE:
+        if engine == DbEngine.ORACLE:
             sel_stmt: str = ("SELECT COUNT(*) FROM all_tables "
                              f"WHERE table_name = '{table_name.upper()}'")
             if table_schema:
@@ -210,28 +217,28 @@ def db_table_exists(errors: list[str] | None,
                 sel_stmt += f" AND LOWER(table_schema) = '{table_schema.lower()}'"
 
         # execute the query
-        recs: list[tuple[int]] = db_select(errors=op_errors,
-                                           sel_stmt=sel_stmt,
-                                           engine=curr_engine,
+        recs: list[tuple[int]] = db_select(sel_stmt=sel_stmt,
+                                           engine=engine,
                                            connection=connection,
                                            committable=committable,
+                                           errors=op_errors,
                                            logger=logger)
         # process the query result
         if not op_errors:
             result = recs[0][0] > 0
 
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
     return result
 
 
-def db_drop_table(errors: list[str] | None,
-                  table_name: str,
+def db_drop_table(table_name: str,
                   engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
+                  errors: list[str] = None,
                   logger: Logger = None) -> None:
     """
     Drop the table given by the, possibly schema-qualified, *table_name*.
@@ -243,23 +250,22 @@ def db_drop_table(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param table_name: the, possibly schema-qualified, name of the table to drop
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     """
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    # proceed, if no errors
-    if not op_errors:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
+    if engine:
         # build the DROP statement
-        if curr_engine == DbEngine.ORACLE:
+        if engine == DbEngine.ORACLE:
             # oracle has no 'IF EXISTS' clause
             drop_stmt: str = \
                 (f"BEGIN"
@@ -267,7 +273,7 @@ def db_drop_table(errors: list[str] | None,
                  "EXCEPTION"
                  " WHEN OTHERS THEN NULL; "
                  "END;")
-        elif curr_engine == DbEngine.POSTGRES:
+        elif engine == DbEngine.POSTGRES:
             drop_stmt: str = \
                 ("DO $$"
                  "BEGIN"
@@ -275,7 +281,7 @@ def db_drop_table(errors: list[str] | None,
                  "EXCEPTION"
                  " WHEN OTHERS THEN NULL; "
                  "END $$;")
-        elif curr_engine == DbEngine.SQLSERVER:
+        elif engine == DbEngine.SQLSERVER:
             drop_stmt: str = \
                 ("BEGIN TRY"
                  f" EXEC('DROP TABLE IF EXISTS {table_name} CASCADE;'); "
@@ -286,23 +292,23 @@ def db_drop_table(errors: list[str] | None,
             drop_stmt: str = f"DROP TABLE IF EXISTS {table_name}"
 
         # drop the table
-        db_execute(errors=op_errors,
-                   exc_stmt=drop_stmt,
-                   engine=curr_engine,
+        db_execute(exc_stmt=drop_stmt,
+                   engine=engine,
                    connection=connection,
                    committable=committable,
+                   errors=op_errors,
                    logger=logger)
 
-    # acknowledge eventual local errors, if appropriate
+    # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
 
-def db_get_table_columns(errors: list[str] | None,
-                         table_name: str,
+def db_get_table_columns(table_name: str,
                          engine: DbEngine = None,
                          connection: Any = None,
                          committable: bool = None,
+                         errors: list[str] = None,
                          logger: Logger = None) -> list[tuple[str, str, bool]] | None:
     """
     Retrieve all columns in *table_name*, along with their respective data types and nullabilities.
@@ -310,11 +316,11 @@ def db_get_table_columns(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param table_name: the possibly schema-qualified name of the table
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: a list of tuples with names, types and the nullability state of all columns in *table_name*
     """
@@ -324,11 +330,10 @@ def db_get_table_columns(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    # proceed, if no errors
-    if not op_errors:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
+    if engine:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
@@ -336,19 +341,19 @@ def db_get_table_columns(errors: list[str] | None,
         # build the query
         sel_stmt: str | None = None
         where_data: dict[str, str] = {}
-        if curr_engine == DbEngine.MYSQL:
+        if engine == DbEngine.MYSQL:
             pass
-        if curr_engine == DbEngine.ORACLE:
+        if engine == DbEngine.ORACLE:
             sel_stmt = "SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM ALL_TAB_COLUMNS"
             where_data["TABLE_NAME"] = table_name
             if table_schema:
                 where_data["OWNER"] = table_schema
-        elif curr_engine == DbEngine.POSTGRES:
+        elif engine == DbEngine.POSTGRES:
             sel_stmt = "SELECT column_name, udt_name, is_nullable FROM information_schema.columns"
             where_data["table_name"] = table_name
             if table_schema:
                 where_data["table_schema"] = table_schema
-        elif curr_engine == DbEngine.SQLSERVER:
+        elif engine == DbEngine.SQLSERVER:
             sel_stmt = "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS"
             where_data["TABLE_NAME"] = table_name
             if table_schema:
@@ -356,12 +361,12 @@ def db_get_table_columns(errors: list[str] | None,
 
         # execute the query
         # noinspection PyTypeChecker
-        recs: list[tuple[str, str, str]] = db_select(errors=op_errors,
-                                                     sel_stmt=sel_stmt,
+        recs: list[tuple[str, str, str]] = db_select(sel_stmt=sel_stmt,
                                                      where_data=where_data,
-                                                     engine=curr_engine,
+                                                     engine=engine,
                                                      connection=connection,
                                                      committable=committable,
+                                                     errors=op_errors,
                                                      logger=logger)
         # process the query result
         if not op_errors and recs:
@@ -374,11 +379,11 @@ def db_get_table_columns(errors: list[str] | None,
     return result
 
 
-def db_get_table_ddl(errors: list[str] | None,
-                     table_name: str,
+def db_get_table_ddl(table_name: str,
                      engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
+                     errors: list[str] = None,
                      logger: Logger = None) -> str | None:
     """
     Retrieve the DDL script used to create the table *table_name*.
@@ -390,11 +395,11 @@ def db_get_table_ddl(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param table_name: the schema-qualified name of the table
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the DDL script used to create the index, or *None* if error or the index does not exist
     """
@@ -404,46 +409,44 @@ def db_get_table_ddl(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    # determine the table schema
-    table_schema: str
-    table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
+    if engine:
+        # determine the table schema
+        table_schema: str
+        table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
 
-    # is 'table_name' schema-qualified ?
-    if not table_schema:
-        # no, report the problem
-        op_errors.append(f"Index name '{table_name}' not properly schema-qualified")
+        if table_schema:
+            # build the query
+            sel_stmt: str | None = None
+            if engine == DbEngine.MYSQL:
+                pass
+            if engine == DbEngine.ORACLE:
+                sel_stmt = ("SELECT DBMS_METADATA.GET_DDL('TABLE', "
+                            f"'{table_name.upper()}', '{table_schema.upper()}') "
+                            "FROM DUAL")
+            elif engine == DbEngine.POSTGRES:
+                sel_stmt = ("SELECT * FROM public.pg_get_table_def("
+                            f"'{table_schema.lower()}', '{table_name.lower()}', false)")
+            elif engine == DbEngine.SQLSERVER:
+                # sel_stmt = f"EXEC sp_help '{schema_name}.{table_name}'"
+                sel_stmt = ("SELECT OBJECT_DEFINITION (OBJECT_ID("
+                            f"'{table_schema.lower()}.{table_name.upper()}'))")
 
-    # proceed, if no errors
-    if not op_errors:
-        # build the query
-        sel_stmt: str | None = None
-        if curr_engine == DbEngine.MYSQL:
-            pass
-        if curr_engine == DbEngine.ORACLE:
-            sel_stmt = ("SELECT DBMS_METADATA.GET_DDL('TABLE', "
-                        f"'{table_name.upper()}', '{table_schema.upper()}') "
-                        "FROM DUAL")
-        elif curr_engine == DbEngine.POSTGRES:
-            sel_stmt = ("SELECT * FROM public.pg_get_table_def("
-                        f"'{table_schema.lower()}', '{table_name.lower()}', false)")
-        elif curr_engine == DbEngine.SQLSERVER:
-            # sel_stmt = f"EXEC sp_help '{schema_name}.{table_name}'"
-            sel_stmt = ("SELECT OBJECT_DEFINITION (OBJECT_ID("
-                        f"'{table_schema.lower()}.{table_name.upper()}'))")
-
-        # execute the query
-        recs: list[tuple[str]] = db_select(errors=op_errors,
-                                           sel_stmt=sel_stmt,
-                                           engine=curr_engine,
-                                           connection=connection,
-                                           committable=committable,
-                                           logger=logger)
-        # process the query result
-        if not op_errors and recs:
-            result = recs[0][0].strip()
+            # execute the query
+            recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
+                                               engine=engine,
+                                               connection=connection,
+                                               committable=committable,
+                                               errors=op_errors,
+                                               logger=logger)
+            # process the query result
+            if not op_errors and recs:
+                result = recs[0][0].strip()
+        else:
+            # 'table_name' not schema-qualified, report the problem
+            op_errors.append(f"Index name '{table_name}' not properly schema-qualified")
 
     # acknowledge local errors
     if isinstance(errors, list):

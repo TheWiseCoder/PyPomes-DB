@@ -38,75 +38,92 @@ class DbParam(StrEnum):
 DB_BIND_META_TAG: Final[str] = env_get_str(key=f"{APP_PREFIX}_DB_BIND_META_TAG",
                                            def_value="%?")
 
-# the preferred way to specify database connection parameters is dynamically with 'db_setup()'
-# specifying database connection parameters with environment variables can be done in two ways:
-# 1. specify the set
-#   {APP_PREFIX}_DB_ENGINE (one of 'mysql', 'oracle', 'postgres', 'sqlserver')
-#   {APP_PREFIX}_DB_NAME
-#   {APP_PREFIX}_DB_USER
-#   {APP_PREFIX}_DB_PWD
-#   {APP_PREFIX}_DB_HOST
-#   {APP_PREFIX}_DB_PORT
-#   {APP_PREFIX}_DB_CLIENT  (for oracle)
-#   {APP_PREFIX}_DB_DRIVER  (for sqlserver)
-# 2. alternatively, specify a comma-separated list of engines in
-#   {APP_PREFIX}_DB_ENGINES
-#   and for each engine, specify the set above, replacing 'DB' with
-#   'MSQL', 'ORCL', 'PG', and 'SQLS', respectively for the engines listed above
 
-_DB_CONN_DATA: dict[DbEngine, dict[DbParam, Any]] = {}
-_DB_ENGINES: list[DbEngine] = []
-_engine: DbEngine = env_get_enum(key=f"{APP_PREFIX}_DB_ENGINE",
-                                 enum_class=DbEngine)
-if _engine:
-    _default_setup: bool = True
-    _DB_ENGINES.append(_engine)
-else:
-    _default_setup: bool = False
-    _engines: list[DbEngine] = env_get_enums(key=f"{APP_PREFIX}_DB_ENGINES",
-                                             enum_class=DbEngine)
-    if _engines:
-        _DB_ENGINES.extend(_engines)
-for _db_engine in _DB_ENGINES:
-    if _default_setup:
-        _prefix: str = "DB"
-        _default_setup = False
-    else:
-        _prefix: str = str_positional(source=_db_engine,
-                                      list_from=["mysql", "oracle", "postgres", "sqlserver"],
-                                      list_to=["MSQL", "ORCL", "PG", "SQLS"])
-    _DB_CONN_DATA[_db_engine] = {
-        DbParam.NAME: env_get_str(key=f"{APP_PREFIX}_{_prefix}_NAME"),
-        DbParam.USER: env_get_str(key=f"{APP_PREFIX}_{_prefix}_USER"),
-        DbParam.PWD: env_get_str(key=f"{APP_PREFIX}_{_prefix}_PWD"),
-        DbParam.HOST: env_get_str(key=f"{APP_PREFIX}_{_prefix}_HOST"),
-        DbParam.PORT: env_get_int(key=f"{APP_PREFIX}_{_prefix}_PORT"),
-        DbParam.VERSION: ""
-    }
-    if _db_engine == DbEngine.ORACLE:
-        _DB_CONN_DATA[_db_engine][DbParam.CLIENT] = env_get_path(key=f"{APP_PREFIX}_{_prefix}_CLIENT")
-    elif _db_engine == DbEngine.SQLSERVER:
-        _DB_CONN_DATA[_db_engine][DbParam.DRIVER] = env_get_str(key=f"{APP_PREFIX}_{_prefix}_DRIVER")
-
-
-def _assert_engine(errors: list[str] | None,
-                   engine: DbEngine) -> DbEngine:
+def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
     """
-    Verify if *engine* is in the list of supported engines.
+    Establish the connection data for select database engines, from evironment variables.
 
-    If *engine* is a supported engine, it is returned. If its value is 'None',
-    the first engine in the list of supported engines (the default engine) is returned.
+    The preferred way to specify database connection parameters is dynamically with *db_setup()*;.
+    Specifying database connection parameters with environment variables can be done in two ways:
+      - 1. for a single database engine, specify the set
+          - *<APP_PREFIX>_DB_ENGINE* (one of *mysql*, *oracle*, *postgres*, *sqlserver*)
+          - *<APP_PREFIX>_DB_NAME*
+          - *<APP_PREFIX>_DB_USER*
+          - *<APP_PREFIX>_DB_PWD*
+          - *<APP_PREFIX>_DB_HOST*
+          - *<APP_PREFIX>_DB_PORT*
+          - *<APP_PREFIX>_DB_CLIENT*  (for Oracle)
+          - *<APP_PREFIX>_DB_DRIVER*  (for SQLServer)
+      - 2. for multiple database engines, specify a comma-separated list of engines in
+           *<APP_PREFIX>_DB_ENGINES*, and for each engine, specify the set above, respectively replacing
+           *_DB_* with *_MSQL_*, *_ORCL_*, *_PG_*, or *_SQLS_*, for the engines listed above
 
-    :param errors: incidental errors
+    All required parameters mus be provided for the selected database engines, as there are no defaults.
+
+    :return: the connection data for the selected database engines
+    """
+    # initialize the return valiable
+    result: dict[DbEngine, dict[DbParam, Any]] = {}
+
+    engines: list[DbEngine] = []
+    single_engine: DbEngine = env_get_enum(key=f"{APP_PREFIX}_DB_ENGINE",
+                                           enum_class=DbEngine)
+    if single_engine:
+        default_setup: bool = True
+        engines.append(single_engine)
+    else:
+        default_setup: bool = False
+        multi_engines: list[DbEngine] = env_get_enums(key=f"{APP_PREFIX}_DB_ENGINES",
+                                                      enum_class=DbEngine)
+        if multi_engines:
+            engines.extend(multi_engines)
+
+    for engine in engines:
+        if default_setup:
+            prefix: str = "DB"
+            default_setup = False
+        else:
+            prefix: str = str_positional(source=engine,
+                                         list_from=["mysql", "oracle", "postgres", "sqlserver"],
+                                         list_to=["MSQL", "ORCL", "PG", "SQLS"])
+        result[engine] = {
+            DbParam.NAME: env_get_str(key=f"{APP_PREFIX}_{prefix}_NAME"),
+            DbParam.USER: env_get_str(key=f"{APP_PREFIX}_{prefix}_USER"),
+            DbParam.PWD: env_get_str(key=f"{APP_PREFIX}_{prefix}_PWD"),
+            DbParam.HOST: env_get_str(key=f"{APP_PREFIX}_{prefix}_HOST"),
+            DbParam.PORT: env_get_int(key=f"{APP_PREFIX}_{prefix}_PORT"),
+            DbParam.VERSION: ""
+        }
+        if engine == DbEngine.ORACLE:
+            result[engine][DbParam.CLIENT] = env_get_path(key=f"{APP_PREFIX}_{prefix}_CLIENT")
+        elif engine == DbEngine.SQLSERVER:
+            result[engine][DbParam.DRIVER] = env_get_str(key=f"{APP_PREFIX}_{prefix}_DRIVER")
+
+    return result
+
+
+# connection data for the configured database engines
+_DB_CONN_DATA: Final[dict[DbEngine, dict[DbParam, Any]]] = __get_conn_data()
+
+
+def _assert_engine(engine: DbEngine,
+                   errors: list[str] = None) -> DbEngine:
+    """
+    Verify if *engine* is in the list of configured engines.
+
+    If *engine* is a configured engine, it is returned. If its value is *None*,
+    the first engine in the list of configured engines (the default engine) is returned.
+
     :param engine: the reference database engine
+    :param errors: incidental errors
     :return: the validated or default engine
     """
     # initialize the return valiable
     result: DbEngine | None = None
 
-    if not engine and _DB_ENGINES:
-        result = _DB_ENGINES[0]
-    elif engine in _DB_ENGINES:
+    if not engine and _DB_CONN_DATA:
+        result = next(iter(_DB_CONN_DATA))
+    elif engine in _DB_CONN_DATA:
         result = engine
     elif isinstance(errors, list):
         err_msg = f"Database engine '{engine}' unknown or not configured"
@@ -115,23 +132,23 @@ def _assert_engine(errors: list[str] | None,
     return result
 
 
-def _assert_query_quota(errors: list[str] | None,
-                        engine: DbEngine,
+def _assert_query_quota(engine: DbEngine,
                         query: str,
                         where_vals: tuple | None,
                         count: int,
                         min_count: int | None,
-                        max_count: int | None) -> bool:
+                        max_count: int | None,
+                        errors: list[str] = None) -> bool:
     """
     Verify whether the number of tuples returned is compliant with the constraints specified.
 
-    :param errors: incidental error messages
     :param engine: the reference database engine
     :param query: the query statement used
     :param where_vals: the bind values used in the query
     :param count: the number of tuples returned
     :param min_count: optionally defines the minimum number of tuples to be returned
     :param max_count: optionally defines the maximum number of tuples to be returned
+    :param errors: incidental error messages
     :return: whether the number of tuples returned is compliant
     """
     # initialize the control message variable

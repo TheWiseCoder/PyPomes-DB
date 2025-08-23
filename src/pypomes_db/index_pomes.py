@@ -6,13 +6,13 @@ from .db_common import DbEngine, _assert_engine
 from .db_pomes import db_select
 
 
-def db_get_indexes(errors: list[str] | None,
-                   schema: str = None,
+def db_get_indexes(schema: str = None,
                    omit_pks: bool = True,
                    tables: list[str] = None,
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
+                   errors: list[str] = None,
                    logger: Logger = None) -> list[str]:
     """
     Retrieve the list of schema-qualified indexes in the database.
@@ -25,13 +25,13 @@ def db_get_indexes(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param schema: optional name of the schema to restrict the search to
     :param omit_pks: omit indexes on primary key columns (defaults to 'True')
     :param tables: optional list of possibly schema-qualified tables whose columns the indexes were created on
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the list of schema-qualified indexes in the database
     """
@@ -41,16 +41,16 @@ def db_get_indexes(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
     # proceed, if no errors
     if not op_errors:
         # process table names
-        tbl_name = str_positional(source=curr_engine,
+        tbl_name = str_positional(source=engine,
                                   list_from=["oracle", "postgres", "sqlserver"],
                                   list_to=["table_name", "LOWER(t.relname)", "LOWER(t.name)"])
-        sch_name = str_positional(source=curr_engine,
+        sch_name = str_positional(source=engine,
                                   list_from=["oracle", "postgres", "sqlserver"],
                                   list_to=["aic.table_name",
                                            "LOWER(ns.nspname)", "SCHEMA_NAME(t.schema_id)"])
@@ -62,12 +62,12 @@ def db_get_indexes(errors: list[str] | None,
             # is 'table' schema-qualified ?
             if len(splits) == 1:
                 # no
-                tbl_value: str = table.upper() if curr_engine == DbEngine.ORACLE else table.lower()
+                tbl_value: str = table.upper() if engine == DbEngine.ORACLE else table.lower()
                 in_tables += f"'{tbl_value}',"
             else:
                 # yes
-                tbl_value: str = splits[1].upper() if curr_engine == DbEngine.ORACLE else splits[1].lower()
-                sch_value: str = splits[0].upper() if curr_engine == DbEngine.ORACLE else splits[0].lower()
+                tbl_value: str = splits[1].upper() if engine == DbEngine.ORACLE else splits[1].lower()
+                sch_value: str = splits[0].upper() if engine == DbEngine.ORACLE else splits[0].lower()
                 where_tables += (f"({tbl_name} = '{tbl_value}' "
                                  f"AND {sch_name} = '{sch_value}') OR ")
         if in_tables:
@@ -77,7 +77,7 @@ def db_get_indexes(errors: list[str] | None,
 
         # build the query
         sel_stmt: str | None = None
-        match curr_engine:
+        match engine:
             case DbEngine.MYSQL:
                 pass
             case DbEngine.ORACLE:
@@ -122,11 +122,11 @@ def db_get_indexes(errors: list[str] | None,
                         sel_stmt = sel_stmt[:-5]
 
         # execute the query
-        recs: list[tuple[str]] = db_select(errors=op_errors,
-                                           sel_stmt=sel_stmt,
-                                           engine=curr_engine,
+        recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
+                                           engine=engine,
                                            connection=connection,
                                            committable=committable,
+                                           errors=op_errors,
                                            logger=logger)
         # process the query result
         if not op_errors:
@@ -139,11 +139,11 @@ def db_get_indexes(errors: list[str] | None,
     return result
 
 
-def db_get_index_ddl(errors: list[str] | None,
-                     index_name: str,
+def db_get_index_ddl(index_name: str,
                      engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
+                     errors: list[str] = None,
                      logger: Logger = None) -> str | None:
     """
     Retrieve the DDL script used to create the index *index_name*.
@@ -153,11 +153,11 @@ def db_get_index_ddl(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param index_name: the schema-qualified name of the index
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the DDL script used to create the index, or *None* if error or if the index does not exist
     """
@@ -167,9 +167,9 @@ def db_get_index_ddl(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
 
     # is 'index_name' schema-qualified ?
     splits: list[str] = index_name.split(".")
@@ -185,26 +185,26 @@ def db_get_index_ddl(errors: list[str] | None,
 
         # build the query
         sel_stmt: str | None = None
-        if curr_engine == DbEngine.MYSQL:
+        if engine == DbEngine.MYSQL:
             pass
-        if curr_engine == DbEngine.ORACLE:
+        if engine == DbEngine.ORACLE:
             sel_stmt = ("SELECT DBMS_METADATA.GET_DDL('INDEX', "
                         f"'{index_name.upper()}', '{schema_name.upper()}') "
                         "FROM DUAL")
-        elif curr_engine == DbEngine.POSTGRES:
+        elif engine == DbEngine.POSTGRES:
             sel_stmt = ("SELECT pg_get_indexdef("
                         f"(quote_ident('{schema_name.lower()}') || '.' || "
                         f"quote_ident('{index_name.lower()}'))::regclass))")
-        elif curr_engine == DbEngine.SQLSERVER:
+        elif engine == DbEngine.SQLSERVER:
             sel_stmt = ("SELECT OBJECT_DEFINITION (OBJECT_ID("
                         f"'{schema_name.lower()}.{index_name.lower()}'))")
 
         # execute the query
-        recs: list[tuple[str]] = db_select(errors=op_errors,
-                                           sel_stmt=sel_stmt,
-                                           engine=curr_engine,
+        recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
+                                           engine=engine,
                                            connection=connection,
                                            committable=committable,
+                                           errors=op_errors,
                                            logger=logger)
         # process the query result
         if not op_errors and recs:

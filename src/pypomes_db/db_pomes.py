@@ -4,11 +4,11 @@ from pypomes_core import str_sanitize
 from typing import Any, BinaryIO
 
 from .db_common import (
-    DB_BIND_META_TAG, _DB_ENGINES, _DB_CONN_DATA,
-    DbEngine, DbParam,
+    DB_BIND_META_TAG, _DB_CONN_DATA, DbEngine, DbParam,
     _assert_engine, _get_param, _bind_columns, _bind_marks,
     _combine_insert_data, _combine_update_data, _combine_search_data
 )
+from .pool_pomes import db_pool_acquire, db_pool_release
 
 
 def db_setup(engine: DbEngine,
@@ -60,15 +60,13 @@ def db_setup(engine: DbEngine,
             _DB_CONN_DATA[engine][DbParam.CLIENT] = Path(db_client)
         elif engine == DbEngine.SQLSERVER:
             _DB_CONN_DATA[engine][DbParam.DRIVER] = db_driver
-        if engine not in _DB_ENGINES:
-            _DB_ENGINES.append(engine)
         result = True
 
     return result
 
 
-def db_assert_access(errors: list[str] | None,
-                     engine: DbEngine = None,
+def db_assert_access(engine: DbEngine = None,
+                     errors: list[str] = None,
                      logger: Logger = None) -> bool:
     """
     Determine whether the *engine*'s current configuration allows for connections.
@@ -78,8 +76,8 @@ def db_assert_access(errors: list[str] | None,
     of the database engine in use, and, if applicable in the case of *Oracle*, to initialize access
     to its client library.
 
-    :param errors: incidental errors
     :param engine: the database engine to use (uses the default engine, if not provided)
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: *True* if the connection attempt succeeded, *False* otherwise
     """
@@ -89,27 +87,28 @@ def db_assert_access(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    if not op_errors:
-        # determine if access to 'curr_engine' has been asserted
-        version: str = _DB_CONN_DATA[curr_engine].get(DbParam.VERSION)
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
+    if engine:
+        # determine if access to 'engine' has been asserted
+        version: str = _DB_CONN_DATA[engine].get(DbParam.VERSION)
         if version:
             result = True
         else:
-            # assert access to 'curr_engine'
-            if curr_engine == DbEngine.ORACLE:
+            # assert access to 'engine'
+            if engine == DbEngine.ORACLE:
                 from . import oracle_pomes
                 oracle_pomes.initialize(errors=op_errors,
                                         logger=logger)
-            conn: Any = db_connect(errors=op_errors,
-                                   engine=curr_engine,
+            conn: Any = db_connect(engine=engine,
+                                   errors=op_errors,
                                    logger=logger)
             if conn:
-                _DB_CONN_DATA[engine][DbParam.VERSION] = __get_version(engine=curr_engine,
+                _DB_CONN_DATA[engine][DbParam.VERSION] = __get_version(engine=engine,
                                                                        connection=conn)
-                conn.close()
+                db_close(connection=conn,
+                         logger=logger)
                 result = True
 
     # acknowledge local errors
@@ -129,8 +128,7 @@ def db_get_engines() -> list[DbEngine]:
 
     :return: the *list* of configured engines
     """
-    # SANITY-CHECK: return a cloned 'list'
-    return _DB_ENGINES.copy()
+    return list(_DB_CONN_DATA)
 
 
 def db_get_param(key: DbParam,
@@ -146,11 +144,11 @@ def db_get_param(key: DbParam,
     :param engine: the reference database engine (the default engine, if not provided)
     :return: the current value of the connection parameter, or *None* if not found
     """
-    # determine the database engine
-    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+    # assert the database engine
+    engine = next(iter(_DB_CONN_DATA)) if not engine and _DB_CONN_DATA else engine
 
     # return the connection parameter
-    return _get_param(engine=curr_engine,
+    return _get_param(engine=engine,
                       param=key)
 
 
@@ -167,11 +165,11 @@ def db_get_params(engine: DbEngine = None) -> dict[DbParam, Any] | None:
     :param engine: the reference database engine (the default engine, if not provided)
     :return: the current connection parameters for *engine*, or *None* if not found
     """
-    # determine the database engine
-    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+    # assert the database engine
+    engine = next(iter(_DB_CONN_DATA)) if not engine and _DB_CONN_DATA else engine
 
     # return the connection parameters
-    return _DB_CONN_DATA.get(curr_engine).copy() if _DB_CONN_DATA.get(curr_engine) else None
+    return _DB_CONN_DATA.get(engine).copy() if _DB_CONN_DATA.get(engine) else None
 
 
 def db_get_connection_string(engine: DbEngine = None) -> str:
@@ -184,18 +182,18 @@ def db_get_connection_string(engine: DbEngine = None) -> str:
     # initialize the return variable
     result: str | None = None
 
-    # determine the database engine
-    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+    # assert the database engine
+    engine = next(iter(_DB_CONN_DATA)) if not engine and _DB_CONN_DATA else engine
 
-    if curr_engine == DbEngine.MYSQL:
+    if engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == DbEngine.ORACLE:
+    elif engine == DbEngine.ORACLE:
         from . import oracle_pomes
         result = oracle_pomes.get_connection_string()
-    elif curr_engine == DbEngine.POSTGRES:
+    elif engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         result = postgres_pomes.get_connection_string()
-    elif curr_engine == DbEngine.SQLSERVER:
+    elif engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
         result = sqlserver_pomes.get_connection_string()
 
@@ -214,10 +212,10 @@ def db_get_reserved_words(engine: DbEngine = None) -> list[str] | None:
     # initialize the return variable
     result: list[str] | None = None
 
-    # determine the database engine
-    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+    # assert the database engine
+    engine = next(iter(_DB_CONN_DATA)) if not engine and _DB_CONN_DATA else engine
 
-    match curr_engine:
+    match engine:
         case DbEngine.MYSQL:
             from . import mysql_pomes
             result = mysql_pomes.RESERVED_WORDS
@@ -248,12 +246,12 @@ def db_is_reserved_word(word: str,
     # initialize the return variable
     result: bool | None = None
 
-    # determine the database engine
-    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+    # assert the database engine
+    engine = next(iter(_DB_CONN_DATA)) if not engine and _DB_CONN_DATA else engine
 
     if isinstance(word, str):
         word = word.upper()
-    match curr_engine:
+    match engine:
         case DbEngine.MYSQL:
             from . import mysql_pomes
             result = word in mysql_pomes.RESERVED_WORDS
@@ -289,11 +287,11 @@ def db_adjust_placeholders(stmt: str,
     # initialize the return variable
     result: str | None = None
 
-    # determine the database engine
-    curr_engine: DbEngine = _DB_ENGINES[0] if not engine and _DB_ENGINES else engine
+    # assert the database engine
+    engine = next(iter(_DB_CONN_DATA)) if not engine and _DB_CONN_DATA else engine
 
     # adjust the placeholders
-    match curr_engine:
+    match engine:
         case DbEngine.POSTGRES:
             result = stmt.replace(DB_BIND_META_TAG, "%s")
         case DbEngine.ORACLE:
@@ -334,94 +332,96 @@ def db_bind_arguments(stmt: str,
     # initialize the return variable
     result: str | None = None
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=None,
-                                           engine=engine)
+    # assert the database engine
+    engine = _assert_engine(engine=engine)
+
     # establish the correct bind tags
     stmt = db_adjust_placeholders(stmt=stmt,
-                                  engine=curr_engine)
+                                  engine=engine)
     # bind the arguments
-    if curr_engine == DbEngine.MYSQL:
+    if engine == DbEngine.MYSQL:
         from . import mysql_pomes
         result = mysql_pomes.bind_arguments(stmt=stmt,
                                             bind_vals=bind_vals)
-    elif curr_engine == DbEngine.ORACLE:
+    elif engine == DbEngine.ORACLE:
         from . import oracle_pomes
         result = oracle_pomes.bind_arguments(stmt=stmt,
                                              bind_vals=bind_vals)
-    elif curr_engine == DbEngine.POSTGRES:
+    elif engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         result = postgres_pomes.bind_arguments(stmt=stmt,
                                                bind_vals=bind_vals)
-    elif curr_engine == DbEngine.SQLSERVER:
+    elif engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
         result = sqlserver_pomes.bind_arguments(stmt=stmt,
                                                 bind_vals=bind_vals)
     return result
 
 
-def db_connect(errors: list[str] | None,
-               autocommit: bool = False,
+def db_connect(autocommit: bool = False,
                engine: DbEngine = None,
+               errors: list[str] = None,
                logger: Logger = None) -> Any:
     """
     Obtain and return a connection to the database, or *None* if the connection cannot be obtained.
 
     The target database engine, specified or default, must have been previously configured.
+    Obtaining a connection from the connection pool is initially attempted, and if not successful,
+    the native driver is summoned for the task.
 
-    :param errors: incidental error messages
     :param autocommit: whether the connection is to be in autocommit mode (defaults to False)
     :param engine: the database engine to use (uses the default engine, if not provided)
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the connection to the database
     """
     # initialize the return variable
-    result: Any = None
+    result: int | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
-
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    # connect to the database
-    if curr_engine == DbEngine.MYSQL:
-        pass
-    elif curr_engine == DbEngine.ORACLE:
-        from . import oracle_pomes
-        result = oracle_pomes.connect(errors=op_errors,
-                                      autocommit=autocommit,
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=errors)
+    # attempt to obtain a connection from the pool
+    if engine:
+        result: Any = db_pool_acquire(engine=engine,
                                       logger=logger)
-    elif curr_engine == DbEngine.POSTGRES:
-        from . import postgres_pomes
-        result = postgres_pomes.connect(errors=op_errors,
-                                        autocommit=autocommit,
-                                        logger=logger)
-    elif curr_engine == DbEngine.SQLSERVER:
-        from . import sqlserver_pomes
-        result = sqlserver_pomes.connect(errors=op_errors,
-                                         autocommit=autocommit,
-                                         logger=logger)
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
-
+    if not result:
+        # connect to the database
+        if engine == DbEngine.MYSQL:
+            pass
+        elif engine == DbEngine.ORACLE:
+            from . import oracle_pomes
+            result = oracle_pomes.connect(autocommit=autocommit,
+                                          errors=errors,
+                                          logger=logger)
+        elif engine == DbEngine.POSTGRES:
+            from . import postgres_pomes
+            result = postgres_pomes.connect(autocommit=autocommit,
+                                            errors=errors,
+                                            logger=logger)
+        elif engine == DbEngine.SQLSERVER:
+            from . import sqlserver_pomes
+            result = sqlserver_pomes.connect(autocommit=autocommit,
+                                             errors=errors,
+                                             logger=logger)
     return result
 
 
-def db_commit(errors: list[str] | None,
-              connection: Any,
+def db_commit(connection: Any,
+              errors: list[str] = None,
               logger: Logger = None) -> None:
     """
     Commit the current transaction on *connection*.
 
-    :param errors: incidental error messages
     :param connection: the reference database connection
+    :param errors: incidental error messages
     :param logger: optional logger
     """
     # commit the transaction
     try:
         connection.commit()
+        if logger:
+            logger.debug(f"Transaction committed on '{connection}'")
     except Exception as e:
         err_msg: str = (f"Error committing the transaction on '{connection}': "
                         f"{str_sanitize(source=f'{e}')}")
@@ -430,37 +430,52 @@ def db_commit(errors: list[str] | None,
         if isinstance(errors, list):
             errors.append(err_msg)
 
-    if logger:
-        logger.debug(f"Transaction committed on {connection}")
 
-
-def db_rollback(errors: list[str] | None,
-                connection: Any,
+def db_rollback(connection: Any,
                 logger: Logger = None) -> None:
     """
     Rollback the current transaction on *connection*.
 
-    :param errors: incidental error messages
     :param connection: the reference database connection
     :param logger: optional logger
     """
     # rollback the transaction
     try:
         connection.rollback()
-    except Exception as e:
-        err_msg: str = (f"Error rolling back the transaction on '{connection}': "
-                        f"{str_sanitize(source=f'{e}')}")
         if logger:
-            logger.error(msg=err_msg)
-        if isinstance(errors, list):
-            errors.append(err_msg)
+            logger.debug(f"Transaction rolled back on '{connection}'")
+    except Exception as e:
+        if logger:
+            logger.error(msg=f"Error rolling back the transaction on '{connection}': "
+                             f"{str_sanitize(source=f'{e}')}")
 
-    if logger:
-        logger.debug(f"Transaction rolled back on {connection}")
+
+def db_close(connection: Any,
+             logger: Logger = None) -> None:
+    """
+    Close the connection given in *connection*.
+
+    Returning *connection* to the connection pool is initially attempted, and if not successful,
+    a *close()* operation is performed on the connection itself.
+
+    :param connection: the reference database connection
+    :param logger: optional logger
+    """
+    # attempt to return the connection to the pool
+    if not db_pool_release(conn=connection,
+                           logger=logger):
+        # close the connection
+        try:
+            connection.close()
+            if logger:
+                logger.debug(f"Connection '{connection}' closed")
+        except Exception as e:
+            if logger:
+                logger.error(msg=f"Error closing the connection '{connection}': "
+                                 f"{str_sanitize(source=f'{e}')}")
 
 
-def db_count(errors: list[str] | None,
-             table: str,
+def db_count(table: str,
              count_clause: str = None,
              where_clause: str = None,
              where_vals: tuple = None,
@@ -468,6 +483,7 @@ def db_count(errors: list[str] | None,
              engine: DbEngine = None,
              connection: Any = None,
              committable: bool = None,
+             errors: list[str] = None,
              logger: Logger = None) -> int | None:
     """
     Obtain and return the number of tuples in *table* meeting the criteria defined in *where_data*.
@@ -483,7 +499,6 @@ def db_count(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param table: the table to be searched
     :param count_clause: optional parameters in the *COUNT* clause (defaults to 'COUNT(*)')
     :param where_clause: optional criteria for tuple selection
@@ -492,6 +507,7 @@ def db_count(errors: list[str] | None,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the number of tuples counted, or *None* if error
     """
@@ -502,14 +518,14 @@ def db_count(errors: list[str] | None,
     op_errors: list[str] = []
 
     # execute the query
-    recs: list[tuple[int]] = db_select(errors=op_errors,
-                                       sel_stmt=f"SELECT COUNT({count_clause or '*'}) FROM {table}",
+    recs: list[tuple[int]] = db_select(sel_stmt=f"SELECT COUNT({count_clause or '*'}) FROM {table}",
                                        where_clause=where_clause,
                                        where_vals=where_vals,
                                        where_data=where_data,
                                        engine=engine,
                                        connection=connection,
                                        committable=committable,
+                                       errors=op_errors,
                                        logger=logger)
     if not op_errors:
         result = recs[0][0]
@@ -519,8 +535,7 @@ def db_count(errors: list[str] | None,
     return result
 
 
-def db_exists(errors: list[str] | None,
-              table: str,
+def db_exists(table: str,
               where_clause: str = None,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
@@ -529,6 +544,7 @@ def db_exists(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
+              errors: list[str] = None,
               logger: Logger = None) -> bool | None:
     """
     Determine whether at least one tuple in *table* meets the criteria defined in *where_data*.
@@ -548,7 +564,6 @@ def db_exists(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param table: the table to be searched
     :param where_clause: optional criteria for tuple selection
     :param where_vals: values to be associated with the selection criteria
@@ -558,6 +573,7 @@ def db_exists(errors: list[str] | None,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: *True* if the criteria for tuple existence were met, *False* otherwise, *None* if error
     """
@@ -568,14 +584,14 @@ def db_exists(errors: list[str] | None,
     op_errors: list[str] = []
 
     # count the tuples
-    count: int = db_count(errors=op_errors,
-                          table=table,
+    count: int = db_count(table=table,
                           where_clause=where_clause,
                           where_vals=where_vals,
                           where_data=where_data,
                           engine=engine,
                           connection=connection,
                           committable=committable,
+                          errors=op_errors,
                           logger=logger)
     if not op_errors:
         result = not (count == 0 or
@@ -587,8 +603,7 @@ def db_exists(errors: list[str] | None,
     return result
 
 
-def db_select(errors: list[str] | None,
-              sel_stmt: str,
+def db_select(sel_stmt: str,
               where_clause: str = None,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
@@ -600,6 +615,7 @@ def db_select(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
+              errors: list[str] = None,
               logger: Logger = None) -> list[tuple] | None:
     """
     Query the database and return all tuples that satisfy the *sel_stmt* command.
@@ -622,7 +638,6 @@ def db_select(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_clause: optional criteria for tuple selection (ignored if *sel_stmt* contains a *WHERE* clause)
     :param where_vals: values to be associated with the selection criteria
@@ -635,6 +650,7 @@ def db_select(errors: list[str] | None,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: list of tuples containing the search result, *[]* on empty search, or *None* if error
     """
@@ -644,9 +660,9 @@ def db_select(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
 
     # process search data provided as key-value pairs
     if where_clause or where_data or orderby_clause:
@@ -655,18 +671,21 @@ def db_select(errors: list[str] | None,
                                                     where_vals=where_vals,
                                                     where_data=where_data,
                                                     orderby_clause=orderby_clause,
-                                                    engine=curr_engine)
+                                                    engine=engine)
     # establish the correct bind tags
     if where_vals and DB_BIND_META_TAG in sel_stmt:
         sel_stmt = db_adjust_placeholders(stmt=sel_stmt,
-                                          engine=curr_engine)
-
-    if curr_engine == DbEngine.MYSQL:
+                                          engine=engine)
+    # make sure to have a connection
+    if engine:
+        connection = connection or db_connect(engine=engine,
+                                              errors=op_errors,
+                                              logger=logger)
+    if engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == DbEngine.ORACLE:
+    elif engine == DbEngine.ORACLE:
         from . import oracle_pomes
-        result = oracle_pomes.select(errors=op_errors,
-                                     sel_stmt=sel_stmt,
+        result = oracle_pomes.select(sel_stmt=sel_stmt,
                                      where_vals=where_vals,
                                      min_count=min_count,
                                      max_count=max_count,
@@ -674,11 +693,11 @@ def db_select(errors: list[str] | None,
                                      limit_count=limit_count,
                                      conn=connection,
                                      committable=committable,
+                                     errors=op_errors,
                                      logger=logger)
-    elif curr_engine == DbEngine.POSTGRES:
+    elif engine == DbEngine.POSTGRES:
         from . import postgres_pomes
-        result = postgres_pomes.select(errors=op_errors,
-                                       sel_stmt=sel_stmt,
+        result = postgres_pomes.select(sel_stmt=sel_stmt,
                                        where_vals=where_vals,
                                        min_count=min_count,
                                        max_count=max_count,
@@ -686,11 +705,11 @@ def db_select(errors: list[str] | None,
                                        limit_count=limit_count,
                                        conn=connection,
                                        committable=committable,
+                                       errors=op_errors,
                                        logger=logger)
-    elif curr_engine == DbEngine.SQLSERVER:
+    elif engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
-        result = sqlserver_pomes.select(errors=op_errors,
-                                        sel_stmt=sel_stmt,
+        result = sqlserver_pomes.select(sel_stmt=sel_stmt,
                                         where_vals=where_vals,
                                         min_count=min_count,
                                         max_count=max_count,
@@ -698,6 +717,7 @@ def db_select(errors: list[str] | None,
                                         limit_count=limit_count,
                                         conn=connection,
                                         committable=committable,
+                                        errors=op_errors,
                                         logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
@@ -706,14 +726,14 @@ def db_select(errors: list[str] | None,
     return result
 
 
-def db_insert(errors: list[str] | None,
-              insert_stmt: str,
+def db_insert(insert_stmt: str,
               insert_vals: tuple = None,
               insert_data: dict[str, Any] = None,
               return_cols: dict[str, type] = None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
+              errors: list[str] = None,
               logger: Logger = None) -> tuple | int | None:
     """
     Insert a tuple, with values defined in *insert_vals*, and *insert_data*, into the database.
@@ -723,7 +743,6 @@ def db_insert(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param insert_stmt: the INSERT command
     :param insert_vals: values to be inserted
     :param insert_data: data to be inserted as key-value pairs
@@ -731,6 +750,7 @@ def db_insert(errors: list[str] | None,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the values of *return_cols*, or the number of inserted tuples (0 ou 1), or *None* if error
     """
@@ -742,13 +762,13 @@ def db_insert(errors: list[str] | None,
         insert_stmt, insert_vals = _combine_insert_data(insert_stmt=insert_stmt,
                                                         insert_vals=insert_vals,
                                                         insert_data=insert_data)
-    result: tuple | int = db_execute(errors=op_errors,
-                                     exc_stmt=insert_stmt,
+    result: tuple | int = db_execute(exc_stmt=insert_stmt,
                                      bind_vals=insert_vals,
                                      return_cols=return_cols,
                                      engine=engine,
                                      connection=connection,
                                      committable=committable,
+                                     errors=op_errors,
                                      logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
@@ -757,8 +777,7 @@ def db_insert(errors: list[str] | None,
     return result
 
 
-def db_update(errors: list[str] | None,
-              update_stmt: str,
+def db_update(update_stmt: str,
               update_vals: tuple = None,
               update_data: dict[str, Any] = None,
               where_clause: str = None,
@@ -770,6 +789,7 @@ def db_update(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
+              errors: list[str] = None,
               logger: Logger = None) -> tuple | int | None:
     """
     Update one or more tuples in the database, as defined by the command *update_stmt*.
@@ -787,7 +807,6 @@ def db_update(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param update_stmt: the UPDATE command
     :param update_vals: values for the update operation
     :param update_data: update data as key-value pairs
@@ -800,6 +819,7 @@ def db_update(errors: list[str] | None,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the values of *return_cols*, or the number of updated tuples, or *None* if error
     """
@@ -813,14 +833,13 @@ def db_update(errors: list[str] | None,
                                                         update_data=update_data)
     # process search data provided as key-value pairs
     if where_clause or where_data:
-        curr_engine: DbEngine = _assert_engine(errors=[],
-                                               engine=engine)
+        engine = _assert_engine(engine=engine)
         update_stmt, where_vals = _combine_search_data(query_stmt=update_stmt,
                                                        where_clause=where_clause,
                                                        where_vals=where_vals,
                                                        where_data=where_data,
                                                        orderby_clause=None,
-                                                       engine=curr_engine)
+                                                       engine=engine)
     # combine 'update' and 'where' bind values
     bind_vals: tuple | None = None
     if update_vals and where_vals:
@@ -830,8 +849,7 @@ def db_update(errors: list[str] | None,
     elif where_vals:
         bind_vals = where_vals
 
-    result: tuple | int = db_execute(errors=op_errors,
-                                     exc_stmt=update_stmt,
+    result: tuple | int = db_execute(exc_stmt=update_stmt,
                                      bind_vals=bind_vals,
                                      return_cols=return_cols,
                                      min_count=min_count,
@@ -839,6 +857,7 @@ def db_update(errors: list[str] | None,
                                      engine=engine,
                                      connection=connection,
                                      committable=committable,
+                                     errors=op_errors,
                                      logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
@@ -847,8 +866,7 @@ def db_update(errors: list[str] | None,
     return result
 
 
-def db_delete(errors: list[str] | None,
-              delete_stmt: str,
+def db_delete(delete_stmt: str,
               where_clause: str = None,
               where_vals: tuple = None,
               where_data: dict[str, Any] = None,
@@ -857,6 +875,7 @@ def db_delete(errors: list[str] | None,
               engine: DbEngine = None,
               connection: Any = None,
               committable: bool = None,
+              errors: list[str] = None,
               logger: Logger = None) -> int | None:
     """
     Delete one or more tuples in the database, as defined by the *delete_stmt* command.
@@ -872,7 +891,6 @@ def db_delete(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param delete_stmt: the DELETE command
     :param where_clause: optional criteria for tuple selection (ignored if *delete_stmt* contains a *WHERE* clause)
     :param where_vals: values to be associated with the selection criteria
@@ -882,6 +900,7 @@ def db_delete(errors: list[str] | None,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the number of deleted tuples, or *None* if error
     """
@@ -890,22 +909,21 @@ def db_delete(errors: list[str] | None,
 
     # process search data provided as key-value pairs
     if where_clause or where_data:
-        curr_engine: DbEngine = _assert_engine(errors=[],
-                                               engine=engine)
+        engine = _assert_engine(engine=engine)
         delete_stmt, where_vals = _combine_search_data(query_stmt=delete_stmt,
                                                        where_clause=where_clause,
                                                        where_vals=where_vals,
                                                        where_data=where_data,
                                                        orderby_clause=None,
-                                                       engine=curr_engine)
-    result: int = db_execute(errors=op_errors,
-                             exc_stmt=delete_stmt,
+                                                       engine=engine)
+    result: int = db_execute(exc_stmt=delete_stmt,
                              bind_vals=where_vals,
                              min_count=min_count,
                              max_count=max_count,
                              engine=engine,
                              connection=connection,
                              committable=committable,
+                             errors=op_errors,
                              logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
@@ -914,14 +932,14 @@ def db_delete(errors: list[str] | None,
     return result
 
 
-def db_bulk_insert(errors: list[str] | None,
-                   target_table: str,
+def db_bulk_insert(target_table: str,
                    insert_attrs: list[str],
                    insert_vals: list[tuple],
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
                    identity_column: str = None,
+                   errors: list[str] = None,
                    logger: Logger = None) -> int | None:
     """
     Bulk insert rows into *target_table*, with values of *insert_attrs* defined in *insert_vals*.
@@ -935,7 +953,6 @@ def db_bulk_insert(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param target_table: the possibly schema-qualified table to insert into
     :param insert_attrs: the list of table attributes to insert values into
     :param insert_vals: the list of values to be inserted
@@ -943,6 +960,7 @@ def db_bulk_insert(errors: list[str] | None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param identity_column: column whose values are generated by the database
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the number of inserted tuples (1 for postgres), or *None* if error
     """
@@ -952,12 +970,18 @@ def db_bulk_insert(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    if curr_engine == DbEngine.MYSQL:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
+
+    # make sure to have a connection
+    if engine:
+        connection = connection or db_connect(engine=engine,
+                                              errors=op_errors,
+                                              logger=logger)
+    if engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == DbEngine.POSTGRES:
+    elif engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         insert_stmt: str = f"INSERT INTO {target_table} ({', '.join(insert_attrs)})"
         # pre-insert handling of identity columns
@@ -965,64 +989,64 @@ def db_bulk_insert(errors: list[str] | None,
             insert_stmt += " OVERRIDING SYSTEM VALUE"
         insert_stmt += " VALUES %s"
         # obtain template to handle inserts of null values
-        template: str = postgres_pomes.build_typified_template(errors=errors,
-                                                               insert_stmt=insert_stmt,
+        template: str = postgres_pomes.build_typified_template(insert_stmt=insert_stmt,
                                                                nullable_only=True,
                                                                conn=connection,
+                                                               errors=op_errors,
                                                                logger=logger)
         if not op_errors:
-            result = postgres_pomes.bulk_execute(errors=op_errors,
-                                                 exc_stmt=insert_stmt,
+            result = postgres_pomes.bulk_execute(exc_stmt=insert_stmt,
                                                  exc_vals=insert_vals,
                                                  template=template,
                                                  conn=connection,
                                                  committable=False if identity_column else committable,
+                                                 errors=op_errors,
                                                  logger=logger)
         # post-insert handling of identity columns
         if not op_errors and identity_column:
-            postgres_pomes.identity_post_insert(errors=op_errors,
-                                                insert_stmt=insert_stmt,
+            postgres_pomes.identity_post_insert(insert_stmt=insert_stmt,
                                                 conn=connection,
                                                 committable=committable,
                                                 identity_column=identity_column,
+                                                errors=op_errors,
                                                 logger=logger)
-    elif curr_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
-        bind_marks: str = _bind_marks(engine=curr_engine,
+    elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
+        bind_marks: str = _bind_marks(engine=engine,
                                       start=1,
                                       finish=len(insert_attrs) + 1)
         insert_stmt: str = (f"INSERT INTO {target_table} "
                             f"({', '.join(insert_attrs)}) VALUES({bind_marks})")
-        if curr_engine == DbEngine.ORACLE:
+        if engine == DbEngine.ORACLE:
             from . import oracle_pomes
-            result = oracle_pomes.bulk_execute(errors=op_errors,
-                                               exc_stmt=insert_stmt,
+            result = oracle_pomes.bulk_execute(exc_stmt=insert_stmt,
                                                exc_vals=insert_vals,
                                                conn=connection,
                                                committable=committable,
+                                               errors=op_errors,
                                                logger=logger)
-        elif curr_engine == DbEngine.SQLSERVER:
+        elif engine == DbEngine.SQLSERVER:
             from . import sqlserver_pomes
             # pre-insert handling of identity columns
             if identity_column:
-                sqlserver_pomes.identity_pre_insert(errors=op_errors,
-                                                    insert_stmt=insert_stmt,
+                sqlserver_pomes.identity_pre_insert(insert_stmt=insert_stmt,
                                                     conn=connection,
+                                                    errors=op_errors,
                                                     logger=logger)
             if not op_errors:
-                result = sqlserver_pomes.bulk_execute(errors=op_errors,
-                                                      exc_stmt=insert_stmt,
+                result = sqlserver_pomes.bulk_execute(exc_stmt=insert_stmt,
                                                       exc_vals=insert_vals,
                                                       conn=connection,
                                                       committable=False if identity_column else committable,
+                                                      errors=op_errors,
                                                       logger=logger)
                 # post-insert handling of identity columns
                 if not op_errors and identity_column:
                     from . import sqlserver_pomes
-                    sqlserver_pomes.identity_post_insert(errors=op_errors,
-                                                         insert_stmt=insert_stmt,
+                    sqlserver_pomes.identity_post_insert(insert_stmt=insert_stmt,
                                                          conn=connection,
                                                          committable=committable,
                                                          identity_column=identity_column,
+                                                         errors=op_errors,
                                                          logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
@@ -1031,14 +1055,14 @@ def db_bulk_insert(errors: list[str] | None,
     return result
 
 
-def db_bulk_update(errors: list[str] | None,
-                   target_table: str,
+def db_bulk_update(target_table: str,
                    set_attrs: list[str],
                    where_attrs: list[str],
                    update_vals: list[tuple],
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
+                   errors: list[str] = None,
                    logger: Logger = None) -> int | None:
     """
     Bulk update rows in *target_table*, with values of *where_attrs* defined in *update_vals*.
@@ -1051,7 +1075,6 @@ def db_bulk_update(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param target_table: the possibly schema-qualified table to update
     :param set_attrs: the list of table attributes to update
     :param where_attrs: the list of table attributes identifying the tuples
@@ -1059,6 +1082,7 @@ def db_bulk_update(errors: list[str] | None,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the number of updated tuples, or *None* if error
     """
@@ -1068,12 +1092,18 @@ def db_bulk_update(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    if curr_engine == DbEngine.MYSQL:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=errors)
+
+    # make sure to have a connection
+    if engine:
+        connection = connection or db_connect(engine=engine,
+                                              errors=op_errors,
+                                              logger=logger)
+    if engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == DbEngine.POSTGRES:
+    elif engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         set_items: str = ""
         for set_attr in set_attrs:
@@ -1086,44 +1116,44 @@ def db_bulk_update(errors: list[str] | None,
                             f"FROM (VALUES %s) AS data ({', '.join(set_attrs + where_attrs)}) "
                             f"WHERE {where_items[:-5]}")
         # modify statement to handle updates of null values
-        update_stmt = postgres_pomes.tipify_bulk_update(errors=errors,
-                                                        update_stmt=update_stmt,
+        update_stmt = postgres_pomes.tipify_bulk_update(update_stmt=update_stmt,
                                                         nullable_only=True,
                                                         conn=connection,
+                                                        errors=op_errors,
                                                         logger=logger)
         if not op_errors:
-            result = postgres_pomes.bulk_execute(errors=op_errors,
-                                                 exc_stmt=update_stmt,
+            result = postgres_pomes.bulk_execute(exc_stmt=update_stmt,
                                                  exc_vals=update_vals,
                                                  template=None,
                                                  conn=connection,
                                                  committable=committable,
+                                                 errors=op_errors,
                                                  logger=logger)
-    elif curr_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
-        set_items: str = _bind_columns(engine=curr_engine,
+    elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
+        set_items: str = _bind_columns(engine=engine,
                                        columns=set_attrs,
                                        concat=", ",
                                        start_index=1)
-        where_items: str = _bind_columns(engine=curr_engine,
+        where_items: str = _bind_columns(engine=engine,
                                          columns=where_attrs,
                                          concat=" AND ",
                                          start_index=len(set_attrs)+1)
         update_stmt: str = f"UPDATE {target_table} SET {set_items} WHERE {where_items}"
-        if curr_engine == DbEngine.ORACLE:
+        if engine == DbEngine.ORACLE:
             from . import oracle_pomes
-            result = oracle_pomes.bulk_execute(errors=op_errors,
-                                               exc_stmt=update_stmt,
+            result = oracle_pomes.bulk_execute(exc_stmt=update_stmt,
                                                exc_vals=update_vals,
                                                conn=connection,
                                                committable=committable,
+                                               errors=op_errors,
                                                logger=logger)
         else:
             from . import sqlserver_pomes
-            result = sqlserver_pomes.bulk_execute(errors=op_errors,
-                                                  exc_stmt=update_stmt,
+            result = sqlserver_pomes.bulk_execute(exc_stmt=update_stmt,
                                                   exc_vals=update_vals,
                                                   conn=connection,
                                                   committable=committable,
+                                                  errors=op_errors,
                                                   logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
@@ -1132,13 +1162,13 @@ def db_bulk_update(errors: list[str] | None,
     return result
 
 
-def db_bulk_delete(errors: list[str] | None,
-                   target_table: str,
+def db_bulk_delete(target_table: str,
                    where_attrs: list[str],
                    where_vals: list[tuple],
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
+                   errors: list[str] = None,
                    logger: Logger = None) -> int | None:
     """
     Bulk delete from *target_table*, with values of *where_attrs* defined in *where_vals*.
@@ -1149,13 +1179,13 @@ def db_bulk_delete(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param target_table: the possibly schema-qualified table to delete from
     :param where_attrs: the list of attributes for identifying the tuples to be deleted
     :param where_vals: the list of values to bind to the attributes
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the number of inserted tuples (1 for postgres), or *None* if error
     """
@@ -1165,43 +1195,49 @@ def db_bulk_delete(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    if curr_engine == DbEngine.MYSQL:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=errors)
+
+    # make sure to have a connection
+    if engine:
+        connection = connection or db_connect(engine=engine,
+                                              errors=op_errors,
+                                              logger=logger)
+    if engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == DbEngine.POSTGRES:
+    elif engine == DbEngine.POSTGRES:
         from . import postgres_pomes
         delete_stmt: str = (f"DELETE FROM {target_table} "
                             f"WHERE ({', '.join(where_attrs)}) IN (%s)")
-        result = postgres_pomes.bulk_execute(errors=op_errors,
-                                             exc_stmt=delete_stmt,
+        result = postgres_pomes.bulk_execute(exc_stmt=delete_stmt,
                                              exc_vals=where_vals,
                                              template=None,
                                              conn=connection,
                                              committable=committable,
+                                             errors=op_errors,
                                              logger=logger)
-    elif curr_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
-        where_items: str = _bind_columns(engine=curr_engine,
+    elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
+        where_items: str = _bind_columns(engine=engine,
                                          columns=where_attrs,
                                          concat=" AND",
                                          start_index=1)
         delete_stmt: str = f"DELETE FROM {target_table} WHERE {where_items}"
-        if curr_engine == DbEngine.ORACLE:
+        if engine == DbEngine.ORACLE:
             from . import oracle_pomes
-            result = oracle_pomes.bulk_execute(errors=op_errors,
-                                               exc_stmt=delete_stmt,
+            result = oracle_pomes.bulk_execute(exc_stmt=delete_stmt,
                                                exc_vals=where_vals,
                                                conn=connection,
                                                committable=committable,
+                                               errors=op_errors,
                                                logger=logger)
         else:
             from . import sqlserver_pomes
-            result = sqlserver_pomes.bulk_execute(errors=op_errors,
-                                                  exc_stmt=delete_stmt,
+            result = sqlserver_pomes.bulk_execute(exc_stmt=delete_stmt,
                                                   exc_vals=where_vals,
                                                   conn=connection,
                                                   committable=committable,
+                                                  errors=op_errors,
                                                   logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
@@ -1210,8 +1246,7 @@ def db_bulk_delete(errors: list[str] | None,
     return result
 
 
-def db_update_lob(errors: list[str] | None,
-                  lob_table: str,
+def db_update_lob(lob_table: str,
                   lob_column: str,
                   pk_columns: list[str],
                   pk_vals: tuple,
@@ -1220,6 +1255,7 @@ def db_update_lob(errors: list[str] | None,
                   engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
+                  errors: list[str] = None,
                   logger: Logger = None) -> None:
     """
     Update a large binary object (LOB) in the given table and column.
@@ -1230,7 +1266,6 @@ def db_update_lob(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param lob_table: the table to be update with the new LOB
     :param lob_column: the column to be updated with the new LOB
     :param pk_columns: columns making up a primary key, or a unique identifier for the tuple
@@ -1240,21 +1275,21 @@ def db_update_lob(errors: list[str] | None,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: number of LOBs effectively copied, or *None* if error
     """
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    if curr_engine == DbEngine.MYSQL:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=errors)
+    if engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == DbEngine.ORACLE:
+    elif engine == DbEngine.ORACLE:
         from . import oracle_pomes
-        oracle_pomes.update_lob(errors=op_errors,
-                                lob_table=lob_table,
+        oracle_pomes.update_lob(lob_table=lob_table,
                                 lob_column=lob_column,
                                 pk_columns=pk_columns,
                                 pk_vals=pk_vals,
@@ -1262,11 +1297,11 @@ def db_update_lob(errors: list[str] | None,
                                 chunk_size=chunk_size,
                                 conn=connection,
                                 committable=committable,
+                                errors=op_errors,
                                 logger=logger)
-    elif curr_engine == DbEngine.POSTGRES:
+    elif engine == DbEngine.POSTGRES:
         from . import postgres_pomes
-        postgres_pomes.update_lob(errors=op_errors,
-                                  lob_table=lob_table,
+        postgres_pomes.update_lob(lob_table=lob_table,
                                   lob_column=lob_column,
                                   pk_columns=pk_columns,
                                   pk_vals=pk_vals,
@@ -1274,11 +1309,11 @@ def db_update_lob(errors: list[str] | None,
                                   chunk_size=chunk_size,
                                   conn=connection,
                                   committable=committable,
+                                  errors=op_errors,
                                   logger=logger)
-    elif curr_engine == DbEngine.SQLSERVER:
+    elif engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
-        sqlserver_pomes.update_lob(errors=op_errors,
-                                   lob_table=lob_table,
+        sqlserver_pomes.update_lob(lob_table=lob_table,
                                    lob_column=lob_column,
                                    pk_columns=pk_columns,
                                    pk_vals=pk_vals,
@@ -1286,14 +1321,14 @@ def db_update_lob(errors: list[str] | None,
                                    chunk_size=chunk_size,
                                    conn=connection,
                                    committable=committable,
+                                   errors=op_errors,
                                    logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
 
 
-def db_execute(errors: list[str] | None,
-               exc_stmt: str,
+def db_execute(exc_stmt: str,
                bind_vals: tuple = None,
                return_cols: dict[str, type] = None,
                min_count: int = None,
@@ -1301,6 +1336,7 @@ def db_execute(errors: list[str] | None,
                engine: DbEngine = None,
                connection: Any = None,
                committable: bool = None,
+               errors: list[str] = None,
                logger: Logger = None) -> int | None:
     """
     Execute the command *exc_stmt* on the database.
@@ -1321,7 +1357,6 @@ def db_execute(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
     :param return_cols: optional columns and respective types, whose values are to be returned
@@ -1330,6 +1365,7 @@ def db_execute(errors: list[str] | None,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the values of *return_cols*, the return value from the command execution, or *None* if error
     """
@@ -1339,47 +1375,52 @@ def db_execute(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=errors)
+    # make sure to have a connection
+    if engine:
+        connection = connection or db_connect(engine=engine,
+                                              errors=op_errors,
+                                              logger=logger)
     # establish the correct bind tags
     if bind_vals and DB_BIND_META_TAG in exc_stmt:
         exc_stmt = db_adjust_placeholders(stmt=exc_stmt,
-                                          engine=curr_engine)
-    if curr_engine == DbEngine.MYSQL:
+                                          engine=engine)
+    if engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == DbEngine.ORACLE:
+    elif engine == DbEngine.ORACLE:
         from . import oracle_pomes
-        result = oracle_pomes.execute(errors=op_errors,
-                                      exc_stmt=exc_stmt,
+        result = oracle_pomes.execute(exc_stmt=exc_stmt,
                                       bind_vals=bind_vals,
                                       return_cols=return_cols,
                                       min_count=min_count,
                                       max_count=max_count,
                                       conn=connection,
                                       committable=committable,
+                                      errors=op_errors,
                                       logger=logger)
-    elif curr_engine == DbEngine.POSTGRES:
+    elif engine == DbEngine.POSTGRES:
         from . import postgres_pomes
-        result = postgres_pomes.execute(errors=op_errors,
-                                        exc_stmt=exc_stmt,
+        result = postgres_pomes.execute(exc_stmt=exc_stmt,
                                         bind_vals=bind_vals,
                                         return_cols=return_cols,
                                         min_count=min_count,
                                         max_count=max_count,
                                         conn=connection,
                                         committable=committable,
+                                        errors=op_errors,
                                         logger=logger)
-    elif curr_engine == DbEngine.SQLSERVER:
+    elif engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
-        result = sqlserver_pomes.execute(errors=op_errors,
-                                         exc_stmt=exc_stmt,
+        result = sqlserver_pomes.execute(exc_stmt=exc_stmt,
                                          bind_vals=bind_vals,
                                          return_cols=return_cols,
                                          min_count=min_count,
                                          max_count=max_count,
                                          conn=connection,
                                          committable=committable,
+                                         errors=op_errors,
                                          logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
@@ -1388,12 +1429,12 @@ def db_execute(errors: list[str] | None,
     return result
 
 
-def db_call_function(errors: list[str] | None,
-                     func_name: str,
+def db_call_function(func_name: str,
                      func_vals: tuple = None,
                      engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
+                     errors: list[str] = None,
                      logger: Logger = None) -> list[tuple] | None:
     """
     Execute the stored function *func_name* in the database, with the parameters given in *func_vals*.
@@ -1402,12 +1443,12 @@ def db_call_function(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param func_name: name of the stored function
     :param func_vals: parameters for the stored function
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the data returned by the function, or *None* if error
     """
@@ -1417,34 +1458,39 @@ def db_call_function(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    if curr_engine == DbEngine.MYSQL:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=errors)
+    # make sure to have a connection
+    if engine:
+        connection = connection or db_connect(engine=engine,
+                                              errors=op_errors,
+                                              logger=logger)
+    if engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == DbEngine.ORACLE:
+    elif engine == DbEngine.ORACLE:
         from . import oracle_pomes
-        result = oracle_pomes.call_function(errors=op_errors,
-                                            func_name=func_name,
+        result = oracle_pomes.call_function(func_name=func_name,
                                             func_vals=func_vals,
                                             conn=connection,
                                             committable=committable,
+                                            errors=op_errors,
                                             logger=logger)
-    elif curr_engine == DbEngine.POSTGRES:
+    elif engine == DbEngine.POSTGRES:
         from . import postgres_pomes
-        result = postgres_pomes.call_procedure(errors=op_errors,
-                                               proc_name=func_name,
+        result = postgres_pomes.call_procedure(proc_name=func_name,
                                                proc_vals=func_vals,
                                                conn=connection,
                                                committable=committable,
+                                               errors=op_errors,
                                                logger=logger)
-    elif curr_engine == DbEngine.SQLSERVER:
+    elif engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
-        result = sqlserver_pomes.call_procedure(errors=op_errors,
-                                                proc_name=func_name,
+        result = sqlserver_pomes.call_procedure(proc_name=func_name,
                                                 proc_vals=func_vals,
                                                 conn=connection,
                                                 committable=committable,
+                                                errors=op_errors,
                                                 logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
@@ -1453,12 +1499,12 @@ def db_call_function(errors: list[str] | None,
     return result
 
 
-def db_call_procedure(errors: list[str] | None,
-                      proc_name: str,
+def db_call_procedure(proc_name: str,
                       proc_vals: tuple = None,
                       engine: DbEngine = None,
                       connection: Any = None,
                       committable: bool = None,
+                      errors: list[str] = None,
                       logger: Logger = None) -> list[tuple] | None:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
@@ -1467,12 +1513,12 @@ def db_call_procedure(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param proc_name: name of the stored procedure
     :param proc_vals: parameters for the stored procedure
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the data returned by the procedure, or *None* if error
     """
@@ -1482,34 +1528,40 @@ def db_call_procedure(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    if curr_engine == DbEngine.MYSQL:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=errors)
+
+    # make sure to have a connection
+    if engine:
+        connection = connection or db_connect(engine=engine,
+                                              errors=op_errors,
+                                              logger=logger)
+    if engine == DbEngine.MYSQL:
         pass
-    elif curr_engine == DbEngine.ORACLE:
+    elif engine == DbEngine.ORACLE:
         from . import oracle_pomes
-        result = oracle_pomes.call_procedure(errors=op_errors,
-                                             proc_name=proc_name,
+        result = oracle_pomes.call_procedure(proc_name=proc_name,
                                              proc_vals=proc_vals,
                                              conn=connection,
                                              committable=committable,
+                                             errors=op_errors,
                                              logger=logger)
-    elif curr_engine == DbEngine.POSTGRES:
+    elif engine == DbEngine.POSTGRES:
         from . import postgres_pomes
-        result = postgres_pomes.call_procedure(errors=op_errors,
-                                               proc_name=proc_name,
+        result = postgres_pomes.call_procedure(proc_name=proc_name,
                                                proc_vals=proc_vals,
                                                conn=connection,
                                                committable=committable,
+                                               errors=op_errors,
                                                logger=logger)
-    elif curr_engine == DbEngine.SQLSERVER:
+    elif engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
-        result = sqlserver_pomes.call_procedure(errors=op_errors,
-                                                proc_name=proc_name,
+        result = sqlserver_pomes.call_procedure(proc_name=proc_name,
                                                 proc_vals=proc_vals,
                                                 conn=connection,
                                                 committable=committable,
+                                                errors=op_errors,
                                                 logger=logger)
     # acknowledge local errors
     if isinstance(errors, list):
@@ -1541,8 +1593,7 @@ def __get_version(engine: DbEngine,
             stmt = "SELECT @@VERSION"
 
     if stmt:
-        reply: list[tuple[str]] = db_select(errors=None,
-                                            sel_stmt=stmt,
+        reply: list[tuple[str]] = db_select(sel_stmt=stmt,
                                             engine=engine,
                                             connection=connection)
         if reply:

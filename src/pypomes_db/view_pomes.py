@@ -5,13 +5,13 @@ from .db_common import DbEngine, _assert_engine
 from .db_pomes import db_execute, db_select
 
 
-def db_get_views(errors: list[str] | None,
-                 view_type: Literal["M", "P"] = "P",
+def db_get_views(view_type: Literal["M", "P"] = "P",
                  schema: str = None,
                  tables: list[str] = None,
                  engine: DbEngine = None,
                  connection: Any = None,
                  committable: bool = None,
+                 errors: list[str] = None,
                  logger: Logger = None) -> list[str] | None:
     """
     Retrieve the list of views in the database.
@@ -23,13 +23,13 @@ def db_get_views(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param schema: optional name of the schema to restrict the search to
     :param tables: optional list of, possibly schema-qualified, table names containing all views' dependencies
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the schema-qualified views found, or *None* if error
     """
@@ -39,20 +39,19 @@ def db_get_views(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    # proceed, if no errors
-    if not op_errors:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
+    if engine:
         # build the query
-        if curr_engine == DbEngine.ORACLE:
+        if engine == DbEngine.ORACLE:
             vw_table: str = "all_mviews" if view_type == "M" else "all_views"
             vw_name: str = "mview_name" if view_type == "M" else "view_name"
             sel_stmt: str = f"SELECT owner || '.' || {vw_name} FROM {vw_table}"
             if schema:
                 sel_stmt += f" WHERE owner = '{schema.upper()}'"
         elif view_type == "M":  # materialized views (postgres, sqlserver)
-            if curr_engine == DbEngine.POSTGRES:
+            if engine == DbEngine.POSTGRES:
                 sel_stmt = "SELECT schemaname || '.' || matviewname FROM pg_matviews "
                 if schema:
                     sel_stmt += f" WHERE LOWER(schemaname) = '{schema.lower()}'"
@@ -69,11 +68,11 @@ def db_get_views(errors: list[str] | None,
                 sel_stmt += f" WHERE LOWER(table_schema) = '{schema.lower()}'"
 
         # execute the query
-        recs: list[tuple[str]] = db_select(errors=op_errors,
-                                           sel_stmt=sel_stmt,
-                                           engine=curr_engine,
+        recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
+                                           engine=engine,
                                            connection=connection,
                                            committable=committable,
+                                           errors=op_errors,
                                            logger=logger)
         # process the query result
         if not op_errors:
@@ -89,11 +88,11 @@ def db_get_views(errors: list[str] | None,
         for view_name in result:
             op_errors = []
             dependencies: list[str] = \
-                db_get_view_dependencies(errors=op_errors,
-                                         view_name=view_name,
-                                         engine=curr_engine,
+                db_get_view_dependencies(view_name=view_name,
+                                         engine=engine,
                                          connection=connection,
                                          committable=committable,
+                                         errors=op_errors,
                                          logger=logger) or []
             for dependency in dependencies:
                 if dependency not in tables:
@@ -108,12 +107,12 @@ def db_get_views(errors: list[str] | None,
     return result
 
 
-def db_view_exists(errors: list[str] | None,
-                   view_name: str,
+def db_view_exists(view_name: str,
                    view_type: Literal["M", "P"] = "P",
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
+                   errors: list[str] = None,
                    logger: Logger = None) -> bool | None:
     """
     Determine whether the view *view_name* exists in the database.
@@ -123,12 +122,12 @@ def db_view_exists(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param view_name: the, possibly schema-qualified, name of the view to look for
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: *True* if the view was found, *False* otherwise, or *None* if error
     """
@@ -138,11 +137,10 @@ def db_view_exists(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    # proceed, if no errors
-    if not op_errors:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
+    if engine:
         # extract the schema, if possible
         schema_name: str | None = None
         splits: list[str] = view_name.split(".")
@@ -152,7 +150,7 @@ def db_view_exists(errors: list[str] | None,
 
         # build the query
         sel_stmt: str
-        if curr_engine == DbEngine.ORACLE:
+        if engine == DbEngine.ORACLE:
             vw_table: str = "all_mviews" if view_type == "M" else "all_views"
             sel_stmt = (f"SELECT COUNT(*) FROM {vw_table} "
                         f"WHERE view_name = '{view_name.upper()}'")
@@ -160,7 +158,7 @@ def db_view_exists(errors: list[str] | None,
                 sel_stmt += f" AND owner = '{schema_name.upper()}'"
 
         elif view_type == "M":  # materialized views (postgres, sqlserver)
-            if curr_engine == DbEngine.POSTGRES:
+            if engine == DbEngine.POSTGRES:
                 sel_stmt = ("SELECT COUNT(*) FROM pg_matview "
                             f"WHERE LOWER(matviewname) = '{view_name.lower()}'")
                 if schema_name:
@@ -180,11 +178,11 @@ def db_view_exists(errors: list[str] | None,
                 sel_stmt += f" AND LOWER(table_schema) = '{schema_name.lower()}'"
 
         # execute the query
-        recs: list[tuple[int]] = db_select(errors=op_errors,
-                                           sel_stmt=sel_stmt,
-                                           engine=curr_engine,
+        recs: list[tuple[int]] = db_select(sel_stmt=sel_stmt,
+                                           engine=engine,
                                            connection=connection,
                                            committable=committable,
+                                           errors=op_errors,
                                            logger=logger)
         # process the query result
         if not op_errors:
@@ -197,12 +195,12 @@ def db_view_exists(errors: list[str] | None,
     return result
 
 
-def db_drop_view(errors: list[str] | None,
-                 view_name: str,
+def db_drop_view(view_name: str,
                  view_type: Literal["M", "P"] = "P",
                  engine: DbEngine = None,
                  connection: Any = None,
                  committable: bool = None,
+                 errors: list[str] = None,
                  logger: Logger = None) -> None:
     """
     Drop the view given by the, possibly schema-qualified, *view_name*.
@@ -214,25 +212,24 @@ def db_drop_view(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param view_name: the, possibly schema-qualified, name of the view to drop
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     """
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    # proceed, if no errors
-    if not op_errors:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
+    if engine:
         # build the DROP statement
         tag: str = "MATERIALIZED VIEW" if view_type == "M" else "VIEW"
-        if curr_engine == DbEngine.ORACLE:
+        if engine == DbEngine.ORACLE:
             # oracle has no 'IF EXISTS' clause
             drop_stmt: str = \
                 (f"BEGIN"
@@ -240,7 +237,7 @@ def db_drop_view(errors: list[str] | None,
                  "EXCEPTION"
                  " WHEN OTHERS THEN NULL; "
                  "END;")
-        elif curr_engine == DbEngine.POSTGRES:
+        elif engine == DbEngine.POSTGRES:
             drop_stmt: str = \
                 ("DO $$"
                  "BEGIN"
@@ -248,7 +245,7 @@ def db_drop_view(errors: list[str] | None,
                  "EXCEPTION"
                  " WHEN OTHERS THEN NULL; "
                  "END $$;")
-        elif curr_engine == DbEngine.SQLSERVER:
+        elif engine == DbEngine.SQLSERVER:
             # in SQLServer, materialized views are regular views with indexes
             drop_stmt: str = \
                 ("BEGIN TRY"
@@ -260,11 +257,11 @@ def db_drop_view(errors: list[str] | None,
             drop_stmt: str = f"DROP {tag} IF EXISTS {view_name}"
 
         # drop the view
-        db_execute(errors=op_errors,
-                   exc_stmt=drop_stmt,
-                   engine=curr_engine,
+        db_execute(exc_stmt=drop_stmt,
+                   engine=engine,
                    connection=connection,
                    committable=committable,
+                   errors=op_errors,
                    logger=logger)
 
     # acknowledge local errors
@@ -272,12 +269,12 @@ def db_drop_view(errors: list[str] | None,
         errors.extend(op_errors)
 
 
-def db_get_view_ddl(errors: list[str] | None,
-                    view_name: str,
+def db_get_view_ddl(view_name: str,
                     view_type: Literal["M", "P"] = "P",
                     engine: DbEngine = None,
                     connection: Any = None,
                     committable: bool = None,
+                    errors: list[str] = None,
                     logger: Logger = None) -> str | None:
     """
     Retrieve the DDL script used to create the view *view_name*.
@@ -288,12 +285,12 @@ def db_get_view_ddl(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param view_name: the name of the view
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the DDL script used to create the view, or *None* if error or the view does not exist
     """
@@ -303,18 +300,17 @@ def db_get_view_ddl(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    # proceed, if no errors
-    if not op_errors:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
+    if engine:
         # determine the view schema
         view_schema: str
         view_schema, view_name = view_name.split(sep=".") if "." in view_name else (None, view_name)
 
         # build the query
         sel_stmt: str | None = None
-        if curr_engine == DbEngine.ORACLE:
+        if engine == DbEngine.ORACLE:
             vw_type: str = "MATERIALIZED_VIEW" if view_type == "M" else "VIEW"
             vw_table: str = "all_mviews" if view_type == "M" else "all_views"
             vw_column: str = "mview_name" if view_type == "M" else "view_name"
@@ -326,12 +322,12 @@ def db_get_view_ddl(errors: list[str] | None,
                         f"AND owner = '{view_schema.upper()}')")
 
         elif view_type == "M":  # materialized view (postgres, sqlserver)
-            if curr_engine == DbEngine.POSTGRES:
+            if engine == DbEngine.POSTGRES:
                 sel_stmt = ("SELECT definition FROM pg_matviews "
                             f"WHERE matviewname = '{view_name.lower()}'")
                 if view_schema:
                     sel_stmt += f" AND schemaname = {view_schema.lower()}"
-            elif curr_engine == DbEngine.SQLSERVER:
+            elif engine == DbEngine.SQLSERVER:
                 sel_stmt = ("SELECT view_definition "
                             "FROM information_schema.views AS v "
                             "INNER JOIN sys.indexes AS i ON OBJECT_NAME(i.object_id) = v.table_name "
@@ -339,7 +335,7 @@ def db_get_view_ddl(errors: list[str] | None,
                 if view_schema:
                     sel_stmt += f" AND v.table_schema = '{view_schema.lower()}'"
 
-        elif curr_engine in [DbEngine.POSTGRES, DbEngine.SQLSERVER]:
+        elif engine in [DbEngine.POSTGRES, DbEngine.SQLSERVER]:
             sel_stmt = ("SELECT view_definition "
                         "FROM information_schema.views "
                         f"WHERE LOWER(table_name) = '{view_name.lower()}'")
@@ -347,11 +343,11 @@ def db_get_view_ddl(errors: list[str] | None,
                 sel_stmt += f" AND LOWER(table_schema) = '{view_schema.lower()}'"
 
         # execute the query
-        recs: list[tuple[str]] = db_select(errors=op_errors,
-                                           sel_stmt=sel_stmt,
-                                           engine=curr_engine,
+        recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
+                                           engine=engine,
                                            connection=connection,
                                            committable=committable,
+                                           errors=op_errors,
                                            logger=logger)
         # process the query result
         if not op_errors and recs:
@@ -364,12 +360,12 @@ def db_get_view_ddl(errors: list[str] | None,
     return result
 
 
-def db_get_view_dependencies(errors: list[str] | None,
-                             view_name: str,
+def db_get_view_dependencies(view_name: str,
                              view_type: Literal["M", "P"] = "P",
                              engine: DbEngine = None,
                              connection: Any = None,
                              committable: bool = None,
+                             errors: list[str] = None,
                              logger: Logger = None) -> list[str]:
     """
     Retrieve the schema-qualified names of the tables *view_name* depends on.
@@ -379,12 +375,12 @@ def db_get_view_dependencies(errors: list[str] | None,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param view_name: the name of the view
     :param view_type: the type of the view ("M": materialized, 'P': plain, defaults to 'P')
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the schema-qualified tables the view depends on, or 'None' if view not found or an error ocurred
     """
@@ -394,11 +390,10 @@ def db_get_view_dependencies(errors: list[str] | None,
     # initialize the local errors list
     op_errors: list[str] = []
 
-    # determine the database engine
-    curr_engine: DbEngine = _assert_engine(errors=op_errors,
-                                           engine=engine)
-    # proceed, if no errors
-    if not op_errors:
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=op_errors)
+    if engine:
         # determine the view schema
         view_schema: str
         view_schema, view_name = view_name.split(sep=".") if "." in view_name else (None, view_name)
@@ -441,11 +436,11 @@ def db_get_view_dependencies(errors: list[str] | None,
                     sel_stmt += f" WHERE LOWER(referencing_schema_name) = '{view_schema.lower()}'"
 
         # execute the query
-        recs: list[tuple[str]] = db_select(errors=op_errors,
-                                           sel_stmt=sel_stmt,
-                                           engine=curr_engine,
+        recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
+                                           engine=engine,
                                            connection=connection,
                                            committable=committable,
+                                           errors=op_errors,
                                            logger=logger)
         # process the query result
         if not op_errors:

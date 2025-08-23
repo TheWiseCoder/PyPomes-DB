@@ -5,7 +5,9 @@ from datetime import date, datetime
 from logging import Logger
 from oracledb import Connection, init_oracle_client, makedsn
 from pathlib import Path
-from pypomes_core import DateFormat, DatetimeFormat, str_splice
+from pypomes_core import (
+    DateFormat, DatetimeFormat, str_splice
+)
 from typing import Any, BinaryIO, Final
 
 from .db_common import (
@@ -13,6 +15,7 @@ from .db_common import (
     _assert_query_quota, _build_query_msg,
     _get_param, _get_params, _except_msg
 )
+from .db_pomes import db_close
 
 RESERVED_WORDS: Final[list[str]] = [
     "ACCESS", "ADD", "ALL", "ALTER", "AND", "ANY", "AS", "ASC", "AUDIT", "BETWEEN", "BY",
@@ -44,9 +47,9 @@ def get_connection_string() -> str:
     return f"oracle+oracledb://{db_params.get(DbParam.USER)}:{db_params.get(DbParam.PWD)}@{dsn}"
 
 
-def connect(errors: list[str],
-            autocommit: bool | None,
-            logger: Logger | None) -> Connection | None:
+def connect(autocommit: bool = None,
+            errors: list[str] = None,
+            logger: Logger = None) -> Connection | None:
     """
     Obtain and return a connection to the database.
 
@@ -76,7 +79,7 @@ def connect(errors: list[str],
     except Exception as e:
         err_msg = _except_msg(exception=e,
                               engine=DbEngine.ORACLE)
-    # log eventual errors
+    # log errors
     if err_msg:
         if isinstance(errors, list):
             errors.append(err_msg)
@@ -123,8 +126,7 @@ def bind_arguments(stmt: str,
     return result
 
 
-def select(errors: list[str] | None,
-           sel_stmt: str,
+def select(sel_stmt: str,
            where_vals: tuple | None,
            min_count: int | None,
            max_count: int | None,
@@ -132,7 +134,8 @@ def select(errors: list[str] | None,
            limit_count: int | None,
            conn: Connection | None,
            committable: bool | None,
-           logger: Logger | None) -> list[tuple] | None:
+           errors: list[str] = None,
+           logger: Logger = None) -> list[tuple] | None:
     """
     Query the database and return all tuples that satisfy the *sel_stmt* command.
 
@@ -145,7 +148,6 @@ def select(errors: list[str] | None,
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the selection criteria
     :param min_count: optionally defines the minimum number of tuples expected
@@ -154,6 +156,7 @@ def select(errors: list[str] | None,
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: list of tuples containing the search result, *[]* on empty search, or *None* if error
     """
@@ -161,11 +164,10 @@ def select(errors: list[str] | None,
     result: list[tuple] = []
 
     # make sure to have a connection
-    curr_conn: Connection = conn or connect(errors=errors,
-                                            autocommit=False,
+    curr_conn: Connection = conn or connect(autocommit=False,
+                                            errors=errors,
                                             logger=logger)
     if curr_conn:
-
         # establish an offset into the result set
         if isinstance(offset_count, int) and offset_count > 0:
             sel_stmt += f" OFFSET {offset_count} ROWS"
@@ -193,17 +195,17 @@ def select(errors: list[str] | None,
                 if logger:
                     from_table: str = str_splice(source=sel_stmt,
                                                  seps=(" FROM ", " "))[1]
-                    logger.debug(msg=f"Read {count} tuples "
-                                     f"from {DbEngine.ORACLE}.{from_table}, offset {offset_count}")
+                    logger.debug(msg=f"Read {count} tuples from {DbEngine.ORACLE}.{from_table}, "
+                                     f"offset {offset_count}, connection '{curr_conn}'")
 
                 # has the query quota been satisfied ?
-                if _assert_query_quota(errors=errors,
-                                       engine=DbEngine.ORACLE,
+                if _assert_query_quota(engine=DbEngine.ORACLE,
                                        query=sel_stmt,
                                        where_vals=where_vals,
                                        count=count,
                                        min_count=min_count,
-                                       max_count=max_count):
+                                       max_count=max_count,
+                                       errors=errors):
                     # yes, retrieve the returned tuples
                     if count == 1 and sel_stmt.upper().startswith("SELECT DBMS_METADATA.GET_DDL"):
                         # in this instance, a CLOB may be returned
@@ -222,9 +224,9 @@ def select(errors: list[str] | None,
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
-                curr_conn.close()
-
-        # log eventual errors
+                db_close(connection=curr_conn,
+                         logger=logger)
+        # log errors
         if err_msg:
             if isinstance(errors, list):
                 errors.append(err_msg)
@@ -236,15 +238,15 @@ def select(errors: list[str] | None,
     return result
 
 
-def execute(errors: list[str] | None,
-            exc_stmt: str,
+def execute(exc_stmt: str,
             bind_vals: tuple | None,
             return_cols: dict[str, type] | None,
             min_count: int | None,
             max_count: int | None,
             conn: Connection | None,
             committable: bool | None,
-            logger: Logger | None) -> tuple | int | None:
+            errors: list[str] = None,
+            logger: Logger = None) -> tuple | int | None:
     """
     Execute the command *exc_stmt* on the database.
 
@@ -264,7 +266,6 @@ def execute(errors: list[str] | None,
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
     :param return_cols: optional columns and respective types, whose values are to be returned on *INSERT* or *UPDATE*
@@ -272,6 +273,7 @@ def execute(errors: list[str] | None,
     :param max_count: optionally defines the maximum number of tuples to be affected
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the values of *return_cols*, the value returned by the operation, or *None* if error
     """
@@ -279,8 +281,8 @@ def execute(errors: list[str] | None,
     result: tuple | int | None = None
 
     # make sure to have a connection
-    curr_conn: Connection = conn or connect(errors=errors,
-                                            autocommit=False,
+    curr_conn: Connection = conn or connect(autocommit=False,
+                                            errors=errors,
                                             logger=logger)
     if curr_conn:
         err_msg: str | None = None
@@ -301,13 +303,13 @@ def execute(errors: list[str] | None,
 
                 # has the query quota been satisfied ?
                 count: int = cursor.rowcount
-                if _assert_query_quota(errors=errors,
-                                       engine=DbEngine.ORACLE,
+                if _assert_query_quota(engine=DbEngine.ORACLE,
                                        query=exc_stmt,
                                        where_vals=None,
                                        count=count,
                                        min_count=min_count,
-                                       max_count=max_count):
+                                       max_count=max_count,
+                                       errors=errors):
                     if bind_vars:
                         result = tuple([var.getvalue() for var in bind_vars])
                     else:
@@ -325,24 +327,26 @@ def execute(errors: list[str] | None,
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
-                curr_conn.close()
-
-        # log eventual errors
-        if err_msg and isinstance(errors, list):
-            errors.append(err_msg)
-        if logger:
-            logger.debug(msg=_build_query_msg(query_stmt=exc_stmt,
-                                              engine=DbEngine.ORACLE,
-                                              bind_vals=bind_vals))
+                db_close(connection=curr_conn,
+                         logger=logger)
+        # log errors
+        if err_msg:
+            if isinstance(errors, list):
+                errors.append(err_msg)
+            if logger:
+                logger.error(err_msg)
+                logger.debug(msg=_build_query_msg(query_stmt=exc_stmt,
+                                                  engine=DbEngine.ORACLE,
+                                                  bind_vals=bind_vals))
     return result
 
 
-def bulk_execute(errors: list[str] | None,
-                 exc_stmt: str,
+def bulk_execute(exc_stmt: str,
                  exc_vals: list[tuple],
                  conn: Connection | None,
                  committable: bool | None,
-                 logger: Logger | None) -> int | None:
+                 errors: list[str] = None,
+                 logger: Logger = None) -> int | None:
     """
     Bulk-update the database with the statement defined in *execute_stmt*, and the values in *execute_vals*.
 
@@ -355,11 +359,11 @@ def bulk_execute(errors: list[str] | None,
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param exc_stmt: the command to update the database with
     :param exc_vals: the list of values for tuple identification, and to update the database with
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the number of inserted or updated tuples, or *None* if error
     """
@@ -367,8 +371,8 @@ def bulk_execute(errors: list[str] | None,
     result: int | None = None
 
     # make sure to have a connection
-    curr_conn: Connection = conn or connect(errors=errors,
-                                            autocommit=False,
+    curr_conn: Connection = conn or connect(autocommit=False,
+                                            errors=errors,
                                             logger=logger)
     if curr_conn:
         err_msg: str | None = None
@@ -391,9 +395,9 @@ def bulk_execute(errors: list[str] | None,
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
-                curr_conn.close()
-
-        # log eventual errors
+                db_close(connection=curr_conn,
+                         logger=logger)
+        # log errors
         if err_msg:
             if isinstance(errors, list):
                 errors.append(err_msg)
@@ -405,8 +409,7 @@ def bulk_execute(errors: list[str] | None,
     return result
 
 
-def update_lob(errors: list[str],
-               lob_table: str,
+def update_lob(lob_table: str,
                lob_column: str,
                pk_columns: list[str],
                pk_vals: tuple,
@@ -414,7 +417,8 @@ def update_lob(errors: list[str],
                chunk_size: int,
                conn: Connection | None,
                committable: bool | None,
-               logger: Logger | None) -> None:
+               errors: list[str] = None,
+               logger: Logger = None) -> None:
     """
     Update a large binary object (LOB) in the given table and column.
 
@@ -424,7 +428,6 @@ def update_lob(errors: list[str],
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param lob_table: the table to be update with the new LOB
     :param lob_column: the column to be updated with the new LOB
     :param pk_columns: columns making up a primary key, or a unique identifier for the tuple
@@ -433,11 +436,12 @@ def update_lob(errors: list[str],
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     """
     # make sure to have a connection
-    curr_conn: Connection = conn or connect(errors=errors,
-                                            autocommit=False,
+    curr_conn: Connection = conn or connect(autocommit=False,
+                                            errors=errors,
                                             logger=logger)
     if curr_conn:
         if isinstance(lob_data, str):
@@ -485,15 +489,16 @@ def update_lob(errors: list[str],
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
-                curr_conn.rollback()
+                with suppress(Exception):
+                    curr_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   engine=DbEngine.ORACLE)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
-                curr_conn.close()
-
-        # log eventual errors
+                db_close(connection=curr_conn,
+                         logger=logger)
+        # log errors
         if err_msg:
             if isinstance(errors, list):
                 errors.append(err_msg)
@@ -506,24 +511,24 @@ def update_lob(errors: list[str],
 
 # TODO: see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html
 # noinspection PyUnusedLocal
-def call_function(errors: list[str] | None,
-                  func_name: str,
+def call_function(func_name: str,
                   func_vals: tuple | None,
                   conn: Connection | None,
                   committable: bool | None,
-                  logger: Logger | None) -> list[tuple] | None:
+                  errors: list[str] = None,
+                  logger: Logger = None) -> list[tuple] | None:
     """
     Execute the stored function *func_name* in the database, with the parameters given in *func_vals*.
 
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param func_name: name of the stored function
     :param func_vals: parameters for the stored function
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
     :param logger: optional logger
+    :param errors: incidental error messages
     :return: the data returned by the function, or *None* if error
     """
     # initialize the return variable
@@ -533,23 +538,23 @@ def call_function(errors: list[str] | None,
 
 
 # TODO: see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html
-def call_procedure(errors: list[str] | None,
-                   proc_name: str,
+def call_procedure(proc_name: str,
                    proc_vals: tuple | None,
                    conn: Connection | None,
                    committable: bool | None,
-                   logger: Logger | None) -> list[tuple] | None:
+                   errors: list[str] = None,
+                   logger: Logger = None) -> list[tuple] | None:
     """
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param errors: incidental error messages
     :param proc_name: name of the stored procedure
     :param proc_vals: parameters for the stored procedure
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
+    :param errors: incidental error messages
     :param logger: optional logger
     :return: the data returned by the procedure, or *None* if error
     """
@@ -557,8 +562,8 @@ def call_procedure(errors: list[str] | None,
     result: list[tuple] = []
 
     # make sure to have a connection
-    curr_conn: Connection = conn or connect(errors=errors,
-                                            autocommit=False,
+    curr_conn: Connection = conn or connect(autocommit=False,
+                                            errors=errors,
                                             logger=logger)
     if curr_conn:
         # execute the stored procedure
@@ -577,15 +582,16 @@ def call_procedure(errors: list[str] | None,
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
-                curr_conn.rollback()
+                with suppress(Exception):
+                    curr_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   engine=DbEngine.ORACLE)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
-                curr_conn.close()
-
-        # log eventual errors
+                db_close(connection=curr_conn,
+                         logger=logger)
+        # log errors
         if err_msg:
             if isinstance(errors, list):
                 errors.append(err_msg)
@@ -597,8 +603,8 @@ def call_procedure(errors: list[str] | None,
     return result
 
 
-def initialize(errors: list[str],
-               logger: Logger) -> None:
+def initialize(errors: list[str] = None,
+               logger: Logger = None) -> None:
     """
     Prepare the oracle engine to access the database throught the installed client software.
 
