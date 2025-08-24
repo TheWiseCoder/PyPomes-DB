@@ -169,7 +169,7 @@ def db_get_params(engine: DbEngine = None) -> dict[DbParam, Any] | None:
     engine = next(iter(_DB_CONN_DATA)) if not engine and _DB_CONN_DATA else engine
 
     # return the connection parameters
-    return _DB_CONN_DATA.get(engine).copy() if _DB_CONN_DATA.get(engine) else None
+    return _DB_CONN_DATA[engine].copy() if engine in _DB_CONN_DATA else None
 
 
 def db_get_connection_string(engine: DbEngine = None) -> str:
@@ -677,48 +677,53 @@ def db_select(sel_stmt: str,
         sel_stmt = db_adjust_placeholders(stmt=sel_stmt,
                                           engine=engine)
     # make sure to have a connection
-    if engine:
-        connection = connection or db_connect(engine=engine,
+    curr_conn: Any = connection or db_connect(engine=engine,
                                               errors=op_errors,
                                               logger=logger)
-    if engine == DbEngine.MYSQL:
-        pass
-    elif engine == DbEngine.ORACLE:
-        from . import oracle_pomes
-        result = oracle_pomes.select(sel_stmt=sel_stmt,
-                                     where_vals=where_vals,
-                                     min_count=min_count,
-                                     max_count=max_count,
-                                     offset_count=offset_count,
-                                     limit_count=limit_count,
-                                     conn=connection,
-                                     committable=committable,
-                                     errors=op_errors,
-                                     logger=logger)
-    elif engine == DbEngine.POSTGRES:
-        from . import postgres_pomes
-        result = postgres_pomes.select(sel_stmt=sel_stmt,
-                                       where_vals=where_vals,
-                                       min_count=min_count,
-                                       max_count=max_count,
-                                       offset_count=offset_count,
-                                       limit_count=limit_count,
-                                       conn=connection,
-                                       committable=committable,
-                                       errors=op_errors,
-                                       logger=logger)
-    elif engine == DbEngine.SQLSERVER:
-        from . import sqlserver_pomes
-        result = sqlserver_pomes.select(sel_stmt=sel_stmt,
-                                        where_vals=where_vals,
-                                        min_count=min_count,
-                                        max_count=max_count,
-                                        offset_count=offset_count,
-                                        limit_count=limit_count,
-                                        conn=connection,
-                                        committable=committable,
-                                        errors=op_errors,
-                                        logger=logger)
+    if not op_errors:
+        if engine == DbEngine.MYSQL:
+            pass
+        elif engine == DbEngine.ORACLE:
+            from . import oracle_pomes
+            result = oracle_pomes.select(sel_stmt=sel_stmt,
+                                         where_vals=where_vals,
+                                         min_count=min_count,
+                                         max_count=max_count,
+                                         offset_count=offset_count,
+                                         limit_count=limit_count,
+                                         conn=curr_conn,
+                                         committable=committable if connection else True,
+                                         errors=op_errors,
+                                         logger=logger)
+        elif engine == DbEngine.POSTGRES:
+            from . import postgres_pomes
+            result = postgres_pomes.select(sel_stmt=sel_stmt,
+                                           where_vals=where_vals,
+                                           min_count=min_count,
+                                           max_count=max_count,
+                                           offset_count=offset_count,
+                                           limit_count=limit_count,
+                                           conn=curr_conn,
+                                           committable=committable if connection else True,
+                                           errors=op_errors,
+                                           logger=logger)
+        elif engine == DbEngine.SQLSERVER:
+            from . import sqlserver_pomes
+            result = sqlserver_pomes.select(sel_stmt=sel_stmt,
+                                            where_vals=where_vals,
+                                            min_count=min_count,
+                                            max_count=max_count,
+                                            offset_count=offset_count,
+                                            limit_count=limit_count,
+                                            conn=curr_conn,
+                                            committable=committable if connection else True,
+                                            errors=op_errors,
+                                            logger=logger)
+        # close the locally acquired connection
+        if not connection:
+            db_close(connection=curr_conn,
+                     logger=logger)
+
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -975,79 +980,86 @@ def db_bulk_insert(target_table: str,
                             errors=op_errors)
 
     # make sure to have a connection
-    if engine:
-        connection = connection or db_connect(engine=engine,
+    curr_conn: Any = connection or db_connect(engine=engine,
                                               errors=op_errors,
                                               logger=logger)
-    if engine == DbEngine.MYSQL:
-        pass
-    elif engine == DbEngine.POSTGRES:
-        from . import postgres_pomes
-        insert_stmt: str = f"INSERT INTO {target_table} ({', '.join(insert_attrs)})"
-        # pre-insert handling of identity columns
-        if identity_column and insert_stmt.find("OVERRIDING SYSTEM VALUE") < 0:
-            insert_stmt += " OVERRIDING SYSTEM VALUE"
-        insert_stmt += " VALUES %s"
-        # obtain template to handle inserts of null values
-        template: str = postgres_pomes.build_typified_template(insert_stmt=insert_stmt,
-                                                               nullable_only=True,
-                                                               conn=connection,
-                                                               errors=op_errors,
-                                                               logger=logger)
-        if not op_errors:
-            result = postgres_pomes.bulk_execute(exc_stmt=insert_stmt,
-                                                 exc_vals=insert_vals,
-                                                 template=template,
-                                                 conn=connection,
-                                                 committable=False if identity_column else committable,
-                                                 errors=op_errors,
-                                                 logger=logger)
-        # post-insert handling of identity columns
-        if not op_errors and identity_column:
-            postgres_pomes.identity_post_insert(insert_stmt=insert_stmt,
-                                                conn=connection,
-                                                committable=committable,
-                                                identity_column=identity_column,
-                                                errors=op_errors,
-                                                logger=logger)
-    elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
-        bind_marks: str = _bind_marks(engine=engine,
-                                      start=1,
-                                      finish=len(insert_attrs) + 1)
-        insert_stmt: str = (f"INSERT INTO {target_table} "
-                            f"({', '.join(insert_attrs)}) VALUES({bind_marks})")
-        if engine == DbEngine.ORACLE:
-            from . import oracle_pomes
-            result = oracle_pomes.bulk_execute(exc_stmt=insert_stmt,
-                                               exc_vals=insert_vals,
-                                               conn=connection,
-                                               committable=committable,
-                                               errors=op_errors,
-                                               logger=logger)
-        elif engine == DbEngine.SQLSERVER:
-            from . import sqlserver_pomes
+    if not op_errors:
+        if engine == DbEngine.MYSQL:
+            pass
+        elif engine == DbEngine.POSTGRES:
+            from . import postgres_pomes
+            insert_stmt: str = f"INSERT INTO {target_table} ({', '.join(insert_attrs)})"
             # pre-insert handling of identity columns
-            if identity_column:
-                sqlserver_pomes.identity_pre_insert(insert_stmt=insert_stmt,
-                                                    conn=connection,
-                                                    errors=op_errors,
-                                                    logger=logger)
+            if identity_column and insert_stmt.find("OVERRIDING SYSTEM VALUE") < 0:
+                insert_stmt += " OVERRIDING SYSTEM VALUE"
+            insert_stmt += " VALUES %s"
+            # obtain template to handle inserts of null values
+            template: str = postgres_pomes.build_typified_template(insert_stmt=insert_stmt,
+                                                                   nullable_only=True,
+                                                                   conn=curr_conn,
+                                                                   errors=op_errors,
+                                                                   logger=logger)
             if not op_errors:
-                result = sqlserver_pomes.bulk_execute(exc_stmt=insert_stmt,
-                                                      exc_vals=insert_vals,
-                                                      conn=connection,
-                                                      committable=False if identity_column else committable,
-                                                      errors=op_errors,
-                                                      logger=logger)
+                result = postgres_pomes.bulk_execute(exc_stmt=insert_stmt,
+                                                     exc_vals=insert_vals,
+                                                     template=template,
+                                                     conn=curr_conn,
+                                                     committable=False if identity_column else
+                                                     (committable if connection else True),
+                                                     errors=op_errors,
+                                                     logger=logger)
                 # post-insert handling of identity columns
                 if not op_errors and identity_column:
-                    from . import sqlserver_pomes
-                    sqlserver_pomes.identity_post_insert(insert_stmt=insert_stmt,
-                                                         conn=connection,
-                                                         committable=committable,
-                                                         identity_column=identity_column,
-                                                         errors=op_errors,
-                                                         logger=logger)
+                    postgres_pomes.identity_post_insert(insert_stmt=insert_stmt,
+                                                        conn=curr_conn,
+                                                        committable=committable if connection else True,
+                                                        identity_column=identity_column,
+                                                        errors=op_errors,
+                                                        logger=logger)
+        elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
+            bind_marks: str = _bind_marks(engine=engine,
+                                          start=1,
+                                          finish=len(insert_attrs) + 1)
+            insert_stmt: str = (f"INSERT INTO {target_table} "
+                                f"({', '.join(insert_attrs)}) VALUES({bind_marks})")
+            if engine == DbEngine.ORACLE:
+                from . import oracle_pomes
+                result = oracle_pomes.bulk_execute(exc_stmt=insert_stmt,
+                                                   exc_vals=insert_vals,
+                                                   conn=curr_conn,
+                                                   committable=committable if connection else True,
+                                                   errors=op_errors,
+                                                   logger=logger)
+            elif engine == DbEngine.SQLSERVER:
+                from . import sqlserver_pomes
+                # pre-insert handling of identity columns
+                if identity_column:
+                    sqlserver_pomes.identity_pre_insert(insert_stmt=insert_stmt,
+                                                        conn=curr_conn,
+                                                        errors=op_errors,
+                                                        logger=logger)
+                if not op_errors:
+                    result = sqlserver_pomes.bulk_execute(exc_stmt=insert_stmt,
+                                                          exc_vals=insert_vals,
+                                                          conn=curr_conn,
+                                                          committable=False if identity_column else
+                                                          (committable if connection else True),
+                                                          errors=op_errors,
+                                                          logger=logger)
+                    # post-insert handling of identity columns
+                    if not op_errors and identity_column:
+                        from . import sqlserver_pomes
+                        sqlserver_pomes.identity_post_insert(insert_stmt=insert_stmt,
+                                                             conn=curr_conn,
+                                                             committable=committable if connection else True,
+                                                             identity_column=identity_column,
+                                                             errors=op_errors,
+                                                             logger=logger)
+        # close the locally acquired connection
+        if not connection:
+            db_close(connection=curr_conn,
+                     logger=logger)
+
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -1097,64 +1109,69 @@ def db_bulk_update(target_table: str,
                             errors=errors)
 
     # make sure to have a connection
-    if engine:
-        connection = connection or db_connect(engine=engine,
+    curr_conn: Any = connection or db_connect(engine=engine,
                                               errors=op_errors,
                                               logger=logger)
-    if engine == DbEngine.MYSQL:
-        pass
-    elif engine == DbEngine.POSTGRES:
-        from . import postgres_pomes
-        set_items: str = ""
-        for set_attr in set_attrs:
-            set_items += f"{set_attr} = data.{set_attr}, "
-        where_items: str = ""
-        for where_attr in where_attrs:
-            where_items += f"{target_table}.{where_attr} = data.{where_attr} AND "
-        update_stmt: str = (f"UPDATE {target_table}"
-                            f" SET {set_items[:-2]} "
-                            f"FROM (VALUES %s) AS data ({', '.join(set_attrs + where_attrs)}) "
-                            f"WHERE {where_items[:-5]}")
-        # modify statement to handle updates of null values
-        update_stmt = postgres_pomes.tipify_bulk_update(update_stmt=update_stmt,
-                                                        nullable_only=True,
-                                                        conn=connection,
-                                                        errors=op_errors,
-                                                        logger=logger)
-        if not op_errors:
-            result = postgres_pomes.bulk_execute(exc_stmt=update_stmt,
-                                                 exc_vals=update_vals,
-                                                 template=None,
-                                                 conn=connection,
-                                                 committable=committable,
-                                                 errors=op_errors,
-                                                 logger=logger)
-    elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
-        set_items: str = _bind_columns(engine=engine,
-                                       columns=set_attrs,
-                                       concat=", ",
-                                       start_index=1)
-        where_items: str = _bind_columns(engine=engine,
-                                         columns=where_attrs,
-                                         concat=" AND ",
-                                         start_index=len(set_attrs)+1)
-        update_stmt: str = f"UPDATE {target_table} SET {set_items} WHERE {where_items}"
-        if engine == DbEngine.ORACLE:
-            from . import oracle_pomes
-            result = oracle_pomes.bulk_execute(exc_stmt=update_stmt,
-                                               exc_vals=update_vals,
-                                               conn=connection,
-                                               committable=committable,
-                                               errors=op_errors,
-                                               logger=logger)
-        else:
-            from . import sqlserver_pomes
-            result = sqlserver_pomes.bulk_execute(exc_stmt=update_stmt,
-                                                  exc_vals=update_vals,
-                                                  conn=connection,
-                                                  committable=committable,
-                                                  errors=op_errors,
-                                                  logger=logger)
+    if not op_errors:
+        if engine == DbEngine.MYSQL:
+            pass
+        elif engine == DbEngine.POSTGRES:
+            from . import postgres_pomes
+            set_items: str = ""
+            for set_attr in set_attrs:
+                set_items += f"{set_attr} = data.{set_attr}, "
+            where_items: str = ""
+            for where_attr in where_attrs:
+                where_items += f"{target_table}.{where_attr} = data.{where_attr} AND "
+            update_stmt: str = (f"UPDATE {target_table}"
+                                f" SET {set_items[:-2]} "
+                                f"FROM (VALUES %s) AS data ({', '.join(set_attrs + where_attrs)}) "
+                                f"WHERE {where_items[:-5]}")
+            # modify statement to handle updates of null values
+            update_stmt = postgres_pomes.tipify_bulk_update(update_stmt=update_stmt,
+                                                            nullable_only=True,
+                                                            conn=curr_conn,
+                                                            errors=op_errors,
+                                                            logger=logger)
+            if not op_errors:
+                result = postgres_pomes.bulk_execute(exc_stmt=update_stmt,
+                                                     exc_vals=update_vals,
+                                                     template=None,
+                                                     conn=curr_conn,
+                                                     committable=committable if connection else True,
+                                                     errors=op_errors,
+                                                     logger=logger)
+        elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
+            set_items: str = _bind_columns(engine=engine,
+                                           columns=set_attrs,
+                                           concat=", ",
+                                           start_index=1)
+            where_items: str = _bind_columns(engine=engine,
+                                             columns=where_attrs,
+                                             concat=" AND ",
+                                             start_index=len(set_attrs)+1)
+            update_stmt: str = f"UPDATE {target_table} SET {set_items} WHERE {where_items}"
+            if engine == DbEngine.ORACLE:
+                from . import oracle_pomes
+                result = oracle_pomes.bulk_execute(exc_stmt=update_stmt,
+                                                   exc_vals=update_vals,
+                                                   conn=curr_conn,
+                                                   committable=committable if connection else True,
+                                                   errors=op_errors,
+                                                   logger=logger)
+            else:
+                from . import sqlserver_pomes
+                result = sqlserver_pomes.bulk_execute(exc_stmt=update_stmt,
+                                                      exc_vals=update_vals,
+                                                      conn=curr_conn,
+                                                      committable=committable if connection else True,
+                                                      errors=op_errors,
+                                                      logger=logger)
+        # close the locally acquired connection
+        if not connection:
+            db_close(connection=curr_conn,
+                     logger=logger)
+
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -1200,45 +1217,50 @@ def db_bulk_delete(target_table: str,
                             errors=errors)
 
     # make sure to have a connection
-    if engine:
-        connection = connection or db_connect(engine=engine,
+    curr_conn: Any = connection or db_connect(engine=engine,
                                               errors=op_errors,
                                               logger=logger)
-    if engine == DbEngine.MYSQL:
-        pass
-    elif engine == DbEngine.POSTGRES:
-        from . import postgres_pomes
-        delete_stmt: str = (f"DELETE FROM {target_table} "
-                            f"WHERE ({', '.join(where_attrs)}) IN (%s)")
-        result = postgres_pomes.bulk_execute(exc_stmt=delete_stmt,
-                                             exc_vals=where_vals,
-                                             template=None,
-                                             conn=connection,
-                                             committable=committable,
-                                             errors=op_errors,
-                                             logger=logger)
-    elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
-        where_items: str = _bind_columns(engine=engine,
-                                         columns=where_attrs,
-                                         concat=" AND",
-                                         start_index=1)
-        delete_stmt: str = f"DELETE FROM {target_table} WHERE {where_items}"
-        if engine == DbEngine.ORACLE:
-            from . import oracle_pomes
-            result = oracle_pomes.bulk_execute(exc_stmt=delete_stmt,
-                                               exc_vals=where_vals,
-                                               conn=connection,
-                                               committable=committable,
-                                               errors=op_errors,
-                                               logger=logger)
-        else:
-            from . import sqlserver_pomes
-            result = sqlserver_pomes.bulk_execute(exc_stmt=delete_stmt,
-                                                  exc_vals=where_vals,
-                                                  conn=connection,
-                                                  committable=committable,
-                                                  errors=op_errors,
-                                                  logger=logger)
+    if not op_errors:
+        if engine == DbEngine.MYSQL:
+            pass
+        elif engine == DbEngine.POSTGRES:
+            from . import postgres_pomes
+            delete_stmt: str = (f"DELETE FROM {target_table} "
+                                f"WHERE ({', '.join(where_attrs)}) IN (%s)")
+            result = postgres_pomes.bulk_execute(exc_stmt=delete_stmt,
+                                                 exc_vals=where_vals,
+                                                 template=None,
+                                                 conn=curr_conn,
+                                                 committable=committable if connection else True,
+                                                 errors=op_errors,
+                                                 logger=logger)
+        elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
+            where_items: str = _bind_columns(engine=engine,
+                                             columns=where_attrs,
+                                             concat=" AND",
+                                             start_index=1)
+            delete_stmt: str = f"DELETE FROM {target_table} WHERE {where_items}"
+            if engine == DbEngine.ORACLE:
+                from . import oracle_pomes
+                result = oracle_pomes.bulk_execute(exc_stmt=delete_stmt,
+                                                   exc_vals=where_vals,
+                                                   conn=curr_conn,
+                                                   committable=committable if connection else True,
+                                                   errors=op_errors,
+                                                   logger=logger)
+            else:
+                from . import sqlserver_pomes
+                result = sqlserver_pomes.bulk_execute(exc_stmt=delete_stmt,
+                                                      exc_vals=where_vals,
+                                                      conn=curr_conn,
+                                                      committable=committable if connection else True,
+                                                      errors=op_errors,
+                                                      logger=logger)
+        # close the locally acquired connection
+        if not connection:
+            db_close(connection=curr_conn,
+                     logger=logger)
+
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -1285,44 +1307,55 @@ def db_update_lob(lob_table: str,
     # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if engine == DbEngine.MYSQL:
-        pass
-    elif engine == DbEngine.ORACLE:
-        from . import oracle_pomes
-        oracle_pomes.update_lob(lob_table=lob_table,
-                                lob_column=lob_column,
-                                pk_columns=pk_columns,
-                                pk_vals=pk_vals,
-                                lob_data=lob_data,
-                                chunk_size=chunk_size,
-                                conn=connection,
-                                committable=committable,
-                                errors=op_errors,
-                                logger=logger)
-    elif engine == DbEngine.POSTGRES:
-        from . import postgres_pomes
-        postgres_pomes.update_lob(lob_table=lob_table,
-                                  lob_column=lob_column,
-                                  pk_columns=pk_columns,
-                                  pk_vals=pk_vals,
-                                  lob_data=lob_data,
-                                  chunk_size=chunk_size,
-                                  conn=connection,
-                                  committable=committable,
-                                  errors=op_errors,
-                                  logger=logger)
-    elif engine == DbEngine.SQLSERVER:
-        from . import sqlserver_pomes
-        sqlserver_pomes.update_lob(lob_table=lob_table,
-                                   lob_column=lob_column,
-                                   pk_columns=pk_columns,
-                                   pk_vals=pk_vals,
-                                   lob_data=lob_data,
-                                   chunk_size=chunk_size,
-                                   conn=connection,
-                                   committable=committable,
-                                   errors=op_errors,
-                                   logger=logger)
+
+    # make sure to have a connection
+    curr_conn: Any = connection or db_connect(engine=engine,
+                                              errors=op_errors,
+                                              logger=logger)
+    if not op_errors:
+        if engine == DbEngine.MYSQL:
+            pass
+        elif engine == DbEngine.ORACLE:
+            from . import oracle_pomes
+            oracle_pomes.update_lob(lob_table=lob_table,
+                                    lob_column=lob_column,
+                                    pk_columns=pk_columns,
+                                    pk_vals=pk_vals,
+                                    lob_data=lob_data,
+                                    chunk_size=chunk_size,
+                                    conn=curr_conn,
+                                    committable=committable if connection else True,
+                                    errors=op_errors,
+                                    logger=logger)
+        elif engine == DbEngine.POSTGRES:
+            from . import postgres_pomes
+            postgres_pomes.update_lob(lob_table=lob_table,
+                                      lob_column=lob_column,
+                                      pk_columns=pk_columns,
+                                      pk_vals=pk_vals,
+                                      lob_data=lob_data,
+                                      chunk_size=chunk_size,
+                                      conn=curr_conn,
+                                      committable=committable if connection else True,
+                                      errors=op_errors,
+                                      logger=logger)
+        elif engine == DbEngine.SQLSERVER:
+            from . import sqlserver_pomes
+            sqlserver_pomes.update_lob(lob_table=lob_table,
+                                       lob_column=lob_column,
+                                       pk_columns=pk_columns,
+                                       pk_vals=pk_vals,
+                                       lob_data=lob_data,
+                                       chunk_size=chunk_size,
+                                       conn=curr_conn,
+                                       committable=committable if connection else True,
+                                       errors=op_errors,
+                                       logger=logger)
+        # close the locally acquired connection
+        if not connection:
+            db_close(connection=curr_conn,
+                     logger=logger)
+
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -1378,50 +1411,56 @@ def db_execute(exc_stmt: str,
     # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
+
     # make sure to have a connection
-    if engine:
-        connection = connection or db_connect(engine=engine,
+    curr_conn: Any = connection or db_connect(engine=engine,
                                               errors=op_errors,
                                               logger=logger)
-    # establish the correct bind tags
-    if bind_vals and DB_BIND_META_TAG in exc_stmt:
-        exc_stmt = db_adjust_placeholders(stmt=exc_stmt,
-                                          engine=engine)
-    if engine == DbEngine.MYSQL:
-        pass
-    elif engine == DbEngine.ORACLE:
-        from . import oracle_pomes
-        result = oracle_pomes.execute(exc_stmt=exc_stmt,
-                                      bind_vals=bind_vals,
-                                      return_cols=return_cols,
-                                      min_count=min_count,
-                                      max_count=max_count,
-                                      conn=connection,
-                                      committable=committable,
-                                      errors=op_errors,
-                                      logger=logger)
-    elif engine == DbEngine.POSTGRES:
-        from . import postgres_pomes
-        result = postgres_pomes.execute(exc_stmt=exc_stmt,
-                                        bind_vals=bind_vals,
-                                        return_cols=return_cols,
-                                        min_count=min_count,
-                                        max_count=max_count,
-                                        conn=connection,
-                                        committable=committable,
-                                        errors=op_errors,
-                                        logger=logger)
-    elif engine == DbEngine.SQLSERVER:
-        from . import sqlserver_pomes
-        result = sqlserver_pomes.execute(exc_stmt=exc_stmt,
-                                         bind_vals=bind_vals,
-                                         return_cols=return_cols,
-                                         min_count=min_count,
-                                         max_count=max_count,
-                                         conn=connection,
-                                         committable=committable,
-                                         errors=op_errors,
-                                         logger=logger)
+    if not op_errors:
+        # establish the correct bind tags
+        if bind_vals and DB_BIND_META_TAG in exc_stmt:
+            exc_stmt = db_adjust_placeholders(stmt=exc_stmt,
+                                              engine=engine)
+        if engine == DbEngine.MYSQL:
+            pass
+        elif engine == DbEngine.ORACLE:
+            from . import oracle_pomes
+            result = oracle_pomes.execute(exc_stmt=exc_stmt,
+                                          bind_vals=bind_vals,
+                                          return_cols=return_cols,
+                                          min_count=min_count,
+                                          max_count=max_count,
+                                          conn=curr_conn,
+                                          committable=committable if connection else True,
+                                          errors=op_errors,
+                                          logger=logger)
+        elif engine == DbEngine.POSTGRES:
+            from . import postgres_pomes
+            result = postgres_pomes.execute(exc_stmt=exc_stmt,
+                                            bind_vals=bind_vals,
+                                            return_cols=return_cols,
+                                            min_count=min_count,
+                                            max_count=max_count,
+                                            conn=curr_conn,
+                                            committable=committable if connection else True,
+                                            errors=op_errors,
+                                            logger=logger)
+        elif engine == DbEngine.SQLSERVER:
+            from . import sqlserver_pomes
+            result = sqlserver_pomes.execute(exc_stmt=exc_stmt,
+                                             bind_vals=bind_vals,
+                                             return_cols=return_cols,
+                                             min_count=min_count,
+                                             max_count=max_count,
+                                             conn=curr_conn,
+                                             committable=committable if connection else True,
+                                             errors=op_errors,
+                                             logger=logger)
+        # close the locally acquired connection
+        if not connection:
+            db_close(connection=curr_conn,
+                     logger=logger)
+
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -1461,37 +1500,43 @@ def db_call_function(func_name: str,
     # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
+
     # make sure to have a connection
-    if engine:
-        connection = connection or db_connect(engine=engine,
+    curr_conn: Any = connection or db_connect(engine=engine,
                                               errors=op_errors,
                                               logger=logger)
-    if engine == DbEngine.MYSQL:
-        pass
-    elif engine == DbEngine.ORACLE:
-        from . import oracle_pomes
-        result = oracle_pomes.call_function(func_name=func_name,
-                                            func_vals=func_vals,
-                                            conn=connection,
-                                            committable=committable,
-                                            errors=op_errors,
-                                            logger=logger)
-    elif engine == DbEngine.POSTGRES:
-        from . import postgres_pomes
-        result = postgres_pomes.call_procedure(proc_name=func_name,
-                                               proc_vals=func_vals,
-                                               conn=connection,
-                                               committable=committable,
-                                               errors=op_errors,
-                                               logger=logger)
-    elif engine == DbEngine.SQLSERVER:
-        from . import sqlserver_pomes
-        result = sqlserver_pomes.call_procedure(proc_name=func_name,
-                                                proc_vals=func_vals,
-                                                conn=connection,
-                                                committable=committable,
+    if not op_errors:
+        if engine == DbEngine.MYSQL:
+            pass
+        elif engine == DbEngine.ORACLE:
+            from . import oracle_pomes
+            result = oracle_pomes.call_function(func_name=func_name,
+                                                func_vals=func_vals,
+                                                conn=curr_conn,
+                                                committable=committable if connection else True,
                                                 errors=op_errors,
                                                 logger=logger)
+        elif engine == DbEngine.POSTGRES:
+            from . import postgres_pomes
+            result = postgres_pomes.call_procedure(proc_name=func_name,
+                                                   proc_vals=func_vals,
+                                                   conn=curr_conn,
+                                                   committable=committable if connection else True,
+                                                   errors=op_errors,
+                                                   logger=logger)
+        elif engine == DbEngine.SQLSERVER:
+            from . import sqlserver_pomes
+            result = sqlserver_pomes.call_procedure(proc_name=func_name,
+                                                    proc_vals=func_vals,
+                                                    conn=curr_conn,
+                                                    committable=committable if connection else True,
+                                                    errors=op_errors,
+                                                    logger=logger)
+        # close the locally acquired connection
+        if not connection:
+            db_close(connection=curr_conn,
+                     logger=logger)
+
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)
@@ -1533,36 +1578,42 @@ def db_call_procedure(proc_name: str,
                             errors=errors)
 
     # make sure to have a connection
-    if engine:
-        connection = connection or db_connect(engine=engine,
+    # make sure to have a connection
+    curr_conn: Any = connection or db_connect(engine=engine,
                                               errors=op_errors,
                                               logger=logger)
-    if engine == DbEngine.MYSQL:
-        pass
-    elif engine == DbEngine.ORACLE:
-        from . import oracle_pomes
-        result = oracle_pomes.call_procedure(proc_name=proc_name,
-                                             proc_vals=proc_vals,
-                                             conn=connection,
-                                             committable=committable,
-                                             errors=op_errors,
-                                             logger=logger)
-    elif engine == DbEngine.POSTGRES:
-        from . import postgres_pomes
-        result = postgres_pomes.call_procedure(proc_name=proc_name,
-                                               proc_vals=proc_vals,
-                                               conn=connection,
-                                               committable=committable,
-                                               errors=op_errors,
-                                               logger=logger)
-    elif engine == DbEngine.SQLSERVER:
-        from . import sqlserver_pomes
-        result = sqlserver_pomes.call_procedure(proc_name=proc_name,
-                                                proc_vals=proc_vals,
-                                                conn=connection,
-                                                committable=committable,
-                                                errors=op_errors,
-                                                logger=logger)
+    if not op_errors:
+        if engine == DbEngine.MYSQL:
+            pass
+        elif engine == DbEngine.ORACLE:
+            from . import oracle_pomes
+            result = oracle_pomes.call_procedure(proc_name=proc_name,
+                                                 proc_vals=proc_vals,
+                                                 conn=curr_conn,
+                                                 committable=committable if connection else True,
+                                                 errors=op_errors,
+                                                 logger=logger)
+        elif engine == DbEngine.POSTGRES:
+            from . import postgres_pomes
+            result = postgres_pomes.call_procedure(proc_name=proc_name,
+                                                   proc_vals=proc_vals,
+                                                   conn=curr_conn,
+                                                   committable=committable if connection else True,
+                                                   errors=op_errors,
+                                                   logger=logger)
+        elif engine == DbEngine.SQLSERVER:
+            from . import sqlserver_pomes
+            result = sqlserver_pomes.call_procedure(proc_name=proc_name,
+                                                    proc_vals=proc_vals,
+                                                    conn=curr_conn,
+                                                    committable=committable if connection else True,
+                                                    errors=op_errors,
+                                                    logger=logger)
+        # close the locally acquired connection
+        if not connection:
+            db_close(connection=curr_conn,
+                     logger=logger)
+
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)

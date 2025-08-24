@@ -41,7 +41,7 @@ DB_BIND_META_TAG: Final[str] = env_get_str(key=f"{APP_PREFIX}_DB_BIND_META_TAG",
 
 def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
     """
-    Establish the connection data for select database engines, from evironment variables.
+    Establish the connection data for select database engines, from environment variables.
 
     The preferred way to specify database connection parameters is dynamically with *db_setup()*;.
     Specifying database connection parameters with environment variables can be done in two ways:
@@ -126,8 +126,7 @@ def _assert_engine(engine: DbEngine,
     elif engine in _DB_CONN_DATA:
         result = engine
     elif isinstance(errors, list):
-        err_msg = f"Database engine '{engine}' unknown or not configured"
-        errors.append(err_msg)
+        errors.append(f"Database engine '{engine}' unknown or not configured")
 
     return result
 

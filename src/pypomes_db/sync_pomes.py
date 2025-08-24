@@ -129,8 +129,8 @@ def db_sync_data(source_engine: DbEngine,
         # log the synchronization start
         if logger:
             logger.debug(msg=f"Started synchronizing data, "
-                             f"from {source_engine}.{from_table} to {target_engine}.{to_table}, "
-                             f"source connection '{curr_source_conn}', target connection '{curr_target_conn}'")
+                             f"from {source_engine}.{from_table}, connection '{curr_source_conn}',"
+                             f" to {target_engine}.{to_table}, connection '{curr_target_conn}'")
         # migrate the data
         log_count: int
         sel_stmt: str
@@ -241,8 +241,8 @@ def db_sync_data(source_engine: DbEngine,
                 # log partial result
                 if logger and log_step >= log_trigger:
                     logger.debug(msg=f"Synchronizing {log_step} tuples, "
-                                     f"from {source_engine}.{from_table} to {target_engine}.{to_table}, "
-                                     f"source connection '{curr_source_conn}', target connection '{curr_target_conn}'")
+                                     f"from {source_engine}.{from_table}, connection '{curr_source_conn}', "
+                                     f"to {target_engine}.{to_table}, connection '{curr_target_conn}'")
                     log_step = 0
             # close the cursors
             source_cursor.close()
@@ -322,8 +322,7 @@ def db_sync_data(source_engine: DbEngine,
         elif not op_errors and logger:
             logger.debug(msg=f"Synchronized {log_count} tuples from "
                              f"{source_engine}.{from_table} to {target_engine}.{to_table}, "
-                             f"{result[0]} deleted, {result[1]} inserted, {result[2]} updated, "
-                             f"source connection '{curr_source_conn}', target connection '{curr_target_conn}'")
+                             f"{result[0]} deleted, {result[1]} inserted, {result[2]} updated")
     # acknowledge local errors
     if isinstance(errors, list):
         errors.extend(op_errors)

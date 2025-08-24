@@ -62,12 +62,10 @@ def db_stream_data(table: str,
                             errors=op_errors)
 
     # make sure to have a connection to the source database
-    curr_conn: Any = None
-    if engine:
-        curr_conn = connection or db_connect(engine=engine,
-                                             errors=op_errors,
-                                             logger=logger)
-    if curr_conn:
+    curr_conn: Any = connection or db_connect(engine=engine,
+                                              errors=op_errors,
+                                              logger=logger)
+    if not op_errors:
         # normalize these parameters
         offset_count = __normalize_value(value=offset_count)
         limit_count = __normalize_value(value=limit_count)
