@@ -130,13 +130,14 @@ def db_get_tables(schema: str = None,
     # initialize the return variable
     result: list[str] | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
-    if engine:
+                            errors=errors)
+    if not errors:
         # build the query
         if engine == DbEngine.ORACLE:
             sel_stmt: str = "SELECT schema_name || '.' || table_name FROM all_tables"
@@ -154,15 +155,11 @@ def db_get_tables(schema: str = None,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=op_errors,
+                                           errors=errors,
                                            logger=logger)
         # process the query result
-        if not op_errors:
+        if not errors:
             result = [rec[0] for rec in recs]
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
 
     return result
 
@@ -191,13 +188,14 @@ def db_table_exists(table_name: str,
     # initialize the return variable
     result: bool | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
-    if engine:
+                            errors=errors)
+    if not errors:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
@@ -221,15 +219,11 @@ def db_table_exists(table_name: str,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=op_errors,
+                                           errors=errors,
                                            logger=logger)
         # process the query result
-        if not op_errors:
+        if not errors:
             result = recs[0][0] > 0
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
 
     return result
 
@@ -257,13 +251,14 @@ def db_drop_table(table_name: str,
     :param errors: incidental error messages
     :param logger: optional logger
     """
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
-    if engine:
+                            errors=errors)
+    if not errors:
         # build the DROP statement
         if engine == DbEngine.ORACLE:
             # oracle has no 'IF EXISTS' clause
@@ -296,12 +291,8 @@ def db_drop_table(table_name: str,
                    engine=engine,
                    connection=connection,
                    committable=committable,
-                   errors=op_errors,
+                   errors=errors,
                    logger=logger)
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
 
 
 def db_get_table_columns(table_name: str,
@@ -327,13 +318,14 @@ def db_get_table_columns(table_name: str,
     # initialize the return variable
     result: list[tuple[str, str, bool]] | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
-    if engine:
+                            errors=errors)
+    if not errors:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
@@ -366,15 +358,11 @@ def db_get_table_columns(table_name: str,
                                                      engine=engine,
                                                      connection=connection,
                                                      committable=committable,
-                                                     errors=op_errors,
+                                                     errors=errors,
                                                      logger=logger)
         # process the query result
-        if not op_errors and recs:
+        if not errors and recs:
             result = [(rec[0], rec[1], rec[2].startswith("Y")) for rec in recs]
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
 
     return result
 
@@ -406,13 +394,14 @@ def db_get_table_ddl(table_name: str,
     # initialize the return variable
     result: str | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
-    if engine:
+                            errors=errors)
+    if not errors:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
@@ -439,17 +428,13 @@ def db_get_table_ddl(table_name: str,
                                                engine=engine,
                                                connection=connection,
                                                committable=committable,
-                                               errors=op_errors,
+                                               errors=errors,
                                                logger=logger)
             # process the query result
-            if not op_errors and recs:
+            if not errors and recs:
                 result = recs[0][0].strip()
         else:
             # 'table_name' not schema-qualified, report the problem
-            op_errors.append(f"Index name '{table_name}' not properly schema-qualified")
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
+            errors.append(f"Index name '{table_name}' not properly schema-qualified")
 
     return result

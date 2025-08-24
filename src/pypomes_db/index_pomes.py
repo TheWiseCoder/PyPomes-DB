@@ -38,14 +38,15 @@ def db_get_indexes(schema: str = None,
     # initialize the return variable
     result: list[str] | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
+                            errors=errors)
     # proceed, if no errors
-    if not op_errors:
+    if not errors:
         # process table names
         tbl_name = str_positional(source=engine,
                                   list_from=["oracle", "postgres", "sqlserver"],
@@ -126,15 +127,11 @@ def db_get_indexes(schema: str = None,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=op_errors,
+                                           errors=errors,
                                            logger=logger)
         # process the query result
-        if not op_errors:
+        if not errors:
             result = [rec[0] for rec in recs]
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
 
     return result
 
@@ -164,21 +161,22 @@ def db_get_index_ddl(index_name: str,
     # initialize the return variable
     result: str | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
+                            errors=errors)
 
     # is 'index_name' schema-qualified ?
     splits: list[str] = index_name.split(".")
     if len(splits) != 2:
         # no, report the problem
-        op_errors.append(f"Index name '{index_name}' not properly schema-qualified")
+        errors.append(f"Index name '{index_name}' not properly schema-qualified")
 
     # proceed, if no errors
-    if not op_errors:
+    if not errors:
         # extract the schema and index names
         schema_name: str = splits[0]
         index_name: str = splits[1]
@@ -204,14 +202,10 @@ def db_get_index_ddl(index_name: str,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=op_errors,
+                                           errors=errors,
                                            logger=logger)
         # process the query result
-        if not op_errors and recs:
+        if not errors and recs:
             result = recs[0][0].strip()
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
 
     return result

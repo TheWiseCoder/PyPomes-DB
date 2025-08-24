@@ -95,17 +95,18 @@ def db_migrate_data(source_engine: DbEngine,
     # initialize the return variable
     result: int | None = 0
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # make sure to have connections to the source and destination databases
     curr_source_conn: Any = source_conn or db_connect(engine=source_engine,
-                                                      errors=op_errors,
+                                                      errors=errors,
                                                       logger=logger)
     curr_target_conn: Any = target_conn or db_connect(engine=target_engine,
-                                                      errors=op_errors,
+                                                      errors=errors,
                                                       logger=logger)
-    if curr_source_conn and curr_target_conn:
+    if not errors:
 
         # define the number of rows to skip
         if offset_count == -1:
@@ -114,7 +115,7 @@ def db_migrate_data(source_engine: DbEngine,
                                     engine=target_engine,
                                     connection=target_conn,
                                     committable=target_committable,
-                                    errors=op_errors,
+                                    errors=errors,
                                     logger=logger)
         else:
             offset_count = __normalize_value(value=offset_count)
@@ -190,18 +191,18 @@ def db_migrate_data(source_engine: DbEngine,
             bulk_template = postgres_pomes.build_typified_template(insert_stmt=insert_stmt,
                                                                    nullable_only=True,
                                                                    conn=curr_target_conn,
-                                                                   errors=op_errors,
+                                                                   errors=errors,
                                                                    logger=logger)
         # pre-insert handling of identity columns on SQLServer
-        if not op_errors and identity_column and target_engine == DbEngine.SQLSERVER:
+        if not errors and identity_column and target_engine == DbEngine.SQLSERVER:
             from . import sqlserver_pomes
             sqlserver_pomes.identity_pre_insert(insert_stmt=insert_stmt,
                                                 conn=target_conn,
-                                                errors=op_errors,
+                                                errors=errors,
                                                 logger=logger)
         err_msg: str | None = None
         # errors ?
-        if not op_errors:
+        if not errors:
             # no, migrate the data
             try:
                 source_cursor: Any = curr_source_conn.cursor()
@@ -295,7 +296,7 @@ def db_migrate_data(source_engine: DbEngine,
                                                             conn=target_conn,
                                                             committable=False,
                                                             identity_column=identity_column,
-                                                            errors=op_errors,
+                                                            errors=errors,
                                                             logger=logger)
                     elif target_engine == DbEngine.SQLSERVER:
                         from . import sqlserver_pomes
@@ -303,9 +304,9 @@ def db_migrate_data(source_engine: DbEngine,
                                                              conn=target_conn,
                                                              committable=False,
                                                              identity_column=identity_column,
-                                                             errors=op_errors,
+                                                             errors=errors,
                                                              logger=logger)
-                if op_errors:
+                if errors:
                     if curr_source_conn:
                         with suppress(Exception):
                             curr_source_conn.rollback()
@@ -336,19 +337,15 @@ def db_migrate_data(source_engine: DbEngine,
 
         # log the migration finish
         if err_msg:
-            op_errors.append(err_msg)
+            errors.append(err_msg)
             if logger:
                 logger.error(msg=err_msg)
-        elif not op_errors and logger:
-            logger.debug(msg=f"Finished migrating {row_count} tuples, "
-                             f"from {source_engine}.{source_table} "
-                             f"to {target_engine}.{target_table}, offset {offset_count}")
 
-        # acknowledge local errors
-        if op_errors:
-            if isinstance(errors, list):
-                errors.extend(op_errors)
-        else:
+        if not errors:
+            if logger:
+                logger.debug(msg=f"Finished migrating {row_count} tuples, "
+                                 f"from {source_engine}.{source_table} "
+                                 f"to {target_engine}.{target_table}, offset {offset_count}")
             result = row_count
 
     return result
@@ -428,17 +425,18 @@ def db_migrate_lobs(source_engine: DbEngine,
     # initialize the return variable
     result: tuple[int, int] | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # make sure to have connections to the source and destination databases
     curr_source_conn: Any = source_conn or db_connect(engine=source_engine,
-                                                      errors=op_errors,
+                                                      errors=errors,
                                                       logger=logger)
     curr_target_conn: Any = target_conn or db_connect(engine=target_engine,
-                                                      errors=op_errors,
+                                                      errors=errors,
                                                       logger=logger)
-    if not op_errors:
+    if not errors:
         # make sure to have a target column
         if not target_lob_column:
             target_lob_column = source_lob_column
@@ -454,7 +452,7 @@ def db_migrate_lobs(source_engine: DbEngine,
                                     engine=target_engine,
                                     connection=target_conn,
                                     committable=target_committable,
-                                    errors=op_errors,
+                                    errors=errors,
                                     logger=logger)
         else:
             offset_count = __normalize_value(value=offset_count)
@@ -680,10 +678,10 @@ def db_migrate_lobs(source_engine: DbEngine,
 
         # log the migration finish
         if err_msg:
-            op_errors.append(err_msg)
+            errors.append(err_msg)
             if logger:
                 logger.error(msg=err_msg)
-        elif not op_errors and logger:
+        elif not errors and logger:
             finish_count: float = time.time()
             mins = (finish_count - start_count) / 60
             duration: str = timestamp_duration(start=start_count,
@@ -692,12 +690,7 @@ def db_migrate_lobs(source_engine: DbEngine,
                              f"({row_count/mins:.2f} LOBs/min, {byte_count/(mins * 1024 ** 2):.2f} MBytes/min), "
                              f"from {source_engine}.{source_table}.{source_lob_column} "
                              f"to {target_engine}.{target_table}.{target_lob_column}, offset {offset_count}")
-
-        # acknowledge local errors
-        if op_errors:
-            if isinstance(errors, list):
-                errors.extend(op_errors)
-        else:
+        if not errors:
             result = (row_count, byte_count)
 
     return result

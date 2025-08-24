@@ -36,13 +36,14 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
     # initialize the return variable
     result: list[str] | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
-    if engine:
+                            errors=errors)
+    if not errors:
         # build the query
         if engine == DbEngine.ORACLE:
             vw_table: str = "all_mviews" if view_type == "M" else "all_views"
@@ -72,37 +73,32 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=op_errors,
+                                           errors=errors,
                                            logger=logger)
         # process the query result
-        if not op_errors:
+        if not errors:
             result = [rec[0] for rec in recs]
 
-    # acknowledge eventual local errors, if appropriate
-    if isinstance(errors, list):
-        errors.extend(op_errors)
-
-    # omit views with dependencies not in 'tables', if applicable
+    # omit views with dependencies not in 'tables'
     if result and tables:
         omitted_views: list[str] = []
         for view_name in result:
-            op_errors = []
             dependencies: list[str] = \
                 db_get_view_dependencies(view_name=view_name,
                                          engine=engine,
                                          connection=connection,
                                          committable=committable,
-                                         errors=op_errors,
+                                         errors=errors,
                                          logger=logger) or []
+            if errors:
+                break
             for dependency in dependencies:
                 if dependency not in tables:
                     omitted_views.append(view_name)
                     break
-            # acknowledge eventual local errors, if appropriate
-            if isinstance(errors, list):
-                errors.extend(op_errors)
-        for omitted_view in omitted_views:
-            result.remove(omitted_view)
+        if not errors:
+            for omitted_view in omitted_views:
+                result.remove(omitted_view)
 
     return result
 
@@ -134,13 +130,14 @@ def db_view_exists(view_name: str,
     # initialize the return variable
     result: bool | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
-    if engine:
+                            errors=errors)
+    if not errors:
         # extract the schema, if possible
         schema_name: str | None = None
         splits: list[str] = view_name.split(".")
@@ -182,15 +179,11 @@ def db_view_exists(view_name: str,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=op_errors,
+                                           errors=errors,
                                            logger=logger)
         # process the query result
-        if not op_errors:
+        if not errors:
             result = recs[0][0] > 0
-
-    # acknowledge eventual local errors, if appropriate
-    if isinstance(errors, list):
-        errors.extend(op_errors)
 
     return result
 
@@ -220,13 +213,14 @@ def db_drop_view(view_name: str,
     :param errors: incidental error messages
     :param logger: optional logger
     """
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
-    if engine:
+                            errors=errors)
+    if not errors:
         # build the DROP statement
         tag: str = "MATERIALIZED VIEW" if view_type == "M" else "VIEW"
         if engine == DbEngine.ORACLE:
@@ -261,12 +255,8 @@ def db_drop_view(view_name: str,
                    engine=engine,
                    connection=connection,
                    committable=committable,
-                   errors=op_errors,
+                   errors=errors,
                    logger=logger)
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
 
 
 def db_get_view_ddl(view_name: str,
@@ -297,13 +287,14 @@ def db_get_view_ddl(view_name: str,
     # initialize the return variable
     result: str | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
-    if engine:
+                            errors=errors)
+    if not errors:
         # determine the view schema
         view_schema: str
         view_schema, view_name = view_name.split(sep=".") if "." in view_name else (None, view_name)
@@ -347,15 +338,11 @@ def db_get_view_ddl(view_name: str,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=op_errors,
+                                           errors=errors,
                                            logger=logger)
         # process the query result
-        if not op_errors and recs:
+        if not errors and recs:
             result = recs[0][0].strip()
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
 
     return result
 
@@ -387,13 +374,14 @@ def db_get_view_dependencies(view_name: str,
     # initialize the return variable
     result: list[str] | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
-    if engine:
+                            errors=errors)
+    if not errors:
         # determine the view schema
         view_schema: str
         view_schema, view_name = view_name.split(sep=".") if "." in view_name else (None, view_name)
@@ -440,14 +428,10 @@ def db_get_view_dependencies(view_name: str,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=op_errors,
+                                           errors=errors,
                                            logger=logger)
         # process the query result
-        if not op_errors:
+        if not errors:
             result = [rec[0] for rec in recs]
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
 
     return result

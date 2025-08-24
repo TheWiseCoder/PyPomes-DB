@@ -11,7 +11,6 @@ from .db_pomes import (
 )
 
 
-# ruff: noqa: PLR0915 - too many statements
 def db_sync_data(source_engine: DbEngine,
                  source_table: str,
                  target_engine: DbEngine,
@@ -80,8 +79,9 @@ def db_sync_data(source_engine: DbEngine,
     # initialize the return variable
     result: tuple[int, int, int] | None = None
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     from_table: str = f"{source_engine}.{source_table}"
     to_table: str = f"{target_engine}.{target_table}"
@@ -91,10 +91,10 @@ def db_sync_data(source_engine: DbEngine,
     if pk_columns:
         # make sure to have connections to the source and destination databases
         curr_source_conn = source_conn or db_connect(engine=source_engine,
-                                                     errors=op_errors,
+                                                     errors=errors,
                                                      logger=logger)
         curr_target_conn = target_conn or db_connect(engine=target_engine,
-                                                     errors=op_errors,
+                                                     errors=errors,
                                                      logger=logger)
     else:
         err_msg: str = (f"Cannot synchronize tables {source_engine}.{from_table} "
@@ -257,11 +257,11 @@ def db_sync_data(source_engine: DbEngine,
                                engine=target_engine,
                                connection=curr_target_conn,
                                committable=False,
-                               errors=op_errors,
+                               errors=errors,
                                logger=logger)
 
             # process the rows flagged for insert
-            if not op_errors and rows_for_insert:
+            if not errors and rows_for_insert:
                 # insert the rows
                 db_bulk_insert(target_table=target_table,
                                insert_attrs=pk_columns + sync_columns,
@@ -270,11 +270,11 @@ def db_sync_data(source_engine: DbEngine,
                                connection=curr_target_conn,
                                committable=False,
                                identity_column=identity_column,
-                               errors=op_errors,
+                               errors=errors,
                                logger=logger)
 
             # process the rows flagged for update
-            if not op_errors and rows_for_update:
+            if not errors and rows_for_update:
                 # update the rows
                 db_bulk_update(target_table=target_table,
                                set_attrs=sync_columns,
@@ -283,9 +283,9 @@ def db_sync_data(source_engine: DbEngine,
                                engine=target_engine,
                                connection=curr_target_conn,
                                committable=False,
-                               errors=op_errors,
+                               errors=errors,
                                logger=logger)
-            if op_errors:
+            if errors:
                 log_count = 0
             else:
                 if source_committable or not source_conn:
@@ -316,15 +316,11 @@ def db_sync_data(source_engine: DbEngine,
 
         # log the synchronization finish
         if err_msg:
-            op_errors.append(err_msg)
+            errors.append(err_msg)
             if logger:
                 logger.error(msg=err_msg)
-        elif not op_errors and logger:
+        elif not errors and logger:
             logger.debug(msg=f"Synchronized {log_count} tuples from "
                              f"{source_engine}.{from_table} to {target_engine}.{to_table}, "
                              f"{result[0]} deleted, {result[1]} inserted, {result[2]} updated")
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
-
     return result

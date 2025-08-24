@@ -54,18 +54,19 @@ def db_stream_data(table: str,
     # initialize the return variable
     result: int | None = 0
 
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
+                            errors=errors)
 
     # make sure to have a connection to the source database
     curr_conn: Any = connection or db_connect(engine=engine,
-                                              errors=op_errors,
+                                              errors=errors,
                                               logger=logger)
-    if not op_errors:
+    if not errors:
         # normalize these parameters
         offset_count = __normalize_value(value=offset_count)
         limit_count = __normalize_value(value=limit_count)
@@ -182,19 +183,15 @@ def db_stream_data(table: str,
             if curr_conn and not connection:
                 db_close(connection=curr_conn,
                          logger=logger)
-        # log the finish
+
+        # log the streaming finish
         if err_msg:
-            op_errors.append(err_msg)
+            errors.append(err_msg)
             if logger:
                 logger.error(msg=err_msg)
-        elif not op_errors and logger:
+        elif not errors and logger:
             logger.debug(msg=f"Finished streaming {row_count} tuples "
                              f"from {engine}.{table}, connection '{curr_conn}'")
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
-
     return result
 
 
@@ -252,20 +249,19 @@ def db_stream_lobs(table: str,
     :param logger: optional logger
     :param log_trigger: number of tuples to trigger logging info on migration (defaults to 10000 tuples)
     """
-    # initialize the local errors list
-    op_errors: list[str] = []
+    # make sure to have an errors list
+    if not isinstance(errors, list):
+        errors = []
 
     # assert the database engine
     engine = _assert_engine(engine=engine,
-                            errors=op_errors)
+                            errors=errors)
 
     # make sure to have a connection to the source database
-    curr_conn: Any = None
-    if engine:
-        curr_conn = connection or db_connect(engine=engine,
-                                             errors=op_errors,
-                                             logger=logger)
-    if curr_conn:
+    curr_conn: Any = connection or db_connect(engine=engine,
+                                              errors=errors,
+                                              logger=logger)
+    if not errors:
         # normalize these parameters
         offset_count = __normalize_value(value=offset_count)
         limit_count = __normalize_value(value=limit_count)
@@ -439,10 +435,10 @@ def db_stream_lobs(table: str,
                          logger=logger)
         # log the finish
         if err_msg:
-            op_errors.append(err_msg)
+            errors.append(err_msg)
             if logger:
                 logger.error(msg=err_msg)
-        elif not op_errors and logger:
+        elif not errors and logger:
             finish_count: float = time.time()
             mins = (finish_count - start_count) / 60
             duration: str = timestamp_duration(start=start_count,
@@ -452,10 +448,6 @@ def db_stream_lobs(table: str,
                              f"{byte_count/(mins * 1024 ** 2):.2f} MBytes/min), "
                              f"from {engine}.{table}.{lob_column}, "
                              f"offset {offset_count}, connection '{curr_conn}'")
-
-    # acknowledge local errors
-    if isinstance(errors, list):
-        errors.extend(op_errors)
 
 
 def __normalize_value(value: int) -> int:
