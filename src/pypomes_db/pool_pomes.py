@@ -274,7 +274,7 @@ class DbConnectionPool:
                             })
                             if logger:
                                 logger.debug(msg=f"Connection {id(result)} "
-                                                 f"created by the {self.db_engine} pool")
+                                                 f"created and saved in the {self.db_engine} pool")
             if not result:
                 if datetime.now(tz=UTC).timestamp() - start < self.pool_timeout:
                     sleep(seconds=1.5)
@@ -460,7 +460,7 @@ class DbConnectionPool:
                 self.conn_data.pop(length - inx - 1)
                 if logger:
                     logger.debug(msg=f"Connection {id(data[_ConnStage.CONNECTION])} "
-                                     f"removed from the {self.db_engine} pool")
+                                     f"found closed, thus removed from the {self.db_engine} pool")
             elif data[_ConnStage.AVAILABLE]:
                 # connect exausted its lifetime
                 if datetime.now(tz=UTC).timestamp() > data[_ConnStage.TIMESTAMP] + self.pool_recycle:
