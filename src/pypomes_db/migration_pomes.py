@@ -237,7 +237,8 @@ def db_migrate_data(source_engine: DbEngine,
                     if logger:
                         logger.debug(msg=f"Read {len(rows_in)} tuples "
                                          f"from {source_engine}.{source_table}, "
-                                         f"offset {offset_count + row_count}, connection '{curr_source_conn}'")
+                                         f"offset {offset_count + row_count}, "
+                                         f"connection {id(curr_source_conn)}")
                     pos_from: int = 0
 
                     # migrate the tuples
@@ -268,8 +269,10 @@ def db_migrate_data(source_engine: DbEngine,
                         row_count += len(rows_out)
                         if logger:
                             logger.debug(msg=f"Migrated {len(rows_out)} tuples, "
-                                             f"from {source_engine}.{source_table}, connection '{curr_source_conn}' "
-                                             f"to {target_engine}.{target_table}, connection '{curr_target_conn}'")
+                                             f"from {source_engine}.{source_table}, "
+                                             f"connection {id(curr_source_conn)} "
+                                             f"to {target_engine}.{target_table}, "
+                                             f"connection {id(curr_target_conn)}")
                     # read the next batch
                     if limit_count > row_count or (batch_size_in and not limit_count):
                         curr_limit = min(batch_size_in, limit_count - row_count)
@@ -509,9 +512,9 @@ def db_migrate_lobs(source_engine: DbEngine,
         if logger:
             logger.debug(msg=f"Started migrating LOBs, "
                              f"from {source_engine}.{source_table}.{source_lob_column},"
-                             f" connection '{curr_source_conn}', "
+                             f" connection {id(curr_source_conn)}, "
                              f"to {target_engine}.{target_table}.{target_lob_column}, "
-                             f" connection '{curr_target_conn}', "
+                             f" connection {id(curr_target_conn)}, "
                              f"input batch size {batch_size}, offset {offset_count}, "
                              f"limit {limit_count}, chunk size {chunk_size}")
         # migrate the LOBs
@@ -627,9 +630,9 @@ def db_migrate_lobs(source_engine: DbEngine,
                                          f"({row_step/mins:.2f} LOBs/min, "
                                          f"{byte_step/(mins * 1024 ** 2):.2f} MBytes/min),  "
                                          f"from {source_engine}.{source_table}.{source_lob_column}, "
-                                         f" connection '{curr_source_conn}', "
+                                         f" connection {id(curr_source_conn)}, "
                                          f"to {target_engine}.{target_table}.{target_lob_column}, "
-                                         f" connection '{curr_target_conn}', "
+                                         f" connection {id(curr_target_conn)}, "
                                          f"offset {offset_count + row_count - row_step}")
                         byte_step = 0
                         row_step = 0

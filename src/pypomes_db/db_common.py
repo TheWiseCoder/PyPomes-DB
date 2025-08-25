@@ -84,7 +84,7 @@ def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
             default_setup = False
         else:
             prefix: str = str_positional(source=engine,
-                                         list_from=["mysql", "oracle", "postgres", "sqlserver"],
+                                         list_from=list(DbEngine),
                                          list_to=["MSQL", "ORCL", "PG", "SQLS"])
         result[engine] = {
             DbParam.NAME: env_get_str(key=f"{APP_PREFIX}_{prefix}_NAME"),

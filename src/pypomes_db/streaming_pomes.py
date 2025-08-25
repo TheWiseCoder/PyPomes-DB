@@ -102,7 +102,7 @@ def db_stream_data(table: str,
         if logger:
             logger.debug(msg=f"Started streaming data from {engine}.{table}, "
                              f"limit {limit_count}, offset {offset_count}, batch size in {batch_size_in}, "
-                             f"batch size out {batch_size_out}, connection '{curr_conn}'")
+                             f"batch size out {batch_size_out}, connection {id(curr_conn)}")
         # stream the tuples
         row_count: int = 0
         err_msg: str | None = None
@@ -135,7 +135,7 @@ def db_stream_data(table: str,
                 # log the retrieval operation
                 if logger:
                     logger.debug(msg=f"Read {len(rows_in)} tuples from {engine}.{table}, "
-                                     f"offset {offset_count + result}, connection '{curr_conn}'")
+                                     f"offset {offset_count + result}, connection {id(curr_conn)}")
                 pos_from: int = 0
 
                 # migrate the tuples
@@ -151,7 +151,7 @@ def db_stream_data(table: str,
                     result += len(rows_out)
                     if logger:
                         logger.debug(msg=f"Streamed {result} tuples "
-                                         f"from {engine}.{table}, connection '{curr_conn}'")
+                                         f"from {engine}.{table}, connection {id(curr_conn)}")
                 # read the next batch
                 if limit_count > result or (batch_size_in and not limit_count):
                     curr_limit = min(batch_size_in, limit_count - result)
@@ -191,7 +191,7 @@ def db_stream_data(table: str,
                 logger.error(msg=err_msg)
         elif not errors and logger:
             logger.debug(msg=f"Finished streaming {row_count} tuples "
-                             f"from {engine}.{table}, connection '{curr_conn}'")
+                             f"from {engine}.{table}, connection {id(curr_conn)}")
     return result
 
 
@@ -304,7 +304,7 @@ def db_stream_lobs(table: str,
             logger.debug(msg="Started streaming LOBs "
                              f"from {engine}.{table}.{lob_column}, limit {limit_count}, "
                              f"offset {offset_count}, batch size {batch_size}, "
-                             f"chunk size {chunk_size}, connection '{curr_conn}'")
+                             f"chunk size {chunk_size}, connection {id(curr_conn)}")
         # stream the LOBs
         byte_count: int = 0
         byte_step: int = 0
@@ -395,8 +395,8 @@ def db_stream_lobs(table: str,
                         logger.debug(msg=f"Streamed {row_step} LOBs, {byte_step} bytes, in {duration} "
                                          f"({row_step/mins:.2f} LOBs/min, "
                                          f"{byte_step/(mins * 1024 ** 2):.2f} MBytes/min),  "
-                                         f"from {engine}.{table}.{lob_column}, "
-                                         f"offset {offset_count + row_count - row_step}, connection '{curr_conn}'")
+                                         f"from {engine}.{table}.{lob_column}, , connection {id(curr_conn)}"
+                                         f"offset {offset_count + row_count - row_step}")
                         byte_step = 0
                         row_step = 0
                         start_step = finish_step
@@ -447,7 +447,7 @@ def db_stream_lobs(table: str,
                              f"in {duration} ({row_count/mins:.2f} LOBs/min, "
                              f"{byte_count/(mins * 1024 ** 2):.2f} MBytes/min), "
                              f"from {engine}.{table}.{lob_column}, "
-                             f"offset {offset_count}, connection '{curr_conn}'")
+                             f"offset {offset_count}, connection {id(curr_conn)}")
 
 
 def __normalize_value(value: int) -> int:

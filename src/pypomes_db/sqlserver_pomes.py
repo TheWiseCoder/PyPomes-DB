@@ -223,7 +223,7 @@ def select(sel_stmt: str,
                     from_table: str = str_splice(source=sel_stmt,
                                                  seps=(" FROM ", " "))[1]
                     logger.debug(msg=f"Read {count} tuples from {DbEngine.SQLSERVER}.{from_table}, "
-                                     f"offset {offset_count}, connection '{curr_conn}'")
+                                     f"offset {offset_count}, connection {id(curr_conn)}")
 
                 # has the query quota been satisfied ?
                 if _assert_query_quota(engine=DbEngine.SQLSERVER,

@@ -414,9 +414,9 @@ def db_commit(connection: Any,
     try:
         connection.commit()
         if logger:
-            logger.debug(f"Transaction committed on '{connection}'")
+            logger.debug(f"Transaction committed on '{id(connection)}'")
     except Exception as e:
-        err_msg: str = (f"Error committing the transaction on '{connection}': "
+        err_msg: str = (f"Error committing the transaction on '{id(connection)}': "
                         f"{str_sanitize(source=f'{e}')}")
         if logger:
             logger.error(msg=err_msg)
@@ -436,10 +436,10 @@ def db_rollback(connection: Any,
     try:
         connection.rollback()
         if logger:
-            logger.debug(f"Transaction rolled back on '{connection}'")
+            logger.debug(f"Transaction rolled back on '{id(connection)}'")
     except Exception as e:
         if logger:
-            logger.error(msg=f"Error rolling back the transaction on '{connection}': "
+            logger.error(msg=f"Error rolling back the transaction on '{id(connection)}': "
                              f"{str_sanitize(source=f'{e}')}")
 
 
@@ -461,10 +461,10 @@ def db_close(connection: Any,
         try:
             connection.close()
             if logger:
-                logger.debug(f"Connection '{connection}' closed")
+                logger.debug(f"Connection {id(connection)} closed")
         except Exception as e:
             if logger:
-                logger.error(msg=f"Error closing the connection '{connection}': "
+                logger.error(msg=f"Error closing the connection {id(connection)}: "
                                  f"{str_sanitize(source=f'{e}')}")
 
 

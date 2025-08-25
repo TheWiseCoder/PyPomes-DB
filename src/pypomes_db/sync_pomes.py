@@ -129,8 +129,8 @@ def db_sync_data(source_engine: DbEngine,
         # log the synchronization start
         if logger:
             logger.debug(msg=f"Started synchronizing data, "
-                             f"from {source_engine}.{from_table}, connection '{curr_source_conn}',"
-                             f" to {target_engine}.{to_table}, connection '{curr_target_conn}'")
+                             f"from {source_engine}.{from_table}, connection {id(curr_source_conn)},"
+                             f" to {target_engine}.{to_table}, connection {id(curr_target_conn)}")
         # migrate the data
         log_count: int
         sel_stmt: str
@@ -152,8 +152,8 @@ def db_sync_data(source_engine: DbEngine,
             # log query result
             if logger:
                 logger.debug(msg=f"Read {row_count} tuples from {source_engine}.{from_table}, "
-                                 f"offset 0, connection {curr_source_conn}")
-            if has_nulls and target_engine == "postges":
+                                 f"offset 0, connection {id(curr_source_conn)}")
+            if has_nulls and target_engine == DbEngine.POSTGRES:
                 source_rows = _remove_nulls(rows=source_rows)
 
             sel_stmt = target_sel_stmt.replace("OFFSET @offset ROWS ", "")
@@ -163,7 +163,7 @@ def db_sync_data(source_engine: DbEngine,
             # log query result
             if logger:
                 logger.debug(msg=f"Read {len(target_rows)} tuples from {target_engine}.{target_table}, "
-                                 f"offset 0, connection '{curr_target_conn}'")
+                                 f"offset 0, connection {id(curr_target_conn)}")
             target_offset: int = len(target_rows)
 
             # traverse the result set
@@ -216,7 +216,7 @@ def db_sync_data(source_engine: DbEngine,
                         # log query result
                         if logger:
                             logger.debug(msg=f"Read {row_count} tuples from {source_engine}.{from_table}, "
-                                             f"offset {source_offset}, connection '{curr_source_conn}'")
+                                             f"offset {source_offset}, connection {id(curr_source_conn)}")
                         if has_nulls and target_engine == DbEngine.POSTGRES:
                             source_rows = _remove_nulls(rows=source_rows)
                     else:
@@ -232,7 +232,7 @@ def db_sync_data(source_engine: DbEngine,
                         # log query result
                         if logger:
                             logger.debug(msg=f"Read {len(target_rows)} tuples from {target_engine}.{target_table}, "
-                                             f"offset {target_offset}, connection '{curr_target_conn}'")
+                                             f"offset {target_offset}, connection {id(curr_target_conn)}")
                         target_offset += len(target_rows)
                     else:
                         # no more tuples in target table
@@ -241,8 +241,8 @@ def db_sync_data(source_engine: DbEngine,
                 # log partial result
                 if logger and log_step >= log_trigger:
                     logger.debug(msg=f"Synchronizing {log_step} tuples, "
-                                     f"from {source_engine}.{from_table}, connection '{curr_source_conn}', "
-                                     f"to {target_engine}.{to_table}, connection '{curr_target_conn}'")
+                                     f"from {source_engine}.{from_table}, connection {id(curr_source_conn)}, "
+                                     f"to {target_engine}.{to_table}, connection {id(curr_target_conn)}")
                     log_step = 0
             # close the cursors
             source_cursor.close()

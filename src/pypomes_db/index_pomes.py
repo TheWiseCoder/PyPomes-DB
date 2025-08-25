@@ -49,11 +49,11 @@ def db_get_indexes(schema: str = None,
     if not errors:
         # process table names
         tbl_name = str_positional(source=engine,
-                                  list_from=["oracle", "postgres", "sqlserver"],
-                                  list_to=["table_name", "LOWER(t.relname)", "LOWER(t.name)"])
+                                  list_from=list(DbEngine),
+                                  list_to=["", "table_name", "LOWER(t.relname)", "LOWER(t.name)"])
         sch_name = str_positional(source=engine,
-                                  list_from=["oracle", "postgres", "sqlserver"],
-                                  list_to=["aic.table_name",
+                                  list_from=list(DbEngine),
+                                  list_to=["", "aic.table_name",
                                            "LOWER(ns.nspname)", "SCHEMA_NAME(t.schema_id)"])
         in_tables: str = ""
         where_tables: str = ""
