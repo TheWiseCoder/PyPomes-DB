@@ -458,6 +458,9 @@ class DbConnectionPool:
             if hasattr(data[_ConnStage.CONNECTION], "closed") and data[_ConnStage.CONNECTION].closed:
                 # dispose of closed connection
                 self.conn_data.pop(length - inx - 1)
+                if logger:
+                    logger.debug(msg=f"Connection {id(data[_ConnStage.CONNECTION])} "
+                                     f"removed from the {self.db_engine} pool")
             elif data[_ConnStage.AVAILABLE]:
                 # connect exausted its lifetime
                 if datetime.now(tz=UTC).timestamp() > data[_ConnStage.TIMESTAMP] + self.pool_recycle:
@@ -472,7 +475,7 @@ class DbConnectionPool:
                     self.conn_data.pop(length - inx - 1)
                     if logger:
                         logger.debug(msg=f"Connection {id(data[_ConnStage.CONNECTION])} "
-                                         f"closed by the {self.db_engine} pool")
+                                         f"closed and removed from the {self.db_engine} pool")
             # with only 2 references (1 held here, and 1 held by the pool), connection is no longer in use
             elif getrefcount(data[_ConnStage.CONNECTION]) < 3:
                 # reclaim the connection
