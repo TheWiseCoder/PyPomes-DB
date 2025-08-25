@@ -475,7 +475,8 @@ class DbConnectionPool:
                     self.conn_data.pop(length - inx - 1)
                     if logger:
                         logger.debug(msg=f"Connection {id(data[_ConnStage.CONNECTION])} "
-                                         f"closed and removed from the {self.db_engine} pool")
+                                         f"exausted its lifetime, and thus was closed "
+                                         f"and removed from the {self.db_engine} pool")
             # with only 2 references (1 held here, and 1 held by the pool), connection is no longer in use
             elif getrefcount(data[_ConnStage.CONNECTION]) < 3:
                 # reclaim the connection
@@ -486,8 +487,8 @@ class DbConnectionPool:
                 if not errors:
                     data[_ConnStage.AVAILABLE] = True
                     if logger:
-                        logger.debug(msg=f"Connection {id(data[_ConnStage.CONNECTION])} "
-                                         f"reclaimed by the {self.db_engine} pool")
+                        logger.debug(msg=f"Connection {id(data[_ConnStage.CONNECTION])} found "
+                                         f"abandoned, and thus was reclaimed by the {self.db_engine} pool")
 
 
 def db_get_pool(engine: DbEngine = None) -> DbConnectionPool | None:
