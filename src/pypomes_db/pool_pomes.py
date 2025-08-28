@@ -262,6 +262,7 @@ class DbConnectionPool:
                             cursor.execute(stmt)
                             cursor.fetchone()
                             cursor.close()
+                            # mark the connection as in use
                             conn_item[_ConnStage.AVAILABLE] = False
                             result = conn_item[_ConnStage.CONNECTION]
                             break
@@ -300,7 +301,7 @@ class DbConnectionPool:
                                             errors=errors,
                                             logger=logger)
                         if not errors:
-                            # store the connection
+                            # store the connection, marked for checkout
                             conn_item: dict[_ConnStage, Any] = {
                                 _ConnStage.AVAILABLE: False,
                                 _ConnStage.CONNECTION: result,
@@ -394,6 +395,7 @@ class DbConnectionPool:
                                         errors=errors,
                                         logger=logger)
                     if not errors:
+                        # mark the connection as available
                         data[_ConnStage.AVAILABLE] = True
                         result = True
                         if logger:
@@ -486,20 +488,23 @@ class DbConnectionPool:
         if not isinstance(errors, list):
             errors = []
         # traverse the connection data in reverse order
-        length: int = len(self.conn_data)
-        rev_data: list[dict[_ConnStage, Any]] = list(reversed(self.conn_data))
-        for inx, data in enumerate(rev_data):
+        for i in range(len(self.conn_data) - 1, -1, -1):
+            data: dict[_ConnStage, Any] = self.conn_data[i]
             # connection was closed elsewhere
             if hasattr(data[_ConnStage.CONNECTION], "closed") and data[_ConnStage.CONNECTION].closed:
                 # dispose of closed connection
-                self.conn_data.pop(length - inx - 1)
+                self.conn_data.pop(i)
                 if logger:
                     logger.debug(msg=f"The closed connection {id(data[_ConnStage.CONNECTION])} "
                                      f"was removed from the {self.db_engine} pool")
+            # connection is bad
             elif data[_ConnStage.AVAILABLE] is None:
+                # dispose of bad connection
+                self.conn_data.pop(i)
                 if logger:
                     logger.debug(msg=f"The bad connection {id(data[_ConnStage.CONNECTION])} "
                                      f"was removed from the {self.db_engine} pool")
+            # connection is available
             elif data[_ConnStage.AVAILABLE]:
                 # connect exausted its lifetime
                 if datetime.now(tz=UTC).timestamp() > data[_ConnStage.TIMESTAMP] + self.pool_recycle:
@@ -511,7 +516,7 @@ class DbConnectionPool:
                     with suppress(Exception):
                         data[_ConnStage.CONNECTION].close()
                     # dispose of closed connection
-                    self.conn_data.pop(length - inx - 1)
+                    self.conn_data.pop(i)
                     if logger:
                         logger.debug(msg=f"The exhausted connection {id(data[_ConnStage.CONNECTION])} "
                                          f"was closed and removed from the {self.db_engine} pool")
@@ -523,6 +528,7 @@ class DbConnectionPool:
                                     errors=errors,
                                     logger=logger)
                 if not errors:
+                    # mark the connection as available
                     data[_ConnStage.AVAILABLE] = True
                     if logger:
                         logger.debug(msg=f"The stray connection {id(data[_ConnStage.CONNECTION])} "
