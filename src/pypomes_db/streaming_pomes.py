@@ -123,8 +123,6 @@ def db_stream_data(table: str,
             else:
                 curr_stmt = curr_stmt.replace(" OFFSET @offset ROWS", "", 1)\
                                      .replace(" FETCH ", " FETCH FIRST ", 1)
-            # execute the query
-            # (parameter name is 'statement' for Oracle, 'query' for PostgreSQL, 'sql' for SQLServer)
             source_cursor.execute(curr_stmt)
             rows_in: list[tuple] = source_cursor.fetchall()
 

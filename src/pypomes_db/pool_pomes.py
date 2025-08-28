@@ -3,7 +3,9 @@ from contextlib import suppress
 from datetime import datetime, UTC
 from enum import StrEnum, auto
 from logging import Logger
-from pypomes_core import APP_PREFIX, env_get_int, str_positional
+from pypomes_core import (
+    APP_PREFIX, env_get_int, str_positional, str_sanitize
+)
 from sys import getrefcount
 from time import sleep
 from threading import Lock
@@ -35,9 +37,9 @@ class _ConnStage(StrEnum):
     """
     Stage data of connections in pool.
     """
-    CONNECTION = auto()
-    TIMESTAMP = auto()
-    AVAILABLE = auto()
+    CONNECTION = auto()                 # the connection object
+    TIMESTAMP = auto()                  # creation datetime (POSIX timestamp)
+    AVAILABLE = auto()                  # status (True: available; False: in use; None: marked for disposal)
 
 
 # available DbConnectionPool instances:
@@ -56,11 +58,11 @@ def __get_pool_params() -> dict[DbEngine, dict[_PoolParam, Any]]:
     Establish the connection pool parameters for supported databases, from values in environment variables.
 
     To specify database connection parameters with environment variables, use the set:
-      - *<APP_PREFIX>_DB_POOL_SIZE*: maximum number of connections in the pool (defaults to 20 connections)
+      - *<APP_PREFIX>_DB_POOL_SIZE*: maximum number of connections in the pool (defaults to 50 connections)
       - *<APP_PREFIX>_DB_POOL_TIMEOUT*: number of seconds to wait for a connection to become available,
         before failing the request (defaults to 60 seconds)
       - *<APP_PREFIX>_DB_POOL_RECYCLE*:  number of seconds after which connections in the pool are closed
-        (defaults to 1200 seconds)
+        (defaults to 3600 seconds)
 
     These variables apply to any of the supported database engines. To specify values for a specific engine,
     replace *_DB_* with *_MSQL_*, *_ORCL_*, *_PG_*, or *_SQLS_*, respectively for *mysql*, *oracle*,
@@ -89,7 +91,7 @@ def __get_pool_params() -> dict[DbEngine, dict[_PoolParam, Any]]:
         recycle: int = env_get_int(key=f"{APP_PREFIX}_{prefix}_POOL_RECYCLE")
         if not recycle:
             recycle = env_get_int(key=f"{APP_PREFIX}_DB_POOL_RECYCLE",
-                                  def_value=1200)
+                                  def_value=3600)
         result[engine] = {
             _PoolParam.SIZE: size,
             _PoolParam.TIMEOUT: timeout,
@@ -157,7 +159,7 @@ class DbConnectionPool:
         If still not specified, these are the default values used:
           - *pool_size*: 50 connections
           - *pool_timeout*: 60 seconds
-          - *pool_recycle*: 1200 seconds (20 minutos)
+          - *pool_recycle*: 3600 seconds (60 minutos)
 
         All instance attributes are final and should not be directly changed, lest the pool malfunction.
 
@@ -232,9 +234,10 @@ class DbConnectionPool:
         :param logger: optional logger
         :return: a connection from the pool, or *None* if error
         """
-        # obtain a pooled connection
+        # initialize the return variable
         result: Any = None
 
+        # obtain a pooled connection
         if not isinstance(errors, list):
             errors = []
         start: float = datetime.now(tz=UTC).timestamp()
@@ -242,12 +245,34 @@ class DbConnectionPool:
             with self.stage_lock:
                 self.__revise(logger=logger,
                               errors=errors)
-                for conn_item in self.conn_data:
+                replaceable: int = -1
+                for inx, conn_item in enumerate(self.conn_data):
                     if conn_item[_ConnStage.AVAILABLE]:
-                        conn_item[_ConnStage.AVAILABLE] = False
-                        result = conn_item[_ConnStage.CONNECTION]
-                        break
-                if not result and len(self.conn_data) < self.pool_size:
+                        # assert connection health
+                        stmt = "SELECT 1"
+                        if self.db_engine == DbEngine.ORACLE:
+                            stmt += " FROM DUAL"
+                        try:
+                            cursor: Any = conn_item[_ConnStage.CONNECTION].cursor()
+                            # parameter name:
+                            #   - oracledb (oracle):'statement'
+                            #   - psycopg2 (postgres): 'query'
+                            #   - pyodbc (sqlserver): 'sql'
+                            #   - mysql-connector-python: none
+                            cursor.execute(stmt)
+                            cursor.fetchone()
+                            cursor.close()
+                            conn_item[_ConnStage.AVAILABLE] = False
+                            result = conn_item[_ConnStage.CONNECTION]
+                            break
+                        except Exception as e:
+                            # mark the connection for disposal/replacement
+                            conn_item[_ConnStage.AVAILABLE] = None
+                            replaceable = inx
+                            if logger:
+                                logger.warning(f"Connection {id(conn_item[_ConnStage.CONNECTION])} "
+                                               f"assessment failed: {str_sanitize(source=f'{e}')}")
+                if not result and (replaceable > -1 or len(self.conn_data) < self.pool_size):
                     match self.db_engine:
                         case DbEngine.MYSQL:
                             from . import mysql_pomes
@@ -269,18 +294,22 @@ class DbConnectionPool:
                             result = sqlserver_pomes.connect(autocommit=False,
                                                              errors=errors,
                                                              logger=logger)
-                    if result:
+                    if not errors:
                         self.__act_on_event(event=DbPoolEvent.CREATE,
                                             conn=result,
                                             errors=errors,
                                             logger=logger)
                         if not errors:
                             # store the connection
-                            self.conn_data.append({
-                                _ConnStage.TIMESTAMP: datetime.now(tz=UTC).timestamp(),
+                            conn_item: dict[_ConnStage, Any] = {
                                 _ConnStage.AVAILABLE: False,
-                                _ConnStage.CONNECTION: result
-                            })
+                                _ConnStage.CONNECTION: result,
+                                _ConnStage.TIMESTAMP: datetime.now(tz=UTC).timestamp()
+                            }
+                            if replaceable > -1:
+                                self.conn_data[replaceable] = conn_item
+                            else:
+                                self.conn_data.append(conn_item)
                             if logger:
                                 logger.debug(msg=f"Connection {id(result)} created and saved in the "
                                                  f"{self.db_engine} pool, count is now {len(self.conn_data)}")
@@ -466,6 +495,10 @@ class DbConnectionPool:
                 self.conn_data.pop(length - inx - 1)
                 if logger:
                     logger.debug(msg=f"The closed connection {id(data[_ConnStage.CONNECTION])} "
+                                     f"was removed from the {self.db_engine} pool")
+            elif data[_ConnStage.AVAILABLE] is None:
+                if logger:
+                    logger.debug(msg=f"The bad connection {id(data[_ConnStage.CONNECTION])} "
                                      f"was removed from the {self.db_engine} pool")
             elif data[_ConnStage.AVAILABLE]:
                 # connect exausted its lifetime
