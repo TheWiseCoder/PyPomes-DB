@@ -207,6 +207,7 @@ def _get_params(engine: DbEngine) -> dict[DbParam, Any]:
 
 
 def _except_msg(exception: Exception,
+                connection: Any | None,
                 engine: DbEngine) -> str:
     """
     Format and return the error message corresponding to the exception raised while accessing the database.
@@ -216,7 +217,8 @@ def _except_msg(exception: Exception,
     :return: the formatted error message
     """
     db_data: dict[DbParam, Any] = _DB_CONN_DATA.get(engine) or {}
-    return (f"Error accessing '{db_data.get(DbParam.NAME)}' "
+    conn_data: str = f", connection {id(connection)}," if connection else ""
+    return (f"Error accessing '{db_data.get(DbParam.NAME)}'{conn_data} "
             f"at '{db_data.get(DbParam.HOST)}': {str_sanitize(source=f'{exception}')}")
 
 

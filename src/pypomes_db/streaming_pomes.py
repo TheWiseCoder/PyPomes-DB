@@ -54,11 +54,9 @@ def db_stream_data(table: str,
     # initialize the return variable
     result: int | None = 0
 
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
 
@@ -177,11 +175,13 @@ def db_stream_data(table: str,
                     curr_conn.rollback()
             row_count = 0
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=engine)
         finally:
             # close the connections, if locally acquired
             if curr_conn and not connection:
                 db_close(connection=curr_conn,
+                         engine=engine,
                          logger=logger)
 
         # log the streaming finish
@@ -249,11 +249,9 @@ def db_stream_lobs(table: str,
     :param logger: optional logger
     :param log_trigger: number of tuples to trigger logging info on migration (defaults to 10000 tuples)
     """
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
 
@@ -427,11 +425,13 @@ def db_stream_lobs(table: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=engine)
         finally:
             # close the connections, if locally acquired
             if curr_conn and not connection:
                 db_close(connection=curr_conn,
+                         engine=engine,
                          logger=logger)
         # log the finish
         if err_msg:

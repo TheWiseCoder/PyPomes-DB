@@ -88,6 +88,7 @@ def connect(autocommit: bool = None,
         result.autocommit = isinstance(autocommit, bool) and autocommit
     except Exception as e:
         err_msg = _except_msg(exception=e,
+                              connection=None,
                               engine=DbEngine.SQLSERVER)
     # log eventual errors
     if err_msg:
@@ -176,10 +177,12 @@ def select(sel_stmt: str,
     result: list[tuple] | None = []
 
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         # establish offset and limit for query (TOP and OFFSET clauses cannot be used together)
         if isinstance(offset_count, int) and offset_count > 0:
             # establish an offset into the result set
@@ -244,12 +247,14 @@ def select(sel_stmt: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.SQLSERVER)
             result = None
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.SQLSERVER,
                          logger=logger)
         # log errors
         if err_msg:
@@ -306,10 +311,12 @@ def execute(exc_stmt: str,
     result: tuple | int | None = None
 
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         err_msg: str | None = None
         # handle return columns
         if return_cols:
@@ -354,11 +361,13 @@ def execute(exc_stmt: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.SQLSERVER)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.SQLSERVER,
                          logger=logger)
         # log errors
         if err_msg:
@@ -401,10 +410,12 @@ def bulk_execute(exc_stmt: str,
     result: int | None = None
 
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         err_msg: str | None = None
         try:
             # obtain a cursor and perform the operation
@@ -421,11 +432,13 @@ def bulk_execute(exc_stmt: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.SQLSERVER)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.SQLSERVER,
                          logger=logger)
         # log errors
         if err_msg:
@@ -470,10 +483,12 @@ def update_lob(lob_table: str,
     :param logger: optional logger
     """
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         if isinstance(lob_data, str):
             lob_data = Path(lob_data)
 
@@ -520,11 +535,13 @@ def update_lob(lob_table: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.SQLSERVER)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.SQLSERVER,
                          logger=logger)
         # log errors
         if err_msg:
@@ -561,10 +578,12 @@ def call_procedure(proc_name: str,
     result: list[tuple] | None = None
 
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         # build the command
         proc_stmt: str | None = None
 
@@ -588,11 +607,13 @@ def call_procedure(proc_name: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.SQLSERVER)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.SQLSERVER,
                          logger=logger)
         # log errors
         if err_msg:
@@ -655,6 +676,8 @@ def identity_post_insert(insert_stmt: str,
     :param logger: optional logger
     """
     # obtain the maximum value inserted
+    if not isinstance(errors, list):
+        errors = []
     table_name: str = str_between(source=insert_stmt.upper(),
                                   from_str=" INTO ",
                                   to_str=" ")

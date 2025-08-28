@@ -38,11 +38,9 @@ def db_get_indexes(schema: str = None,
     # initialize the return variable
     result: list[str] | None = None
 
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
     # proceed, if no errors
@@ -161,11 +159,9 @@ def db_get_index_ddl(index_name: str,
     # initialize the return variable
     result: str | None = None
 
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
 
@@ -173,7 +169,7 @@ def db_get_index_ddl(index_name: str,
     splits: list[str] = index_name.split(".")
     if len(splits) != 2:
         # no, report the problem
-        errors.append(f"Index name '{index_name}' not properly schema-qualified")
+        errors.append(f"Index '{index_name}' not properly schema-qualified")
 
     # proceed, if no errors
     if not errors:

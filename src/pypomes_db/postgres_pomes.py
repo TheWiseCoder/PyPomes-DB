@@ -80,6 +80,7 @@ def connect(autocommit: bool = None,
         result.autocommit = isinstance(autocommit, bool) and autocommit
     except Exception as e:
         err_msg = _except_msg(exception=e,
+                              connection=None,
                               engine=DbEngine.POSTGRES)
     # log errors
     if err_msg:
@@ -169,11 +170,12 @@ def select(sel_stmt: str,
     result: list[tuple] = []
 
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
-
+    if not errors:
         # establish an offset into the result set
         if isinstance(offset_count, int) and offset_count > 0:
             sel_stmt += f" OFFSET {offset_count}"
@@ -218,11 +220,13 @@ def select(sel_stmt: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.POSTGRES)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.POSTGRES,
                          logger=logger)
         # log errors
         if err_msg:
@@ -280,10 +284,12 @@ def execute(exc_stmt: str,
     result: tuple | int | None = None
 
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         err_msg: str | None = None
         if return_cols:
             exc_stmt += F" RETURNING {', '.join(return_cols.keys())}"
@@ -315,11 +321,13 @@ def execute(exc_stmt: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.POSTGRES)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.POSTGRES,
                          logger=logger)
         # log errors
         if err_msg:
@@ -383,10 +391,12 @@ def bulk_execute(exc_stmt: str,
     result: int | None = None
 
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         # execute the bulk query
         err_msg: str | None = None
         try:
@@ -407,11 +417,13 @@ def bulk_execute(exc_stmt: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.POSTGRES)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.POSTGRES,
                          logger=logger)
 
         # log errors
@@ -456,10 +468,12 @@ def update_lob(lob_table: str,
     :param logger: optional logger
     """
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         if isinstance(lob_data, str):
             lob_data = Path(lob_data)
 
@@ -506,11 +520,13 @@ def update_lob(lob_table: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.POSTGRES)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.POSTGRES,
                          logger=logger)
         # log errors
         if err_msg:
@@ -547,10 +563,12 @@ def call_procedure(proc_name: str,
     result: list[tuple] | None = None
 
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         # build the command
         proc_stmt: str = f"{proc_name}(" + "%s, " * (len(proc_vals) - 1) + "%s)"
 
@@ -572,11 +590,13 @@ def call_procedure(proc_name: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.POSTGRES)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.POSTGRES,
                          logger=logger)
         # log errors
         if err_msg:
@@ -611,6 +631,8 @@ def identity_post_insert(insert_stmt: str,
     :param logger: optional logger
     """
     # obtain the maximum value inserted
+    if not isinstance(errors, list):
+        errors = []
     table_name: str = str_between(source=insert_stmt.upper(),
                                   from_str=" INTO ",
                                   to_str=" ")
@@ -672,6 +694,8 @@ def build_typified_template(insert_stmt: str,
     table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
 
     # obtain the columns' metadata
+    if not isinstance(errors, list):
+        errors = []
     sel_stmt: str = ("SELECT column_name, udt_name "
                      "FROM information_schema.columns "
                      f"WHERE table_name = '{table_name}'")
@@ -745,6 +769,8 @@ def tipify_bulk_update(update_stmt: str,
     table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
 
     # obtain the columns' metadata
+    if not isinstance(errors, list):
+        errors = []
     sel_stmt: str = ("SELECT column_name, udt_name "
                      "FROM information_schema.columns "
                      f"WHERE table_name = '{table_name}'")

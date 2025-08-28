@@ -3,7 +3,7 @@ from logging import Logger
 from typing import Any
 
 from .db_common import (
-    DbEngine, _except_msg, _remove_nulls
+    DbEngine, _assert_engine, _except_msg, _remove_nulls
 )
 from .db_pomes import (
     db_connect, db_close,
@@ -11,6 +11,7 @@ from .db_pomes import (
 )
 
 
+# ruff: noqa: PLR0915 - too many statements
 def db_sync_data(source_engine: DbEngine,
                  source_table: str,
                  target_engine: DbEngine,
@@ -79,9 +80,13 @@ def db_sync_data(source_engine: DbEngine,
     # initialize the return variable
     result: tuple[int, int, int] | None = None
 
-    # make sure to have an errors list
+    # assert the database engines
     if not isinstance(errors, list):
         errors = []
+    source_engine = _assert_engine(engine=source_engine,
+                                   errors=errors)
+    target_engine = _assert_engine(engine=target_engine,
+                                   errors=errors)
 
     from_table: str = f"{source_engine}.{source_table}"
     to_table: str = f"{target_engine}.{target_table}"
@@ -304,14 +309,17 @@ def db_sync_data(source_engine: DbEngine,
                     curr_target_conn.rollback()
             log_count = 0
             err_msg = _except_msg(exception=e,
+                                  connection=curr_source_conn,
                                   engine=source_engine)
         finally:
             # close the connections, if locally acquired
             if curr_source_conn and not source_conn:
                 db_close(connection=curr_source_conn,
+                         engine=source_engine,
                          logger=logger)
             if curr_target_conn and not target_conn:
                 db_close(connection=curr_target_conn,
+                         engine=target_engine,
                          logger=logger)
 
         # log the synchronization finish

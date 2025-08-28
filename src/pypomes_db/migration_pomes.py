@@ -95,11 +95,9 @@ def db_migrate_data(source_engine: DbEngine,
     # initialize the return variable
     result: int | None = 0
 
-    # make sure to have an errors list
+    # make sure to have connections to the source and destination databases
     if not isinstance(errors, list):
         errors = []
-
-    # make sure to have connections to the source and destination databases
     curr_source_conn: Any = source_conn or db_connect(engine=source_engine,
                                                       errors=errors,
                                                       logger=logger)
@@ -107,7 +105,6 @@ def db_migrate_data(source_engine: DbEngine,
                                                       errors=errors,
                                                       logger=logger)
     if not errors:
-
         # define the number of rows to skip
         if offset_count == -1:
             offset_count = db_count(table=target_table,
@@ -328,14 +325,17 @@ def db_migrate_data(source_engine: DbEngine,
                     with suppress(Exception):
                         curr_target_conn.rollback()
                 err_msg = _except_msg(exception=e,
+                                      connection=curr_source_conn,
                                       engine=source_engine)
             finally:
                 # close the connections, if locally acquired
                 if curr_source_conn and not source_conn:
                     db_close(connection=curr_source_conn,
+                             engine=source_engine,
                              logger=logger)
                 if curr_target_conn and not target_conn:
                     db_close(connection=curr_source_conn,
+                             engine=target_engine,
                              logger=logger)
 
         # log the migration finish
@@ -428,11 +428,9 @@ def db_migrate_lobs(source_engine: DbEngine,
     # initialize the return variable
     result: tuple[int, int] | None = None
 
-    # make sure to have an errors list
+    # make sure to have connections to the source and destination databases
     if not isinstance(errors, list):
         errors = []
-
-    # make sure to have connections to the source and destination databases
     curr_source_conn: Any = source_conn or db_connect(engine=source_engine,
                                                       errors=errors,
                                                       logger=logger)
@@ -669,14 +667,17 @@ def db_migrate_lobs(source_engine: DbEngine,
                 with suppress(Exception):
                     curr_target_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_source_conn,
                                   engine=source_engine)
         finally:
             # close the connections, if locally acquired
             if curr_source_conn and not source_conn:
                 db_close(connection=curr_source_conn,
+                         engine=source_engine,
                          logger=logger)
             if curr_target_conn and not target_conn:
                 db_close(connection=curr_target_conn,
+                         engine=target_engine,
                          logger=logger)
 
         # log the migration finish

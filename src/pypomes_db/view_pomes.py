@@ -36,11 +36,9 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
     # initialize the return variable
     result: list[str] | None = None
 
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
     if not errors:
@@ -130,11 +128,9 @@ def db_view_exists(view_name: str,
     # initialize the return variable
     result: bool | None = None
 
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
     if not errors:
@@ -213,11 +209,9 @@ def db_drop_view(view_name: str,
     :param errors: incidental error messages
     :param logger: optional logger
     """
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
     if not errors:
@@ -287,11 +281,9 @@ def db_get_view_ddl(view_name: str,
     # initialize the return variable
     result: str | None = None
 
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
     if not errors:
@@ -374,11 +366,9 @@ def db_get_view_dependencies(view_name: str,
     # initialize the return variable
     result: list[str] | None = None
 
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
     if not errors:

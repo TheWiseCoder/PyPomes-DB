@@ -78,6 +78,7 @@ def connect(autocommit: bool = None,
         result.autocommit = isinstance(autocommit, bool) and autocommit
     except Exception as e:
         err_msg = _except_msg(exception=e,
+                              connection=None,
                               engine=DbEngine.ORACLE)
     # log errors
     if err_msg:
@@ -164,10 +165,12 @@ def select(sel_stmt: str,
     result: list[tuple] = []
 
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         # establish an offset into the result set
         if isinstance(offset_count, int) and offset_count > 0:
             sel_stmt += f" OFFSET {offset_count} ROWS"
@@ -220,11 +223,13 @@ def select(sel_stmt: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.ORACLE)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.ORACLE,
                          logger=logger)
         # log errors
         if err_msg:
@@ -281,10 +286,12 @@ def execute(exc_stmt: str,
     result: tuple | int | None = None
 
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         err_msg: str | None = None
         # handle return columns
         if return_cols:
@@ -323,11 +330,13 @@ def execute(exc_stmt: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.ORACLE)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.ORACLE,
                          logger=logger)
         # log errors
         if err_msg:
@@ -371,10 +380,12 @@ def bulk_execute(exc_stmt: str,
     result: int | None = None
 
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         err_msg: str | None = None
         try:
             # obtain a cursor and perform the operation
@@ -391,11 +402,13 @@ def bulk_execute(exc_stmt: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.ORACLE)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.ORACLE,
                          logger=logger)
         # log errors
         if err_msg:
@@ -440,10 +453,12 @@ def update_lob(lob_table: str,
     :param logger: optional logger
     """
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         if isinstance(lob_data, str):
             lob_data = Path(lob_data)
 
@@ -492,11 +507,13 @@ def update_lob(lob_table: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.ORACLE)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.ORACLE,
                          logger=logger)
         # log errors
         if err_msg:
@@ -562,10 +579,12 @@ def call_procedure(proc_name: str,
     result: list[tuple] = []
 
     # make sure to have a connection
+    if not isinstance(errors, list):
+        errors = []
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
-    if curr_conn:
+    if not errors:
         # execute the stored procedure
         err_msg: str | None = None
         try:
@@ -585,11 +604,13 @@ def call_procedure(proc_name: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
+                                  connection=curr_conn,
                                   engine=DbEngine.ORACLE)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
                 db_close(connection=curr_conn,
+                         engine=DbEngine.ORACLE,
                          logger=logger)
         # log errors
         if err_msg:
@@ -621,6 +642,7 @@ def initialize(errors: list[str] = None,
         except Exception as e:
             if isinstance(errors, list):
                 errors.append(_except_msg(exception=e,
+                                          connection=None,
                                           engine=DbEngine.ORACLE))
 
 

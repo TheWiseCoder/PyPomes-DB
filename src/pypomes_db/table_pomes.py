@@ -37,6 +37,8 @@ def db_create_session_table(engine: DbEngine,
     :param logger: optional logger
     """
     # assert the database engine
+    if not isinstance(errors, list):
+        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
     if engine:
@@ -130,11 +132,9 @@ def db_get_tables(schema: str = None,
     # initialize the return variable
     result: list[str] | None = None
 
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
     if not errors:
@@ -188,11 +188,11 @@ def db_table_exists(table_name: str,
     # initialize the return variable
     result: bool | None = None
 
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
+    if not isinstance(errors, list):
+        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
     if not errors:
@@ -251,11 +251,9 @@ def db_drop_table(table_name: str,
     :param errors: incidental error messages
     :param logger: optional logger
     """
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
     if not errors:
@@ -318,11 +316,9 @@ def db_get_table_columns(table_name: str,
     # initialize the return variable
     result: list[tuple[str, str, bool]] | None = None
 
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
     if not errors:
@@ -394,11 +390,9 @@ def db_get_table_ddl(table_name: str,
     # initialize the return variable
     result: str | None = None
 
-    # make sure to have an errors list
+    # assert the database engine
     if not isinstance(errors, list):
         errors = []
-
-    # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
     if not errors:
@@ -435,6 +429,6 @@ def db_get_table_ddl(table_name: str,
                 result = recs[0][0].strip()
         else:
             # 'table_name' not schema-qualified, report the problem
-            errors.append(f"Index name '{table_name}' not properly schema-qualified")
+            errors.append(f"Table '{table_name}' not properly schema-qualified")
 
     return result

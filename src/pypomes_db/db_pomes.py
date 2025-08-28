@@ -105,6 +105,7 @@ def db_assert_access(engine: DbEngine = None,
                 _DB_CONN_DATA[engine][DbParam.VERSION] = __get_version(engine=engine,
                                                                        connection=conn)
                 db_close(connection=conn,
+                         engine=engine,
                          logger=logger)
                 result = True
 
@@ -444,6 +445,7 @@ def db_rollback(connection: Any,
 
 
 def db_close(connection: Any,
+             engine: DbEngine = None,
              logger: Logger = None) -> None:
     """
     Close the connection given in *connection*.
@@ -452,10 +454,12 @@ def db_close(connection: Any,
     a *close()* operation is performed on the connection itself.
 
     :param connection: the reference database connection
+    :param engine: the database engine to use (uses the default engine, if not provided)
     :param logger: optional logger
     """
     # attempt to return the connection to the pool
     if not db_pool_release(conn=connection,
+                           engine=engine,
                            logger=logger):
         # close the connection
         try:
@@ -713,6 +717,7 @@ def db_select(sel_stmt: str,
         # close the locally acquired connection
         if not connection:
             db_close(connection=curr_conn,
+                     engine=engine,
                      logger=logger)
     return result
 
@@ -1021,6 +1026,7 @@ def db_bulk_insert(target_table: str,
         # close the locally acquired connection
         if not connection:
             db_close(connection=curr_conn,
+                     engine=engine,
                      logger=logger)
     return result
 
@@ -1129,6 +1135,7 @@ def db_bulk_update(target_table: str,
         # close the locally acquired connection
         if not connection:
             db_close(connection=curr_conn,
+                     engine=engine,
                      logger=logger)
     return result
 
@@ -1214,6 +1221,7 @@ def db_bulk_delete(target_table: str,
         # close the locally acquired connection
         if not connection:
             db_close(connection=curr_conn,
+                     engine=engine,
                      logger=logger)
     return result
 
@@ -1305,6 +1313,7 @@ def db_update_lob(lob_table: str,
         # close the locally acquired connection
         if not connection:
             db_close(connection=curr_conn,
+                     engine=engine,
                      logger=logger)
 
 
@@ -1407,6 +1416,7 @@ def db_execute(exc_stmt: str,
         # close the locally acquired connection
         if not connection:
             db_close(connection=curr_conn,
+                     engine=engine,
                      logger=logger)
     return result
 
@@ -1479,6 +1489,7 @@ def db_call_function(func_name: str,
         # close the locally acquired connection
         if not connection:
             db_close(connection=curr_conn,
+                     engine=engine,
                      logger=logger)
     return result
 
@@ -1552,6 +1563,7 @@ def db_call_procedure(proc_name: str,
         # close the locally acquired connection
         if not connection:
             db_close(connection=curr_conn,
+                     engine=engine,
                      logger=logger)
     return result
 

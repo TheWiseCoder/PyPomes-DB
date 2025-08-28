@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pypomes_db"
-version = "2.6.4"
+version = "2.6.7"
 authors = [
   { name="GT Nunes", email="wisecoder01@gmail.com" }
 ]
@@ -25,7 +25,6 @@ dependencies = [
 #   "psycopg2-binary>=2.9.10"
 #   "pyodbc>=5.2.0"
 ]
-
 [project.urls]
 "Homepage" = "https://github.com/TheWiseCoder/PyPomes-DB"
 "Bug Tracker" = "https://github.com/TheWiseCoder/PyPomes-DB/issues"

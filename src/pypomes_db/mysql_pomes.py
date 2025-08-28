@@ -72,6 +72,7 @@ def connect(autocommit: bool = None,
         result.autocommit = isinstance(autocommit, bool) and autocommit
     except Exception as e:
         err_msg = _except_msg(exception=e,
+                              connection=result,
                               engine=DbEngine.ORACLE)
     # log errors
     if err_msg:
