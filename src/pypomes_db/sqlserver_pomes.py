@@ -223,7 +223,7 @@ def select(sel_stmt: str,
 
                 # log the retrieval operation
                 if logger:
-                    from_table: str = str_splice(source=sel_stmt,
+                    from_table: str = str_splice(source=sel_stmt + " ",
                                                  seps=(" FROM ", " "))[1]
                     logger.debug(msg=f"Read {count} tuples from {DbEngine.SQLSERVER}.{from_table}, "
                                      f"offset {offset_count}, connection {id(curr_conn)}")

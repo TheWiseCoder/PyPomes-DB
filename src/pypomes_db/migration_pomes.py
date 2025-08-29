@@ -334,7 +334,7 @@ def db_migrate_data(source_engine: DbEngine,
                              engine=source_engine,
                              logger=logger)
                 if curr_target_conn and not target_conn:
-                    db_close(connection=curr_source_conn,
+                    db_close(connection=curr_target_conn,
                              engine=target_engine,
                              logger=logger)
 

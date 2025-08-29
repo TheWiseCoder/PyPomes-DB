@@ -39,7 +39,7 @@ class _ConnStage(StrEnum):
     """
     CONNECTION = auto()                 # the connection object
     TIMESTAMP = auto()                  # creation datetime (POSIX timestamp)
-    AVAILABLE = auto()                  # status (True: available; False: in use; None: marked for disposal)
+    AVAILABLE = auto()                  # status (True: available; False: taken)
 
 
 # available DbConnectionPool instances:
@@ -58,7 +58,7 @@ def __get_pool_params() -> dict[DbEngine, dict[_PoolParam, Any]]:
     Establish the connection pool parameters for supported databases, from values in environment variables.
 
     To specify database connection parameters with environment variables, use the set:
-      - *<APP_PREFIX>_DB_POOL_SIZE*: maximum number of connections in the pool (defaults to 50 connections)
+      - *<APP_PREFIX>_DB_POOL_SIZE*: maximum number of connections in the pool (defaults to 40 connections)
       - *<APP_PREFIX>_DB_POOL_TIMEOUT*: number of seconds to wait for a connection to become available,
         before failing the request (defaults to 60 seconds)
       - *<APP_PREFIX>_DB_POOL_RECYCLE*:  number of seconds after which connections in the pool are closed
@@ -81,7 +81,7 @@ def __get_pool_params() -> dict[DbEngine, dict[_PoolParam, Any]]:
         size: int = env_get_int(key=f"{APP_PREFIX}_{prefix}_POOL_SIZE")
         if not isinstance(size, int) or size < 0:
             size = env_get_int(key=f"{APP_PREFIX}_DB_POOL_SIZE",
-                               def_value=50)
+                               def_value=40)
         # establish pool timeout
         timeout: int = env_get_int(key=f"{APP_PREFIX}_{prefix}_POOL_TIMEOUT")
         if not timeout:
@@ -157,7 +157,7 @@ class DbConnectionPool:
         for pool configuration parameters specified in the environment variables suffixed with their
         uppercase names (nsmely, *POOL_SIZE*, *POOL_TIMEOUT*, and *POOL_RECYCLE*) are used.
         If still not specified, these are the default values used:
-          - *pool_size*: 50 connections
+          - *pool_size*: 40 connections
           - *pool_timeout*: 60 seconds
           - *pool_recycle*: 3600 seconds (60 minutos)
 
@@ -179,9 +179,9 @@ class DbConnectionPool:
         if engine:
             with _instances_lock:
                 if engine in _POOL_INSTANCES:
-                    msg = f"Attempt to create connection pool failed: {engine} pool already exists"
+                    msg: str = f"Attempt to create connection pool failed: {engine} pool already exists"
                     if logger:
-                        logger.warning(msg)
+                        logger.error(msg)
                     if isinstance(errors, list):
                         errors.append(msg)
                 else:
@@ -215,10 +215,10 @@ class DbConnectionPool:
                 # register this instance
                 _POOL_INSTANCES[engine] = self
                 if logger:
-                    logger.debug(msg=f"{self.db_engine} pool created: size {self.pool_size}, "
-                                     f"timeout {self.pool_timeout}, recycle {self.pool_recycle}")
+                    logger.info(msg=f"{self.db_engine} pool created: size {self.pool_size}, "
+                                    f"timeout {self.pool_timeout}, recycle {self.pool_recycle}")
             else:
-                msg = f"{engine} pool not created: specified size was {pool_size}"
+                msg: str = f"{engine} pool not created: specified size was {pool_size}"
                 if logger:
                     logger.error(msg=msg)
                     if isinstance(errors, list):
@@ -243,37 +243,82 @@ class DbConnectionPool:
         start: float = datetime.now(tz=UTC).timestamp()
         while not result:
             with self.stage_lock:
-                self.__revise(logger=logger,
-                              errors=errors)
-                replaceable: int = -1
-                for inx, conn_item in enumerate(self.conn_data):
-                    if conn_item[_ConnStage.AVAILABLE]:
-                        # assert connection health
-                        stmt = "SELECT 1"
-                        if self.db_engine == DbEngine.ORACLE:
-                            stmt += " FROM DUAL"
-                        try:
-                            cursor: Any = conn_item[_ConnStage.CONNECTION].cursor()
-                            # parameter name:
-                            #   - oracledb (oracle):'statement'
-                            #   - psycopg2 (postgres): 'query'
-                            #   - pyodbc (sqlserver): 'sql'
-                            #   - mysql-connector-python: none
-                            cursor.execute(stmt)
-                            cursor.fetchone()
-                            cursor.close()
-                            # mark the connection as in use
-                            conn_item[_ConnStage.AVAILABLE] = False
-                            result = conn_item[_ConnStage.CONNECTION]
-                            break
-                        except Exception as e:
-                            # mark the connection for disposal/replacement
-                            conn_item[_ConnStage.AVAILABLE] = None
-                            replaceable = inx
+                # traverse the connection data in reverse order
+                for i in range(len(self.conn_data) - 1, -1, -1):
+                    conn: Any = self.conn_data[i][_ConnStage.CONNECTION]
+
+                    # connection is available
+                    if self.conn_data[i][_ConnStage.AVAILABLE]:
+                        # connection exhausted its lifetime
+                        if datetime.now(tz=UTC).timestamp() > \
+                                self.conn_data[i][_ConnStage.TIMESTAMP] + self.pool_recycle:
+                            # close the exhausted connection
+                            self.__act_on_event(event=DbPoolEvent.CLOSE,
+                                                conn=conn,
+                                                errors=errors,
+                                                logger=logger)
+                            with suppress(Exception):
+                                conn.close()
+                            # dispose of exhausted connection
+                            self.conn_data.pop(i)
                             if logger:
-                                logger.warning(f"Connection {id(conn_item[_ConnStage.CONNECTION])} "
-                                               f"assessment failed: {str_sanitize(source=f'{e}')}")
-                if not result and (replaceable > -1 or len(self.conn_data) < self.pool_size):
+                                logger.debug(msg=f"The exhausted connection {id(conn)} was removed from the "
+                                                 f"{self.db_engine} pool, count = {len(self.conn_data)}")
+                        # connection is candidate
+                        else:
+                            # assert connection health
+                            stmt = "SELECT 1"
+                            if self.db_engine == DbEngine.ORACLE:
+                                stmt += " FROM DUAL"
+                            try:
+                                cursor: Any = conn.cursor()
+                                # parameter name:
+                                #   - oracledb (oracle):'statement'
+                                #   - psycopg2 (postgres): 'query'
+                                #   - pyodbc (sqlserver): 'sql'
+                                #   - mysql-connector-python: none
+                                cursor.execute(stmt)
+                                cursor.fetchone()
+                                cursor.close()
+                                # mark the connection as taken
+                                self.conn_data[i][_ConnStage.AVAILABLE] = False
+                                result = conn
+                                break
+                            except Exception as e:
+                                # dispose of bad connection
+                                self.conn_data.pop(i)
+                                if logger:
+                                    logger.warning(f"Connection {id(conn)} "
+                                                   f"assessment failed: {str_sanitize(source=f'{e}')}")
+                                    logger.debug(msg=f"The bad connection {id(conn)} was removed from the "
+                                                     f"{self.db_engine} pool, count = {len(self.conn_data)}")
+
+                    # connection was closed elsewhere
+                    elif hasattr(conn, "closed") and conn.closed:
+                        # dispose of closed connection
+                        self.conn_data.pop(i)
+                        if logger:
+                            logger.debug(msg=f"The closed connection {id(conn)} was removed from the "
+                                             f"{self.db_engine} pool, count = {len(self.conn_data)}")
+
+                    # connection is no longer in use - these are the 3 remaining references:
+                    #   - pool repository 'self.conn_data[i][_ConnStage.CONNECTION]'
+                    #   - local variable 'conn'
+                    #   - argument to 'getrefcount()'
+                    elif getrefcount(conn) < 4:
+                        # reclaim the connection
+                        self.__act_on_event(event=DbPoolEvent.CHECKIN,
+                                            conn=conn,
+                                            errors=errors,
+                                            logger=logger)
+                        if not errors:
+                            # mark the connection as available
+                            self.conn_data[i][_ConnStage.AVAILABLE] = True
+                            if logger:
+                                logger.debug(msg=f"The stray connection {id(conn)} "
+                                                 f"was reclaimed by the {self.db_engine} pool")
+
+                if not result and len(self.conn_data) < self.pool_size:
                     match self.db_engine:
                         case DbEngine.MYSQL:
                             from . import mysql_pomes
@@ -301,19 +346,15 @@ class DbConnectionPool:
                                             errors=errors,
                                             logger=logger)
                         if not errors:
-                            # store the connection, marked for checkout
-                            conn_item: dict[_ConnStage, Any] = {
+                            # store the connection
+                            self.conn_data.append({
                                 _ConnStage.AVAILABLE: False,
                                 _ConnStage.CONNECTION: result,
                                 _ConnStage.TIMESTAMP: datetime.now(tz=UTC).timestamp()
-                            }
-                            if replaceable > -1:
-                                self.conn_data[replaceable] = conn_item
-                            else:
-                                self.conn_data.append(conn_item)
+                            })
                             if logger:
-                                logger.debug(msg=f"Connection {id(result)} created and saved in the "
-                                                 f"{self.db_engine} pool, count is now {len(self.conn_data)}")
+                                logger.debug(msg=f"Connection {id(result)} created by the "
+                                                 f"{self.db_engine} pool, count = {len(self.conn_data)}")
             if not result:
                 if self.pool_timeout > datetime.now(tz=UTC).timestamp() - start:
                     sleep(1.5)
@@ -385,6 +426,7 @@ class DbConnectionPool:
         """
         # initialize the return variable
         result: bool = False
+
         if not isinstance(errors, list):
             errors = []
         with self.stage_lock:
@@ -401,6 +443,8 @@ class DbConnectionPool:
                         if logger:
                             logger.debug(msg=f"Connection {id(conn)} "
                                              f"returned to the {self.db_engine} pool")
+                    break
+
         return result
 
     def terminate(self,
@@ -476,63 +520,6 @@ class DbConnectionPool:
                                          f"'{stmt}' executed, {len(errors)} errors")
                     if errors:
                         break
-
-    def __revise(self,
-                 errors: list[str] = None,
-                 logger: Logger = None) -> None:
-        """
-        Revise the pool, reclaiming or disposing of connections, if applicable.
-
-        This operation must be invoked within the guardrails of *self.stage_lock*.
-        """
-        if not isinstance(errors, list):
-            errors = []
-        # traverse the connection data in reverse order
-        for i in range(len(self.conn_data) - 1, -1, -1):
-            data: dict[_ConnStage, Any] = self.conn_data[i]
-            # connection was closed elsewhere
-            if hasattr(data[_ConnStage.CONNECTION], "closed") and data[_ConnStage.CONNECTION].closed:
-                # dispose of closed connection
-                self.conn_data.pop(i)
-                if logger:
-                    logger.debug(msg=f"The closed connection {id(data[_ConnStage.CONNECTION])} "
-                                     f"was removed from the {self.db_engine} pool")
-            # connection is bad
-            elif data[_ConnStage.AVAILABLE] is None:
-                # dispose of bad connection
-                self.conn_data.pop(i)
-                if logger:
-                    logger.debug(msg=f"The bad connection {id(data[_ConnStage.CONNECTION])} "
-                                     f"was removed from the {self.db_engine} pool")
-            # connection is available
-            elif data[_ConnStage.AVAILABLE]:
-                # connect exausted its lifetime
-                if datetime.now(tz=UTC).timestamp() > data[_ConnStage.TIMESTAMP] + self.pool_recycle:
-                    # close the connection
-                    self.__act_on_event(event=DbPoolEvent.CLOSE,
-                                        conn=data[_ConnStage.CONNECTION],
-                                        errors=errors,
-                                        logger=logger)
-                    with suppress(Exception):
-                        data[_ConnStage.CONNECTION].close()
-                    # dispose of closed connection
-                    self.conn_data.pop(i)
-                    if logger:
-                        logger.debug(msg=f"The exhausted connection {id(data[_ConnStage.CONNECTION])} "
-                                         f"was closed and removed from the {self.db_engine} pool")
-            # with only 2 references (1 held here, and 1 held by the pool), connection is no longer in use
-            elif getrefcount(data[_ConnStage.CONNECTION]) < 3:
-                # reclaim the connection
-                self.__act_on_event(event=DbPoolEvent.CHECKIN,
-                                    conn=data[_ConnStage.CONNECTION],
-                                    errors=errors,
-                                    logger=logger)
-                if not errors:
-                    # mark the connection as available
-                    data[_ConnStage.AVAILABLE] = True
-                    if logger:
-                        logger.debug(msg=f"The stray connection {id(data[_ConnStage.CONNECTION])} "
-                                         f"was reclaimed by the {self.db_engine} pool")
 
 
 def db_get_pool(engine: DbEngine = None) -> DbConnectionPool | None:
