@@ -293,76 +293,6 @@ def db_drop_table(table_name: str,
                    logger=logger)
 
 
-def db_get_table_columns(table_name: str,
-                         engine: DbEngine = None,
-                         connection: Any = None,
-                         committable: bool = None,
-                         errors: list[str] = None,
-                         logger: Logger = None) -> list[tuple[str, str, bool]] | None:
-    """
-    Retrieve all columns in *table_name*, along with their respective data types and nullabilities.
-
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
-    :param table_name: the possibly schema-qualified name of the table
-    :param engine: the database engine to use (uses the default engine, if not provided)
-    :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit operation on errorless completion
-    :param errors: incidental error messages
-    :param logger: optional logger
-    :return: a list of tuples with names, types and the nullability state of all columns in *table_name*
-    """
-    # initialize the return variable
-    result: list[tuple[str, str, bool]] | None = None
-
-    # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if not errors:
-        # determine the table schema
-        table_schema: str
-        table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
-
-        # build the query
-        sel_stmt: str | None = None
-        where_data: dict[str, str] = {}
-        if engine == DbEngine.MYSQL:
-            pass
-        if engine == DbEngine.ORACLE:
-            sel_stmt = "SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM ALL_TAB_COLUMNS"
-            where_data["TABLE_NAME"] = table_name
-            if table_schema:
-                where_data["OWNER"] = table_schema
-        elif engine == DbEngine.POSTGRES:
-            sel_stmt = "SELECT column_name, udt_name, is_nullable FROM information_schema.columns"
-            where_data["table_name"] = table_name
-            if table_schema:
-                where_data["table_schema"] = table_schema
-        elif engine == DbEngine.SQLSERVER:
-            sel_stmt = "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS"
-            where_data["TABLE_NAME"] = table_name
-            if table_schema:
-                where_data["TABLE_SCHEMA"] = table_schema
-
-        # execute the query
-        # noinspection PyTypeChecker
-        recs: list[tuple[str, str, str]] = db_select(sel_stmt=sel_stmt,
-                                                     where_data=where_data,
-                                                     engine=engine,
-                                                     connection=connection,
-                                                     committable=committable,
-                                                     errors=errors,
-                                                     logger=logger)
-        # process the query result
-        if not errors and recs:
-            result = [(rec[0], rec[1], rec[2].startswith("Y")) for rec in recs]
-
-    return result
-
-
 def db_get_table_ddl(table_name: str,
                      engine: DbEngine = None,
                      connection: Any = None,
@@ -431,4 +361,197 @@ def db_get_table_ddl(table_name: str,
             # 'table_name' not schema-qualified, report the problem
             errors.append(f"Table '{table_name}' not properly schema-qualified")
 
+    return result
+
+
+def db_get_column_metadata(table_name: str,
+                           column_name: str,
+                           engine: DbEngine = None,
+                           connection: Any = None,
+                           committable: bool = None,
+                           errors: list[str] = None,
+                           logger: Logger = None) -> tuple[str, int, int, bool] | None:
+    """
+    Retrieve metadata on column *column_name* in *table_name*.
+
+    The metadata is returned as a tuple containing:
+        - data type: the 'udt_name' (name of the data type used for the column)
+        - precision:
+            -  numeric types: total number of digits
+            - integer types: size in bytes
+            -  char/varchar types: maximum number of characters
+            - float types: number of bits used to store the mantissa (significant digits) - 24 (float4) or 53 (float8)
+            - timestamp types: NULL
+        - scale:
+            - numeric types: number of decimal digits
+            - integer types: 0
+            - all other types: NULL
+        - nullability: whether the column can hold NULL values
+
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
+    :param table_name: the possibly schema-qualified name of the table
+    :param column_name: the name of the column to retrieve
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit operation on errorless completion
+    :param errors: incidental error messages
+    :param logger: optional logger
+    :return: the metadata on column *column_name* in *table_name*
+    """
+    # initialize the return variable
+    result: tuple[str, int, int, bool] | None = None
+
+    # assert the database engine
+    if not isinstance(errors, list):
+        errors = []
+    engine = _assert_engine(engine=engine,
+                            errors=errors)
+    if not errors:
+        # determine the table schema
+        table_schema: str
+        table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
+
+        # build the query
+        sel_stmt: str | None = None
+        where_data: dict[str, str] | None = None
+        if engine == DbEngine.MYSQL:
+            pass
+        if engine == DbEngine.ORACLE:
+            sel_stmt = ("SELECT DATA_TYPE, DATA_LENGTH, "
+                        "DATA_PRECISION, DATA_SCALE, NULLABLE FROM ALL_TAB_COLUMNS")
+            where_data = {
+                "TABLE_NAME": table_name.upper(),
+                "COLUMN_NAME": column_name.upper()
+            }
+            if table_schema:
+                where_data["OWNER"] = table_schema.upper()
+        elif engine == DbEngine.POSTGRES:
+            sel_stmt = ("SELECT udt_name, character_maximum_length, "
+                        "numeric_precision, numeric_scale, is_nullable FROM information_schema.columns")
+            where_data = {
+                "table_name": table_name.lower(),
+                "column_name": column_name.lower()
+            }
+            if table_schema:
+                where_data["table_schema"] = table_schema.lower()
+        elif engine == DbEngine.SQLSERVER:
+            sel_stmt = ("SELECT UDT_NAME, CHARACTER_MAXIMUM_LENGTH, "
+                        "NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE FROM information_schema.columns")
+            where_data = {
+                "TABLE_NAME": table_name.upper(),
+                "COLUMN_NAME": column_name.upper()
+            }
+            if table_schema:
+                where_data["TABLE_SCHEMA"] = table_schema.upper()
+
+        # execute the query
+        # noinspection PyTypeChecker
+        recs: list[tuple[str, int, int, int, str]] = db_select(sel_stmt=sel_stmt,
+                                                               where_data=where_data,
+                                                               engine=engine,
+                                                               connection=connection,
+                                                               committable=committable,
+                                                               errors=errors,
+                                                               logger=logger)
+        # process the query result
+        if not errors and recs:
+            rec = recs[0]
+            result = (rec[0], rec[1 if "char" in rec[0] else 2], rec[3], rec[4].startswith("Y"))
+
+    return result
+
+
+def db_get_columns_metadata(table_name: str,
+                            engine: DbEngine = None,
+                            connection: Any = None,
+                            committable: bool = None,
+                            errors: list[str] = None,
+                            logger: Logger = None) -> list[tuple[str, str, int, int, bool]] | None:
+    """
+    Retrieve metadata on all columns in *table_name*.
+
+    The metadata is returned as a list of tuples, each one containing:
+        - column name: the name of the column
+        - data type: the 'udt_name' (name of the data type used for the column)
+        - precision:
+            -  numeric types: total number of digits
+            - integer types: size in bytes
+            -  char/varchar types: maximum number of characters
+            - float types: number of bits used to store the mantissa (significant digits) - 24 (float4) or 53 (float8)
+            - timestamp types: NULL
+        - scale:
+            - numeric types: number of decimal digits
+            - integer types: 0
+            - all other types: NULL
+        - nullability: whether the column can hold NULL values
+
+    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
+    A rollback is always attempted, if an error occurs.
+
+    :param table_name: the possibly schema-qualified name of the table
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit operation on errorless completion
+    :param errors: incidental error messages
+    :param logger: optional logger
+    :return: a list of tuples with the metadata on all columns in *table_name*
+    """
+    # initialize the return variable
+    result: list[tuple[str, str, int, int, bool]] | None = None
+
+    # assert the database engine
+    if not isinstance(errors, list):
+        errors = []
+    engine = _assert_engine(engine=engine,
+                            errors=errors)
+    if not errors:
+        # determine the table schema
+        table_schema: str
+        table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
+
+        # build the query
+        sel_stmt: str | None = None
+        where_data: dict[str, str] | None = None
+        if engine == DbEngine.MYSQL:
+            pass
+        if engine == DbEngine.ORACLE:
+            sel_stmt = ("SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, "
+                        "DATA_PRECISION, DATA_SCALE, NULLABLE FROM ALL_TAB_COLUMNS")
+            where_data = {
+                "TABLE_NAME": table_name.upper()
+            }
+            if table_schema:
+                where_data["OWNER"] = table_schema.upper()
+        elif engine == DbEngine.POSTGRES:
+            sel_stmt = ("SELECT column_name, udt_name, character_maximum_length, "
+                        "numeric_precision, numeric_scale, is_nullable FROM information_schema.columns")
+            where_data = {
+                "table_name": table_name.lower()
+            }
+            if table_schema:
+                where_data["table_schema"] = table_schema.lower()
+        elif engine == DbEngine.SQLSERVER:
+            sel_stmt = ("SELECT COLUMN_NAME, UDT_NAME, CHARACTER_MAXIMUM_LENGTH, "
+                        "NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE FROM information_schema.columns")
+            where_data = {
+                "TABLE_NAME": table_name.upper()
+            }
+            if table_schema:
+                where_data["TABLE_SCHEMA"] = table_schema.upper()
+
+        # execute the query
+        # noinspection PyTypeChecker
+        recs: list[tuple[str, str, int, int, int, str]] = db_select(sel_stmt=sel_stmt,
+                                                                    where_data=where_data,
+                                                                    engine=engine,
+                                                                    connection=connection,
+                                                                    committable=committable,
+                                                                    errors=errors,
+                                                                    logger=logger)
+        # process the query result
+        if not errors and recs:
+            result = [(rec[0], rec[1], rec[2 if "char" in rec[1] else 3], rec[4], rec[5].startswith("Y"))
+                      for rec in recs]
     return result

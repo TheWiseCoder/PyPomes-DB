@@ -196,7 +196,7 @@ def select(sel_stmt: str,
 
                 # log the retrieval operation
                 if logger:
-                    from_table: str = str_splice(source=sel_stmt + " ",
+                    from_table: str = str_splice(sel_stmt + " ",
                                                  seps=(" FROM ", " "))[1]
                     logger.debug(msg=f"Read {count} tuples from {DbEngine.POSTGRES}.{from_table}, "
                                      f"offset {offset_count}, connection {id(curr_conn)}")
@@ -461,7 +461,7 @@ def update_lob(lob_table: str,
     :param pk_columns: columns making up a primary key, or a unique identifier for the tuple
     :param pk_vals: values with which to locate the tuple to be updated
     :param lob_data: the LOB data (bytes, a file path, or a file pointer)
-    :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
+    :param chunk_size: size in bytes of the data chunk to read/write, or 0 or *None* for no limit
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
     :param errors: incidental error messages
@@ -633,7 +633,7 @@ def identity_post_insert(insert_stmt: str,
     # obtain the maximum value inserted
     if not isinstance(errors, list):
         errors = []
-    table_name: str = str_between(source=insert_stmt.upper(),
+    table_name: str = str_between(insert_stmt.upper(),
                                   from_str=" INTO ",
                                   to_str=" ")
     recs: list[tuple[int]] = select(sel_stmt=(f"SELECT MAX({identity_column}) "
@@ -719,7 +719,7 @@ def build_typified_template(insert_stmt: str,
         result = "("
         # obtain the columns in the insert statement
         columns_clause: str = insert_stmt[insert_stmt.index("(")+1:insert_stmt.index(")")]
-        columns: list[str] = str_as_list(source=columns_clause)
+        columns: list[str] = str_as_list(columns_clause)
         for column in columns:
             result += "%s"
             data_type: str = list_get_coupled(coupled_elements=recs,

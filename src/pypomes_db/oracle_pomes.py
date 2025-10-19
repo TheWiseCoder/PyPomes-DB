@@ -196,7 +196,7 @@ def select(sel_stmt: str,
 
                 # log the retrieval operation
                 if logger:
-                    from_table: str = str_splice(source=sel_stmt + " ",
+                    from_table: str = str_splice(sel_stmt + " ",
                                                  seps=(" FROM ", " "))[1]
                     logger.debug(msg=f"Read {count} tuples from {DbEngine.ORACLE}.{from_table}, "
                                      f"offset {offset_count}, connection {id(curr_conn)}")
@@ -446,7 +446,7 @@ def update_lob(lob_table: str,
     :param pk_columns: columns making up a primary key, or a unique identifier for the tuple
     :param pk_vals: values with which to locate the tuple to be updated
     :param lob_data: the LOB data (bytes, a file path, or a file pointer)
-    :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
+    :param chunk_size: size in bytes of the data chunk to read/write, or 0 or *None* for no limit
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
     :param errors: incidental error messages
@@ -526,8 +526,9 @@ def update_lob(lob_table: str,
                                                   bind_vals=pk_vals))
 
 
-# TODO: see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html
+# see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html (TODO)
 # noinspection PyUnusedLocal
+# ruff: noqa: ARG001
 def call_function(func_name: str,
                   func_vals: tuple | None,
                   conn: Connection | None,
@@ -554,7 +555,7 @@ def call_function(func_name: str,
     return result
 
 
-# TODO: see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html
+# see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html (TODO)
 def call_procedure(proc_name: str,
                    proc_vals: tuple | None,
                    conn: Connection | None,

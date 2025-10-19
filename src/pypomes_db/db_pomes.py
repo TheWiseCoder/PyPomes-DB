@@ -1,10 +1,10 @@
 from logging import Logger
 from pathlib import Path
-from pypomes_core import str_sanitize
+from pypomes_core import str_is_float, str_sanitize
 from typing import Any, BinaryIO
 
 from .db_common import (
-    DB_BIND_META_TAG, _DB_CONN_DATA, DbEngine, DbParam,
+    DB_BIND_META_TAG, _DB_CONN_DATA, _BUILTIN_FUNCTIONS, DbEngine, DbParam,
     _assert_engine, _get_param, _bind_columns, _bind_marks,
     _combine_insert_data, _combine_update_data, _combine_search_data
 )
@@ -190,6 +190,56 @@ def db_get_connection_string(engine: DbEngine = None) -> str:
     elif engine == DbEngine.SQLSERVER:
         from . import sqlserver_pomes
         result = sqlserver_pomes.get_connection_string()
+
+    return result
+
+
+def db_convert_default(value: str,
+                       source_engine: DbEngine,
+                       target_engine: DbEngine) -> str | None:
+    """
+    Convert the default value used in *source_engine* to its equivalent in *target_engine*.
+
+    :param value: the value to be converted
+    :param source_engine: the source database engine
+    :param target_engine: the target database engine
+    :return: the converted value, or *None* if no convertion was possible.
+    """
+    # initialize the return variable
+    result: str | None = None
+
+    # 'str_is_int()' is not necessary here
+    if str_is_float(value) or \
+            (value.startswith("'") and value.endswith("'")):
+        # 'value' is a numeric or string literal
+        result = value
+    else:
+        pos_source: int | None = None
+        match source_engine:
+            case DbEngine.MYSQL:
+                pos_source = 0
+            case DbEngine.ORACLE:
+                pos_source = 1
+            case DbEngine.POSTGRES:
+                pos_source = 2
+            case DbEngine.SQLSERVER:
+                pos_source = 3
+
+        pos_target: int | None = None
+        match target_engine:
+            case DbEngine.MYSQL:
+                pos_target = 0
+            case DbEngine.ORACLE:
+                pos_target = 1
+            case DbEngine.POSTGRES:
+                pos_target = 2
+            case DbEngine.SQLSERVER:
+                pos_target = 3
+
+        for func in _BUILTIN_FUNCTIONS:
+            if func[pos_source] == value.upper():
+                result = func[pos_target]
+                break
 
     return result
 
@@ -418,7 +468,7 @@ def db_commit(connection: Any,
             logger.debug(f"Transaction committed on '{id(connection)}'")
     except Exception as e:
         err_msg: str = (f"Error committing the transaction on '{id(connection)}': "
-                        f"{str_sanitize(source=f'{e}')}")
+                        f"{str_sanitize(f'{e}')}")
         if logger:
             logger.error(msg=err_msg)
         if isinstance(errors, list):
@@ -441,7 +491,7 @@ def db_rollback(connection: Any,
     except Exception as e:
         if logger:
             logger.error(msg=f"Error rolling back the transaction on '{id(connection)}': "
-                             f"{str_sanitize(source=f'{e}')}")
+                             f"{str_sanitize(f'{e}')}")
 
 
 def db_close(connection: Any,
@@ -469,7 +519,7 @@ def db_close(connection: Any,
         except Exception as e:
             if logger:
                 logger.error(msg=f"Error closing the connection {id(connection)}: "
-                                 f"{str_sanitize(source=f'{e}')}")
+                                 f"{str_sanitize(f'{e}')}")
 
 
 def db_count(table: str,
@@ -1251,7 +1301,7 @@ def db_update_lob(lob_table: str,
     :param pk_columns: columns making up a primary key, or a unique identifier for the tuple
     :param pk_vals: values with which to locate the tuple to be updated
     :param lob_data: the LOB data (bytes, a file path, or a file pointer)
-    :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
+    :param chunk_size: size in bytes of the data chunk to read/write, or 0 or *None* for no limit
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion

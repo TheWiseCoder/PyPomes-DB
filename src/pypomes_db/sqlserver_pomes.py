@@ -2,10 +2,11 @@ import pyodbc
 from contextlib import suppress
 from datetime import date, datetime
 from logging import Logger
-from pyodbc import Binary, Connection, Row
-from pypomes_core import DateFormat, DatetimeFormat
 from pathlib import Path
-from pypomes_core import str_between, str_splice
+from pyodbc import Binary, Connection, Row
+from pypomes_core import (
+    DateFormat, DatetimeFormat,  str_between, str_splice
+)
 from typing import Any, BinaryIO, Final
 
 from .db_common import (
@@ -223,7 +224,7 @@ def select(sel_stmt: str,
 
                 # log the retrieval operation
                 if logger:
-                    from_table: str = str_splice(source=sel_stmt + " ",
+                    from_table: str = str_splice(sel_stmt + " ",
                                                  seps=(" FROM ", " "))[1]
                     logger.debug(msg=f"Read {count} tuples from {DbEngine.SQLSERVER}.{from_table}, "
                                      f"offset {offset_count}, connection {id(curr_conn)}")
@@ -476,7 +477,7 @@ def update_lob(lob_table: str,
     :param pk_columns: columns making up a primary key, or a unique identifier for the tuple
     :param pk_vals: values with which to locate the tuple to be updated
     :param lob_data: the LOB data (bytes, a file path, or a file pointer)
-    :param chunk_size: size in bytes of the data chunk to read/write, or 0 or None for no limit
+    :param chunk_size: size in bytes of the data chunk to read/write, or 0 or *None* for no limit
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
     :param errors: incidental error messages
@@ -642,7 +643,7 @@ def identity_pre_insert(insert_stmt: str,
     :param errors: incidental error messages
     :param logger: optional logger
     """
-    table_name: str = str_between(source=insert_stmt.upper(),
+    table_name: str = str_between(insert_stmt.upper(),
                                   from_str=" INTO ",
                                   to_str=" ")
     execute(exc_stmt=f"SET IDENTITY_INSERT {table_name.lower()} ON",
@@ -678,7 +679,7 @@ def identity_post_insert(insert_stmt: str,
     # obtain the maximum value inserted
     if not isinstance(errors, list):
         errors = []
-    table_name: str = str_between(source=insert_stmt.upper(),
+    table_name: str = str_between(insert_stmt.upper(),
                                   from_str=" INTO ",
                                   to_str=" ")
     recs: list[tuple[int]] = select(sel_stmt=(f"SELECT MAX({identity_column}) "

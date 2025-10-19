@@ -37,6 +37,28 @@ class DbParam(StrEnum):
 # (guarantees cross-engine compatilitiy, as this is replaced by the engine's bind tag)
 DB_BIND_META_TAG: Final[str] = env_get_str(key=f"{APP_PREFIX}_DB_BIND_META_TAG",
                                            def_value="%?")
+_BUILTIN_FUNCTIONS: Final[list[tuple[str, str, str, str]]] = [
+    # current date only
+    ("CURRENT_DATE()",              # MySQL: yyyy-mm-dd
+     "CURRENT_DATE",                # Oracle: yyyy-mm-dd
+     "CURRENT_DATE",                # PostgreSQL: yyyy-mm-dd
+     "CONVERT(DATE, GETDATE())"),   # SQLServer: yyyy-mm-dd
+    # current time only (trailing -/+ indicates the timezone difference from GMT)
+    ("CURTIME()",                   # MySQL: hh:mm:ss
+     "CURRENT_TIME",                # Oracle: hh:mm:ss.123456 - 00:00
+     "CURRENT_TIME",                # PostgreSQL: hh:mm:ss.123456 + 00
+     "CONVERT(TIME, GETDATE())"),   # SQLServer: hh:mm:ss.123
+    # current date and time
+    ("NOW()",                       # MySQL: yyyy-mm-dd hh:mm:ss
+     "SYSDATE",                     # Oracle: yyyy-mm-dd hh:mm:ss
+     "NOW()",                       # PostgreSQL: yyyy-mm-dd hh:mm:ss.123456 + 00
+     "GETDATE()"),                  # SQLServer: yyyy-mm-dd hh:mm:ss.123
+    # current timestamp
+    ("CURRENT_TIMESTAMP()",         # MySQL: yyyy-mm-dd hh:mm:ss
+     "SYSTIMESTAMP",                # Oracle: yyyy-mm-dd hh:mm:ss.123456 - 00:00
+     "CURRENT_TIMESTAMP",           # PostgreSQL: yyyy-mm-dd hh:mm:ss.123456 + 00
+     "SYSDATETIME()")               # SQLServer: yyyy-mm-dd hh:mm:ss.1234567
+]
 
 
 def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
@@ -83,9 +105,9 @@ def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
             prefix: str = "DB"
             default_setup = False
         else:
-            prefix: str = str_positional(source=engine,
-                                         list_from=list(DbEngine),
-                                         list_to=["MSQL", "ORCL", "PG", "SQLS"])
+            prefix: str = str_positional(engine,
+                                         keys=tuple(DbEngine),
+                                         values=("MSQL", "ORCL", "PG", "SQLS"))
         result[engine] = {
             DbParam.NAME: env_get_str(key=f"{APP_PREFIX}_{prefix}_NAME"),
             DbParam.USER: env_get_str(key=f"{APP_PREFIX}_{prefix}_USER"),
@@ -219,7 +241,7 @@ def _except_msg(exception: Exception,
     db_data: dict[DbParam, Any] = _DB_CONN_DATA.get(engine) or {}
     conn_data: str = f", connection {id(connection)}," if connection else ""
     return (f"Error accessing '{db_data.get(DbParam.NAME)}'{conn_data} "
-            f"at '{db_data.get(DbParam.HOST)}': {str_sanitize(source=f'{exception}')}")
+            f"at '{db_data.get(DbParam.HOST)}': {str_sanitize(f'{exception}')}")
 
 
 def _build_query_msg(query_stmt: str,
@@ -233,7 +255,7 @@ def _build_query_msg(query_stmt: str,
     :param bind_vals: values associated with the query command
     :return: message indicative of empty search
     """
-    result: str = str_sanitize(source=query_stmt)
+    result: str = str_sanitize(query_stmt)
 
     for inx, val in enumerate(bind_vals or [], 1):
         if isinstance(val, str):
@@ -474,29 +496,32 @@ def _combine_insert_data(insert_stmt: str,
     return insert_stmt, insert_vals
 
 
-def _remove_nulls(rows: list[tuple]) -> list[tuple]:
+def _remove_ctrlchars(rows: list[tuple]) -> None:
     """
-    Remove all occurrences of *NULL* (char(0)) values from the rows in *rows*.
+    Remove all occurrences of control characters from *str* elements of rows in *rows*.
+
+    Only the elements of type *str* are inspected. Control characters are characters in the
+    ASCII range [0 - 31] less:
+      - *HT*: Hotizontal Tab (09)
+      - *LF*: Line Feed (10)
+      - *VT*: Vertical Tab (11)
+      - *FF*: Form Feed (12)
+      - *CR*  Carriage Return(13)
 
     :param rows: the rows to be cleaned
-    :return: a row with cleaned data, or None if no cleaning was necessary
     """
-    # initialize the return variable
-    result: list[tuple] = []
-
     # traverse the rows
-    for row in rows:
-        cleaned_row: list[Any] = []
-
-        # traverse the values
+    last: int = len(rows) - 1
+    for inx, row in enumerate(reversed(rows)):
+        new_row: list = []
+        # traverse the row
+        cleaned: bool = False
         for val in row:
-            # is 'val' a string containing NULLs ?
-            if isinstance(val, str) and val.find(chr(0)) > 0:
-                # yes, clean it up
-                cleaned_row.append(val.replace(chr(0), ""))
+            if isinstance(val, str) and any(ord(ch) < 32 and ord(ch) not in range(9, 14)for ch in val):
+                # 'val' contains control characters, clean it up
+                new_row.append("".join(ch if ord(ch) > 31 or ord(ch) in range(9, 14) else " " for ch in val))
+                cleaned = True
             else:
-                # no, use it as is
-                cleaned_row.append(val)
-        result.append(tuple(cleaned_row))
-
-    return result
+                new_row.append(val)
+        if cleaned:
+            rows[last - inx] = tuple(new_row)
