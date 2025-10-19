@@ -194,56 +194,6 @@ def db_get_connection_string(engine: DbEngine = None) -> str:
     return result
 
 
-def db_convert_default(value: str,
-                       source_engine: DbEngine,
-                       target_engine: DbEngine) -> str | None:
-    """
-    Convert the default value used in *source_engine* to its equivalent in *target_engine*.
-
-    :param value: the value to be converted
-    :param source_engine: the source database engine
-    :param target_engine: the target database engine
-    :return: the converted value, or *None* if no convertion was possible.
-    """
-    # initialize the return variable
-    result: str | None = None
-
-    # 'str_is_int()' is not necessary here
-    if str_is_float(value) or \
-            (value.startswith("'") and value.endswith("'")):
-        # 'value' is a numeric or string literal
-        result = value
-    else:
-        pos_source: int | None = None
-        match source_engine:
-            case DbEngine.MYSQL:
-                pos_source = 0
-            case DbEngine.ORACLE:
-                pos_source = 1
-            case DbEngine.POSTGRES:
-                pos_source = 2
-            case DbEngine.SQLSERVER:
-                pos_source = 3
-
-        pos_target: int | None = None
-        match target_engine:
-            case DbEngine.MYSQL:
-                pos_target = 0
-            case DbEngine.ORACLE:
-                pos_target = 1
-            case DbEngine.POSTGRES:
-                pos_target = 2
-            case DbEngine.SQLSERVER:
-                pos_target = 3
-
-        for func in _BUILTIN_FUNCTIONS:
-            if func[pos_source] == value.upper():
-                result = func[pos_target]
-                break
-
-    return result
-
-
 def db_get_reserved_words(engine: DbEngine = None) -> list[str] | None:
     """
     Obtain and return the list of reserved words for *engine*.
@@ -399,6 +349,56 @@ def db_bind_arguments(stmt: str,
         from . import sqlserver_pomes
         result = sqlserver_pomes.bind_arguments(stmt=stmt,
                                                 bind_vals=bind_vals)
+    return result
+
+
+def db_convert_default(value: str,
+                       source_engine: DbEngine,
+                       target_engine: DbEngine) -> str | None:
+    """
+    Convert the default value used in *source_engine* to its equivalent in *target_engine*.
+
+    :param value: the value to be converted
+    :param source_engine: the source database engine
+    :param target_engine: the target database engine
+    :return: the converted value, or *None* if no convertion was possible.
+    """
+    # initialize the return variable
+    result: str | None = None
+
+    # 'str_is_int()' is not necessary here
+    if str_is_float(value) or \
+            (value.startswith("'") and value.endswith("'")):
+        # 'value' is a numeric or string literal
+        result = value
+    else:
+        pos_source: int | None = None
+        match source_engine:
+            case DbEngine.MYSQL:
+                pos_source = 0
+            case DbEngine.ORACLE:
+                pos_source = 1
+            case DbEngine.POSTGRES:
+                pos_source = 2
+            case DbEngine.SQLSERVER:
+                pos_source = 3
+
+        pos_target: int | None = None
+        match target_engine:
+            case DbEngine.MYSQL:
+                pos_target = 0
+            case DbEngine.ORACLE:
+                pos_target = 1
+            case DbEngine.POSTGRES:
+                pos_target = 2
+            case DbEngine.SQLSERVER:
+                pos_target = 3
+
+        for func in _BUILTIN_FUNCTIONS:
+            if func[pos_source] == value.upper():
+                result = func[pos_target]
+                break
+
     return result
 
 
