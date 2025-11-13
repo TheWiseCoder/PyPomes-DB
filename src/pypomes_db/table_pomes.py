@@ -33,14 +33,15 @@ def db_create_session_table(engine: DbEngine,
     :param connection: the connection defining the session
     :param table_name: the, possibly schema-qualified, name of the table to be created
     :param column_data: this list of column information for the table cration
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
     """
+    # necessary, lest the state of 'errors' be tested
+    curr_errors: list[str] = []
+
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
-                            errors=errors)
+                            errors=curr_errors)
     if engine:
         stmt: str | None = None
         match engine:
@@ -64,8 +65,8 @@ def db_create_session_table(engine: DbEngine,
                             f"({', '.join(column_data)}) ON COMMIT PRESERVE DEFINITION")
                 elif not db_table_exists(table_name=table_name,
                                          engine=DbEngine.ORACLE,
-                                         errors=errors,
-                                         logger=logger) and not errors:
+                                         errors=curr_errors,
+                                         logger=logger) and not curr_errors:
                     # - the table definition remains in the database permanently, but the data is session-specific
                     # - 'ON COMMIT PRESERVE ROWS' keeps data for the entire session
                     stmt = (f"CREATE GLOBAL TEMPORARY TABLE {table_name} "
@@ -78,8 +79,11 @@ def db_create_session_table(engine: DbEngine,
             db_execute(exc_stmt=stmt,
                        engine=engine,
                        connection=connection,
-                       errors=errors,
+                       errors=curr_errors,
                        logger=logger)
+
+    if curr_errors and isinstance(errors, list):
+        errors.extend(curr_errors)
 
 
 def db_get_session_table_prefix(engine: DbEngine) -> str:
@@ -125,7 +129,7 @@ def db_get_tables(schema: str = None,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
     :return: the schema-qualified table names found, or *None* if error
     """
@@ -133,11 +137,9 @@ def db_get_tables(schema: str = None,
     result: list[str] | None = None
 
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if not errors:
+    if engine:
         # build the query
         if engine == DbEngine.ORACLE:
             sel_stmt: str = "SELECT schema_name || '.' || table_name FROM all_tables"
@@ -158,7 +160,7 @@ def db_get_tables(schema: str = None,
                                            errors=errors,
                                            logger=logger)
         # process the query result
-        if not errors:
+        if isinstance(recs, list):
             result = [rec[0] for rec in recs]
 
     return result
@@ -181,7 +183,7 @@ def db_table_exists(table_name: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
     :return: *True* if the table was found, *False* otherwise, or *None* if error
     """
@@ -189,13 +191,9 @@ def db_table_exists(table_name: str,
     result: bool | None = None
 
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if not errors:
+    if engine:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
@@ -222,7 +220,7 @@ def db_table_exists(table_name: str,
                                            errors=errors,
                                            logger=logger)
         # process the query result
-        if not errors:
+        if isinstance(recs, list):
             result = recs[0][0] > 0
 
     return result
@@ -248,15 +246,13 @@ def db_drop_table(table_name: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
     """
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if not errors:
+    if engine:
         # build the DROP statement
         if engine == DbEngine.ORACLE:
             # oracle has no 'IF EXISTS' clause
@@ -313,19 +309,17 @@ def db_get_table_ddl(table_name: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
-    :return: the DDL script used to create the index, or *None* if error or the index does not exist
+    :return: the DDL script used to create the index, or *None* if error or the table does not exist
     """
     # initialize the return variable
     result: str | None = None
 
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if not errors:
+    if engine:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
@@ -355,7 +349,7 @@ def db_get_table_ddl(table_name: str,
                                                errors=errors,
                                                logger=logger)
             # process the query result
-            if not errors and recs:
+            if isinstance(recs, list) and recs:
                 result = recs[0][0].strip()
         else:
             # 'table_name' not schema-qualified, report the problem
@@ -396,19 +390,17 @@ def db_get_column_metadata(table_name: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
-    :return: the metadata on column *column_name* in *table_name*
+    :return: the metadata on column *column_name* in *table_name*, or *None* if error or metadata not found
     """
     # initialize the return variable
     result: tuple[str, int, int, bool] | None = None
 
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if not errors:
+    if engine:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
@@ -456,7 +448,7 @@ def db_get_column_metadata(table_name: str,
                                                                errors=errors,
                                                                logger=logger)
         # process the query result
-        if not errors and recs:
+        if isinstance(recs, list) and recs:
             rec = recs[0]
             result = (rec[0], rec[1 if "char" in rec[0] else 2], rec[3], rec[4].startswith("Y"))
 
@@ -494,19 +486,17 @@ def db_get_columns_metadata(table_name: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
-    :return: a list of tuples with the metadata on all columns in *table_name*
+    :return: a list of tuples with the metadata on all columns in *table_name*, or *None* if error
     """
     # initialize the return variable
     result: list[tuple[str, str, int, int, bool]] | None = None
 
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if not errors:
+    if engine:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
@@ -551,7 +541,7 @@ def db_get_columns_metadata(table_name: str,
                                                                     errors=errors,
                                                                     logger=logger)
         # process the query result
-        if not errors and recs:
+        if isinstance(recs, list) and recs:
             result = [(rec[0], rec[1], rec[2 if "char" in rec[1] else 3], rec[4], rec[5].startswith("Y"))
                       for rec in recs]
     return result

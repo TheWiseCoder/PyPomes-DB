@@ -31,7 +31,7 @@ def db_get_indexes(schema: str = None,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
     :return: the list of schema-qualified indexes in the database
     """
@@ -39,12 +39,9 @@ def db_get_indexes(schema: str = None,
     result: list[str] | None = None
 
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    # proceed, if no errors
-    if not errors:
+    if engine:
         # process table names
         tbl_name = str_positional(engine,
                                   keys=tuple(DbEngine),
@@ -128,7 +125,7 @@ def db_get_indexes(schema: str = None,
                                            errors=errors,
                                            logger=logger)
         # process the query result
-        if not errors:
+        if isinstance(recs, list):
             result = [rec[0] for rec in recs]
 
     return result
@@ -152,27 +149,28 @@ def db_get_index_ddl(index_name: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
     :return: the DDL script used to create the index, or *None* if error or if the index does not exist
     """
     # initialize the return variable
     result: str | None = None
 
+    # necessary, lest the state of 'errors' be tested
+    curr_errors: list[str] = []
+
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
-                            errors=errors)
+                            errors=curr_errors)
 
     # is 'index_name' schema-qualified ?
     splits: list[str] = index_name.split(".")
     if len(splits) != 2:
         # no, report the problem
-        errors.append(f"Index '{index_name}' not properly schema-qualified")
+        curr_errors.append(f"Index '{index_name}' not properly schema-qualified")
 
     # proceed, if no errors
-    if not errors:
+    if not curr_errors:
         # extract the schema and index names
         schema_name: str = splits[0]
         index_name: str = splits[1]
@@ -198,10 +196,13 @@ def db_get_index_ddl(index_name: str,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=errors,
+                                           errors=curr_errors,
                                            logger=logger)
         # process the query result
-        if not errors and recs:
+        if not curr_errors and recs:
             result = recs[0][0].strip()
+
+    if curr_errors and isinstance(errors, list):
+        errors.extend(curr_errors)
 
     return result

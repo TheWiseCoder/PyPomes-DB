@@ -65,7 +65,7 @@ def connect(autocommit: bool = None,
     Return *None* if the connection could not be obtained.
 
     :param autocommit: whether the connection is to be in autocommit mode (defaults to *False*)
-    :param errors: incidental error messages
+    :param errors: incidental error messages (must be *[]* or *None*)
     :param logger: optional logger
     :return: the connection to the database, or *None* if error
     """
@@ -82,23 +82,23 @@ def connect(autocommit: bool = None,
     )
 
     # obtain a connection to the database
-    err_msg: str | None = None
     try:
         result = pyodbc.connect(connection_kwargs)
         # establish the connection's autocommit mode
         result.autocommit = isinstance(autocommit, bool) and autocommit
     except Exception as e:
-        err_msg = _except_msg(exception=e,
-                              connection=None,
-                              engine=DbEngine.SQLSERVER)
-    # log eventual errors
-    if err_msg:
-        if isinstance(errors, list):
-            errors.append(err_msg)
+        msg: str = _except_msg(exception=e,
+                               connection=None,
+                               engine=DbEngine.SQLSERVER)
         if logger:
-            logger.error(err_msg)
-            logger.error(msg="Error connecting to "
-                             f"'{db_params.get(DbParam.NAME)}' at '{db_params.get(DbParam.HOST)}'")
+            logger.error(msg=msg)
+        if isinstance(errors, list):
+            errors.append(msg)
+
+    # log errors
+    if logger and errors:
+        logger.error(msg="Error connecting to "
+                         f"'{db_params.get(DbParam.NAME)}' at '{db_params.get(DbParam.HOST)}'")
     return result
 
 
@@ -170,16 +170,18 @@ def select(sel_stmt: str,
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (must be *[]* or *None*)
     :param logger: optional logger
     :return: list of tuples containing the search result, *[]* on empty search, or *None* if error
     """
     # initialize the return variable
     result: list[tuple] | None = []
 
-    # make sure to have a connection
+    # make sure to have an errors list
     if not isinstance(errors, list):
         errors = []
+
+    # make sure to have a connection
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
@@ -208,8 +210,6 @@ def select(sel_stmt: str,
                 sel_stmt = sel_stmt.replace("SELECT DISTINCT ", f"SELECT DISTINCT TOP {limit_count} ", 1)
             else:
                 sel_stmt = sel_stmt.replace("SELECT ", f"SELECT TOP {limit_count} ", 1)
-
-        err_msg: str | None = None
         try:
             # obtain a cursor and execute the operation
             with curr_conn.cursor() as cursor:
@@ -240,16 +240,20 @@ def select(sel_stmt: str,
                     # yes, retrieve the returned tuples
                     result = [tuple(row) for row in rows]
 
-            # commit the transaction, if appropriate
+            # commit the transaction
             if committable or not conn:
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
                 with suppress(Exception):
                     curr_conn.rollback()
-            err_msg = _except_msg(exception=e,
-                                  connection=curr_conn,
-                                  engine=DbEngine.SQLSERVER)
+            msg: str = _except_msg(exception=e,
+                                   connection=curr_conn,
+                                   engine=DbEngine.SQLSERVER)
+            if logger:
+                logger.error(msg=msg)
+            if isinstance(errors, list):
+                errors.append(msg)
             result = None
         finally:
             # close the connection, if locally acquired
@@ -258,14 +262,10 @@ def select(sel_stmt: str,
                          engine=DbEngine.SQLSERVER,
                          logger=logger)
         # log errors
-        if err_msg:
-            if isinstance(errors, list):
-                errors.append(err_msg)
-            if logger:
-                logger.error(err_msg)
-                logger.error(msg=_build_query_msg(query_stmt=sel_stmt,
-                                                  engine=DbEngine.SQLSERVER,
-                                                  bind_vals=where_vals))
+        if logger and errors:
+            logger.error(msg=_build_query_msg(query_stmt=sel_stmt,
+                                              engine=DbEngine.SQLSERVER,
+                                              bind_vals=where_vals))
     return result
 
 
@@ -304,21 +304,22 @@ def execute(exc_stmt: str,
     :param max_count: optionally defines the maximum number of tuples to be affected
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (must be *[]* or *None*)
     :param logger: optional logger
     :return: the values of *return_cols*, the value returned by the operation, or *None* if error
     """
     # initialize the return variable
     result: tuple | int | None = None
 
-    # make sure to have a connection
+    # make sure to have an errors list
     if not isinstance(errors, list):
         errors = []
+
+    # make sure to have a connection
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
     if not errors:
-        err_msg: str | None = None
         # handle return columns
         if return_cols:
             # 'DELETED' and 'INSERTED' refer to the old and new values, respectively
@@ -340,7 +341,7 @@ def execute(exc_stmt: str,
                 else:
                     cursor.execute(exc_stmt)
 
-                # has the query quota been satisfied ?
+                # check whether the query quota has been satisfied
                 count: int = cursor.rowcount
                 if _assert_query_quota(engine=DbEngine.ORACLE,
                                        query=exc_stmt,
@@ -354,16 +355,20 @@ def execute(exc_stmt: str,
                     else:
                         result = count
 
-            # commit the transaction, if appropriate
+            # commit the transaction
             if committable or not conn:
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
                 with suppress(Exception):
                     curr_conn.rollback()
-            err_msg = _except_msg(exception=e,
-                                  connection=curr_conn,
-                                  engine=DbEngine.SQLSERVER)
+            msg: str = _except_msg(exception=e,
+                                   connection=curr_conn,
+                                   engine=DbEngine.SQLSERVER)
+            if logger:
+                logger.error(msg=msg)
+            if isinstance(errors, list):
+                errors.append(msg)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -371,14 +376,10 @@ def execute(exc_stmt: str,
                          engine=DbEngine.SQLSERVER,
                          logger=logger)
         # log errors
-        if err_msg:
-            if isinstance(errors, list):
-                errors.append(err_msg)
-            if logger:
-                logger.error(err_msg)
-                logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
-                                                  engine=DbEngine.SQLSERVER,
-                                                  bind_vals=bind_vals))
+        if logger and errors:
+            logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
+                                              engine=DbEngine.SQLSERVER,
+                                              bind_vals=bind_vals))
     return result
 
 
@@ -403,21 +404,22 @@ def bulk_execute(exc_stmt: str,
     :param exc_vals: the list of values for tuple identification, and to update the database with
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (must be *[]* or *None*)
     :param logger: optional logger
     :return: the number of inserted or updated tuples, or *None* if error
     """
     # initialize the return variable
     result: int | None = None
 
-    # make sure to have a connection
+    # make sure to have an errors list
     if not isinstance(errors, list):
         errors = []
+
+    # make sure to have a connection
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
     if not errors:
-        err_msg: str | None = None
         try:
             # obtain a cursor and perform the operation
             with curr_conn.cursor() as cursor:
@@ -425,16 +427,20 @@ def bulk_execute(exc_stmt: str,
                 cursor.executemany(exc_stmt, exc_vals)
                 result = len(exc_vals)
 
-            # commit the transaction, if appropriate
+            # commit the transaction
             if committable or not conn:
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
                 with suppress(Exception):
                     curr_conn.rollback()
-            err_msg = _except_msg(exception=e,
-                                  connection=curr_conn,
-                                  engine=DbEngine.SQLSERVER)
+            msg: str = _except_msg(exception=e,
+                                   connection=curr_conn,
+                                   engine=DbEngine.SQLSERVER)
+            if logger:
+                logger.error(msg=msg)
+            if isinstance(errors, list):
+                errors.append(msg)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -442,14 +448,10 @@ def bulk_execute(exc_stmt: str,
                          engine=DbEngine.SQLSERVER,
                          logger=logger)
         # log errors
-        if err_msg:
-            if isinstance(errors, list):
-                errors.append(err_msg)
-            if logger:
-                logger.error(err_msg)
-                logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
-                                                  engine=DbEngine.SQLSERVER,
-                                                  bind_vals=exc_vals[0]))
+        if logger and errors:
+            logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
+                                              engine=DbEngine.SQLSERVER,
+                                              bind_vals=exc_vals[0]))
     return result
 
 
@@ -480,12 +482,14 @@ def update_lob(lob_table: str,
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or *None* for no limit
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (must be *[]* or *None*)
     :param logger: optional logger
     """
-    # make sure to have a connection
+    # make sure to have an errors list
     if not isinstance(errors, list):
         errors = []
+
+    # make sure to have a connection
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
@@ -502,8 +506,6 @@ def update_lob(lob_table: str,
         update_stmt: str = (f"UPDATE {lob_table} "
                             f"SET {lob_column} = ? "
                             f"WHERE {where_clause}")
-
-        err_msg: str | None = None
         try:
             # obtain a cursor and execute the operation
             with curr_conn.cursor() as cursor:
@@ -528,16 +530,20 @@ def update_lob(lob_table: str,
                         data_bytes = lob_data.read(chunk_size)
                     lob_data.close()
 
-            # commit the transaction, if appropriate
+            # commit the transaction
             if committable or not conn:
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
                 with suppress(Exception):
                     curr_conn.rollback()
-            err_msg = _except_msg(exception=e,
-                                  connection=curr_conn,
-                                  engine=DbEngine.SQLSERVER)
+            msg: str = _except_msg(exception=e,
+                                   connection=curr_conn,
+                                   engine=DbEngine.SQLSERVER)
+            if logger:
+                logger.error(msg=msg)
+            if isinstance(errors, list):
+                errors.append(msg)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -545,14 +551,10 @@ def update_lob(lob_table: str,
                          engine=DbEngine.SQLSERVER,
                          logger=logger)
         # log errors
-        if err_msg:
-            if isinstance(errors, list):
-                errors.append(err_msg)
-            if logger:
-                logger.error(err_msg)
-                logger.error(msg=_build_query_msg(query_stmt=update_stmt,
-                                                  engine=DbEngine.SQLSERVER,
-                                                  bind_vals=pk_vals))
+        if logger and errors:
+            logger.error(msg=_build_query_msg(query_stmt=update_stmt,
+                                              engine=DbEngine.SQLSERVER,
+                                              bind_vals=pk_vals))
 
 
 def call_procedure(proc_name: str,
@@ -571,16 +573,18 @@ def call_procedure(proc_name: str,
     :param proc_vals: parameters for the stored procedure
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable:whether to commit operation upon errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (must be *[]* or *None*)
     :param logger: optional logger
     :return: the data returned by the procedure, or *None* if error
     """
     # initialize the return variable
     result: list[tuple] | None = None
 
-    # make sure to have a connection
+    # make sure to have an errors list
     if not isinstance(errors, list):
         errors = []
+
+    # make sure to have a connection
     curr_conn: Connection = conn or connect(autocommit=False,
                                             errors=errors,
                                             logger=logger)
@@ -589,7 +593,6 @@ def call_procedure(proc_name: str,
         proc_stmt: str | None = None
 
         # execute the stored procedure
-        err_msg: str | None = None
         try:
             # obtain a cursor and execute the operation
             with curr_conn.cursor() as cursor:
@@ -600,16 +603,20 @@ def call_procedure(proc_name: str,
                 rows: list[Row] = cursor.fetchall()
                 result = [tuple(row) for row in rows]
 
-            # commit the transaction, if appropriate
+            # commit the transaction
             if committable or not conn:
                 curr_conn.commit()
         except Exception as e:
             if curr_conn:
                 with suppress(Exception):
                     curr_conn.rollback()
-            err_msg = _except_msg(exception=e,
-                                  connection=curr_conn,
-                                  engine=DbEngine.SQLSERVER)
+            msg: str = _except_msg(exception=e,
+                                   connection=curr_conn,
+                                   engine=DbEngine.SQLSERVER)
+            if logger:
+                logger.error(msg=msg)
+            if isinstance(errors, list):
+                errors.append(msg)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:
@@ -617,14 +624,10 @@ def call_procedure(proc_name: str,
                          engine=DbEngine.SQLSERVER,
                          logger=logger)
         # log errors
-        if err_msg:
-            if isinstance(errors, list):
-                errors.append(err_msg)
-            if logger:
-                logger.error(err_msg)
-                logger.error(msg=_build_query_msg(query_stmt=proc_stmt,
-                                                  engine=DbEngine.SQLSERVER,
-                                                  bind_vals=proc_vals))
+        if logger and errors:
+            logger.error(msg=_build_query_msg(query_stmt=proc_stmt,
+                                              engine=DbEngine.SQLSERVER,
+                                              bind_vals=proc_vals))
     return result
 
 
@@ -640,7 +643,7 @@ def identity_pre_insert(insert_stmt: str,
 
     :param insert_stmt: the INSERT command
     :param conn: the connection to use
-    :param errors: incidental error messages
+    :param errors: incidental error messages (must be *[]* or *None*)
     :param logger: optional logger
     """
     table_name: str = str_between(insert_stmt.upper(),
@@ -673,12 +676,14 @@ def identity_post_insert(insert_stmt: str,
     :param conn: the connection to use
     :param committable:whether to commit operation upon errorless completion
     :param identity_column: column whose values are generated by the database
-    :param errors: incidental error messages
+    :param errors: incidental error messages (must be *[]* or *None*)
     :param logger: optional logger
     """
-    # obtain the maximum value inserted
+    # make sure to have an errors list
     if not isinstance(errors, list):
         errors = []
+
+    # obtain the maximum value inserted
     table_name: str = str_between(insert_stmt.upper(),
                                   from_str=" INTO ",
                                   to_str=" ")

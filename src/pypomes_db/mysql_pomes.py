@@ -50,7 +50,7 @@ def connect(autocommit: bool = None,
     Return *None* if the connection could not be obtained.
 
     :param autocommit: whether the connection is to be in autocommit mode (defaults to *False*)
-    :param errors: incidental error messages
+    :param errors: incidental error messages (must be *[]* or *None*)
     :param logger: optional logger
     :return: the connection to the database, or *None* if error
     """
@@ -61,7 +61,6 @@ def connect(autocommit: bool = None,
     db_params: dict[DbParam, Any] = _get_params(DbEngine.MYSQL)
 
     # obtain a connection to the database
-    err_msg: str | None = None
     try:
         result = connector.connect(database=db_params.get(DbParam.NAME),
                                    host=db_params.get(DbParam.HOST),
@@ -71,17 +70,18 @@ def connect(autocommit: bool = None,
         # establish the connection's autocommit mode
         result.autocommit = isinstance(autocommit, bool) and autocommit
     except Exception as e:
-        err_msg = _except_msg(exception=e,
-                              connection=result,
-                              engine=DbEngine.ORACLE)
-    # log errors
-    if err_msg:
-        if isinstance(errors, list):
-            errors.append(err_msg)
+        msg: str = _except_msg(exception=e,
+                               connection=result,
+                               engine=DbEngine.ORACLE)
         if logger:
-            logger.error(err_msg)
-            logger.error(msg=f"Error connecting to '{db_params.get(DbParam.NAME)} '"
-                             f"at '{db_params.get(DbParam.NAME)}'")
+            logger.error(msg=msg)
+        if isinstance(errors, list):
+            errors.append(msg)
+
+    # log errors
+    if logger and errors:
+        logger.error(msg=f"Error connecting to '{db_params.get(DbParam.NAME)} '"
+                         f"at '{db_params.get(DbParam.NAME)}'")
 
     return result
 

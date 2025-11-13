@@ -29,7 +29,7 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
     :return: the schema-qualified views found, or *None* if error
     """
@@ -37,11 +37,9 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
     result: list[str] | None = None
 
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if not errors:
+    if engine:
         # build the query
         if engine == DbEngine.ORACLE:
             vw_table: str = "all_mviews" if view_type == "M" else "all_views"
@@ -74,29 +72,27 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
                                            errors=errors,
                                            logger=logger)
         # process the query result
-        if not errors:
+        if isinstance(recs, list):
             result = [rec[0] for rec in recs]
 
     # omit views with dependencies not in 'tables'
     if result and tables:
-        omitted_views: list[str] = []
         for view_name in result:
-            dependencies: list[str] = \
-                db_get_view_dependencies(view_name=view_name,
-                                         engine=engine,
-                                         connection=connection,
-                                         committable=committable,
-                                         errors=errors,
-                                         logger=logger) or []
-            if errors:
+            dependencies: list[str] = db_get_view_dependencies(view_name=view_name,
+                                                               engine=engine,
+                                                               connection=connection,
+                                                               committable=committable,
+                                                               errors=errors,
+                                                               logger=logger)
+            if isinstance(dependencies, list):
+                for dependency in dependencies:
+                    if dependency not in tables:
+                        result.remove(view_name)
+                        break
+            else:
+                # an error ocurred
+                result = None
                 break
-            for dependency in dependencies:
-                if dependency not in tables:
-                    omitted_views.append(view_name)
-                    break
-        if not errors:
-            for omitted_view in omitted_views:
-                result.remove(omitted_view)
 
     return result
 
@@ -121,7 +117,7 @@ def db_view_exists(view_name: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
     :return: *True* if the view was found, *False* otherwise, or *None* if error
     """
@@ -129,11 +125,9 @@ def db_view_exists(view_name: str,
     result: bool | None = None
 
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if not errors:
+    if engine:
         # extract the schema, if possible
         schema_name: str | None = None
         splits: list[str] = view_name.split(".")
@@ -178,7 +172,7 @@ def db_view_exists(view_name: str,
                                            errors=errors,
                                            logger=logger)
         # process the query result
-        if not errors:
+        if isinstance(recs, list):
             result = recs[0][0] > 0
 
     return result
@@ -206,15 +200,13 @@ def db_drop_view(view_name: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
     """
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if not errors:
+    if engine:
         # build the DROP statement
         tag: str = "MATERIALIZED VIEW" if view_type == "M" else "VIEW"
         if engine == DbEngine.ORACLE:
@@ -274,19 +266,17 @@ def db_get_view_ddl(view_name: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
-    :return: the DDL script used to create the view, or *None* if error or the view does not exist
+    :return: the DDL script used to create the view, or *None* if error or view does not exist
     """
     # initialize the return variable
     result: str | None = None
 
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if not errors:
+    if engine:
         # determine the view schema
         view_schema: str
         view_schema, view_name = view_name.split(sep=".") if "." in view_name else (None, view_name)
@@ -333,7 +323,7 @@ def db_get_view_ddl(view_name: str,
                                            errors=errors,
                                            logger=logger)
         # process the query result
-        if not errors and recs:
+        if isinstance(recs, list) and recs:
             result = recs[0][0].strip()
 
     return result
@@ -345,7 +335,7 @@ def db_get_view_dependencies(view_name: str,
                              connection: Any = None,
                              committable: bool = None,
                              errors: list[str] = None,
-                             logger: Logger = None) -> list[str]:
+                             logger: Logger = None) -> list[str] | None:
     """
     Retrieve the schema-qualified names of the tables *view_name* depends on.
 
@@ -359,19 +349,17 @@ def db_get_view_dependencies(view_name: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
-    :return: the schema-qualified tables the view depends on, or 'None' if view not found or an error ocurred
+    :return: the schema-qualified tables the view depends on, or *None* if error or view not found
     """
     # initialize the return variable
     result: list[str] | None = None
 
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if not errors:
+    if engine:
         # determine the view schema
         view_schema: str
         view_schema, view_name = view_name.split(sep=".") if "." in view_name else (None, view_name)
@@ -421,7 +409,7 @@ def db_get_view_dependencies(view_name: str,
                                            errors=errors,
                                            logger=logger)
         # process the query result
-        if not errors:
+        if isinstance(recs, list):
             result = [rec[0] for rec in recs]
 
     return result

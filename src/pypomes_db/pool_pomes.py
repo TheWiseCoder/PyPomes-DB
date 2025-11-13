@@ -182,7 +182,7 @@ class DbConnectionPool:
         :param pool_timeout: number of seconds to wait for an available connection before failing
         :param pool_recycle: number of seconds after which connections in the pool are closed and reopened
         :param pool_verify: ensures the connection is still active and healthy before it is checked out
-        :param errors: incidental error messages
+        :param errors: incidental error messages (might be a non-empty list)
         :param logger: optional logger
         """
         # make sure a configured databasee engine has been specified
@@ -251,20 +251,22 @@ class DbConnectionPool:
         Obtain a pooled connection.
 
         :param start: start of operation
-        :param errors: incidental error messages
+        :param errors: incidental error messages (might be a non-empty list)
         :param logger: optional logger
         :return: a connection from the pool, or *None* if error
         """
         # initialize the return variable
         result: Any = None
 
-        if not isinstance(errors, list):
-            errors = []
+        # required, lest the state of 'errors' be tested
+        curr_errors: list[str] = []
+
+        # make sure to have a start timestamp
         if not isinstance(start, float):
             start = datetime.now(tz=UTC).timestamp()
 
         with self.stage_lock:
-            while not errors and not result:
+            while not curr_errors and not result:
                 reclaimed: bool = False
                 # traverse the connection data in reverse order
                 for i in range(len(self.conn_data) - 1, -1, -1):
@@ -349,24 +351,24 @@ class DbConnectionPool:
                             case DbEngine.MYSQL:
                                 from . import mysql_pomes
                                 conn = mysql_pomes.connect(autocommit=False,
-                                                           errors=errors,
+                                                           errors=curr_errors,
                                                            logger=logger)
                             case DbEngine.ORACLE:
                                 from . import oracle_pomes
                                 conn = oracle_pomes.connect(autocommit=False,
-                                                            errors=errors,
+                                                            errors=curr_errors,
                                                             logger=logger)
                             case DbEngine.POSTGRES:
                                 from . import postgres_pomes
                                 conn = postgres_pomes.connect(autocommit=False,
-                                                              errors=errors,
+                                                              errors=curr_errors,
                                                               logger=logger)
                             case DbEngine.SQLSERVER:
                                 from . import sqlserver_pomes
                                 conn = sqlserver_pomes.connect(autocommit=False,
-                                                               errors=errors,
+                                                               errors=curr_errors,
                                                                logger=logger)
-                        if not errors:
+                        if not curr_errors:
                             self.__act_on_event(event=DbPoolEvent.CREATE,
                                                 conn=conn,
                                                 logger=logger)
@@ -383,7 +385,7 @@ class DbConnectionPool:
                     else:
                         # connection pool is at capacity
                         break
-        if not errors:
+        if not curr_errors:
             if result:
                 # connection retrieved
                 self.__act_on_event(event=DbPoolEvent.CHECKOUT,
@@ -396,10 +398,13 @@ class DbConnectionPool:
                 # no connection retrieved, there is still time to retry
                 sleep(1.5)
                 result = self.connect(start=start,
-                                      errors=errors,
+                                      errors=curr_errors,
                                       logger=logger)
             else:
-                errors.append("Timeout waiting for available connection")
+                curr_errors.append("Timeout waiting for available connection")
+
+        if curr_errors and isinstance(errors, list):
+            errors.extend(curr_errors)
 
         return result
 
@@ -534,13 +539,10 @@ class DbConnectionPool:
                                         connection=conn,
                                         errors=errors,
                                         logger=logger)
-                    if logger:
+                    if logger and not errors:
                         msg: str = (f"Event '{event}' on {self.db_engine}, "
                                     f"connection {id(conn)}: '{stmt}' executed")
-                        if errors:
-                            logger.error(msg=f"{msg}, errors {'; '.join(errors)}")
-                        else:
-                            logger.debug(msg=msg)
+                        logger.debug(msg=msg)
 
 
 def db_get_pool(engine: DbEngine = None) -> DbConnectionPool | None:

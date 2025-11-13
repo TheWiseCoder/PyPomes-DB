@@ -47,24 +47,25 @@ def db_stream_data(table: str,
     :param limit_count: maximum number of tuples to migrate (defaults to no limit)
     :param batch_size_in: maximum number of tuples to read in each batch (defaults to no limit)
     :param batch_size_out: maximum number of tuples to stream in each batch (defaults to no limit)
-    :param errors: incidental error messages
+    :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
     :return: the number of tuples effectively streamed, or *None* if error
     """
     # initialize the return variable
     result: int | None = 0
 
+    # necessary, lest the state of 'errors' be tested
+    curr_errors: list[str] = []
+
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
-                            errors=errors)
+                            errors=curr_errors)
 
     # make sure to have a connection to the source database
     curr_conn: Any = connection or db_connect(engine=engine,
-                                              errors=errors,
+                                              errors=curr_errors,
                                               logger=logger)
-    if not errors:
+    if not curr_errors:
         # normalize these parameters
         offset_count = __normalize_value(value=offset_count)
         limit_count = __normalize_value(value=limit_count)
@@ -184,12 +185,16 @@ def db_stream_data(table: str,
 
         # log the streaming finish
         if err_msg:
-            errors.append(err_msg)
+            curr_errors.append(err_msg)
             if logger:
                 logger.error(msg=err_msg)
-        elif not errors and logger:
+        elif not curr_errors and logger:
             logger.debug(msg=f"Finished streaming {row_count} tuples "
                              f"from {engine}.{table}, connection {id(curr_conn)}")
+
+    if curr_errors and isinstance(errors, list):
+        errors.extend(curr_errors)
+
     return result
 
 
@@ -247,17 +252,18 @@ def db_stream_lobs(table: str,
     :param logger: optional logger
     :param log_trigger: number of tuples to trigger logging info on migration (defaults to 10000 tuples)
     """
+    # necessary, lest the state of 'errors' be tested
+    curr_errors: list[str] = []
+
     # assert the database engine
-    if not isinstance(errors, list):
-        errors = []
     engine = _assert_engine(engine=engine,
-                            errors=errors)
+                            errors=curr_errors)
 
     # make sure to have a connection to the source database
     curr_conn: Any = connection or db_connect(engine=engine,
-                                              errors=errors,
+                                              errors=curr_errors,
                                               logger=logger)
-    if not errors:
+    if not curr_errors:
         # normalize these parameters
         offset_count = __normalize_value(value=offset_count)
         limit_count = __normalize_value(value=limit_count)
@@ -433,10 +439,10 @@ def db_stream_lobs(table: str,
                          logger=logger)
         # log the finish
         if err_msg:
-            errors.append(err_msg)
+            curr_errors.append(err_msg)
             if logger:
                 logger.error(msg=err_msg)
-        elif not errors and logger:
+        elif not curr_errors and logger:
             finish_count: float = time.time()
             mins = (finish_count - start_count) / 60
             duration: str = timestamp_duration(start=start_count,
@@ -446,6 +452,9 @@ def db_stream_lobs(table: str,
                              f"{byte_count/(mins * 1024 ** 2):.2f} MBytes/min), "
                              f"from {engine}.{table}.{lob_column}, "
                              f"offset {offset_count}, connection {id(curr_conn)}")
+
+    if curr_errors and isinstance(errors, list):
+        errors.extend(curr_errors)
 
 
 def __normalize_value(value: int) -> int:

@@ -67,7 +67,8 @@ def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
 
     The preferred way to specify database connection parameters is dynamically with *db_setup()*;.
     Specifying database connection parameters with environment variables can be done in two ways:
-      - 1. for a single database engine, specify the set
+
+    1. for a single database engine, specify the data set
           - *<APP_PREFIX>_DB_ENGINE* (one of *mysql*, *oracle*, *postgres*, *sqlserver*)
           - *<APP_PREFIX>_DB_NAME*
           - *<APP_PREFIX>_DB_USER*
@@ -76,15 +77,17 @@ def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
           - *<APP_PREFIX>_DB_PORT*
           - *<APP_PREFIX>_DB_CLIENT*  (for Oracle)
           - *<APP_PREFIX>_DB_DRIVER*  (for SQLServer)
-      - 2. for multiple database engines, specify a comma-separated list of engines in
-           *<APP_PREFIX>_DB_ENGINES*, and for each engine, specify the set above, respectively replacing
-           *_DB_* with *_MSQL_*, *_ORCL_*, *_PG_*, or *_SQLS_*, for the engines listed above
 
-    All required parameters mus be provided for the selected database engines, as there are no defaults.
+    2. for multiple database engines, specify a comma-separated list of engines in
+       *<APP_PREFIX>_DB_ENGINES*, and for each engine, specify the data set above,
+       respectively replacing *_DB_* with *_MSQL_*, *_ORCL_*, *_PG_*, or *_SQLS_*,
+       for the engines listed above
 
-    :return: the connection data for the selected database engines
+    All required parameters must be provided for the selected database engines, as there are no defaults.
+
+    :return: the connection data for the select database engines
     """
-    # initialize the return valiable
+    # initialize the return variable
     result: dict[DbEngine, dict[DbParam, Any]] = {}
 
     engines: list[DbEngine] = []
@@ -129,7 +132,7 @@ _DB_CONN_DATA: Final[dict[DbEngine, dict[DbParam, Any]]] = __get_conn_data()
 
 
 def _assert_engine(engine: DbEngine,
-                   errors: list[str] = None) -> DbEngine:
+                   errors: list[str] = None) -> DbEngine | None:
     """
     Verify if *engine* is in the list of configured engines.
 
@@ -138,7 +141,7 @@ def _assert_engine(engine: DbEngine,
 
     :param engine: the reference database engine
     :param errors: incidental errors
-    :return: the validated or default engine
+    :return: the validated or the default engine, or *None* if error
     """
     # initialize the return valiable
     result: DbEngine | None = None
@@ -228,9 +231,11 @@ def _get_params(engine: DbEngine) -> dict[DbParam, Any]:
     return _DB_CONN_DATA.get(engine)
 
 
+# HAZARD: due to buggy PyCharm type checking, optional 'None' is added to type of parameter 'engine',
+#         to prevent having to annotate all invocations of '_exc_msg' with 'noinspection PyTypeChecker'
 def _except_msg(exception: Exception,
                 connection: Any | None,
-                engine: DbEngine) -> str:
+                engine: DbEngine | None) -> str:
     """
     Format and return the error message corresponding to the exception raised while accessing the database.
 
