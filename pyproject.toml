@@ -19,7 +19,7 @@ classifiers = [
     "Operating System :: OS Independent"
 ]
 dependencies = [
-    "pypomes_core>=2.8.6",
+    "pypomes_core>=2.8.7",
 #   "mysql-connector-python>=9.5.0"
 #   "oracledb>=3.4.1"
 #   "psycopg2-binary>=2.9.11"

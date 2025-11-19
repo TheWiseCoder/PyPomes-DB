@@ -9,7 +9,7 @@ from pypomes_core import (
 from sys import getrefcount
 from time import sleep
 from threading import Lock
-from typing import Any, Final
+from typing import Any, Callable, Final
 
 from .db_common import DbEngine, _assert_engine
 
@@ -217,7 +217,7 @@ class DbConnectionPool:
                 self.stage_lock: Final[Lock] = Lock()
                 self.event_lock: Final[Lock] = Lock()
 
-                self.event_callbacks: Final[dict[DbPoolEvent, callable]] = {
+                self.event_callbacks: Final[dict[DbPoolEvent, Callable | None]] = {
                     DbPoolEvent.CREATE: None,
                     DbPoolEvent.CHECKOUT: None,
                     DbPoolEvent.CHECKIN: None,
@@ -410,7 +410,7 @@ class DbConnectionPool:
 
     def on_event_actions(self,
                          event: DbPoolEvent,
-                         callback: callable = None,
+                         callback: Callable = None,
                          stmts: list[str] = None) -> None:
         """
         Specify a callback function to be invoked, and/or SQL commands to be executed, when *event* occurs.
@@ -522,7 +522,7 @@ class DbConnectionPool:
         """
         with self.event_lock:
             # invoke the callback
-            callback: callable = self.event_callbacks[event]
+            callback: Callable = self.event_callbacks[event]
             if callback:
                 callback(conn,
                          logger)
