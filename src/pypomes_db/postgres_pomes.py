@@ -167,7 +167,7 @@ def select(sel_stmt: str,
     :return: list of tuples containing the search result, *[]* on empty search, or *None* if error
     """
     # initialize the return variable
-    result: list[tuple] = []
+    result: list[tuple] | None = None
 
     # make sure to have an errors list
     if not isinstance(errors, list):

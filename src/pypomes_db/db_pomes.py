@@ -2,10 +2,10 @@ import sys
 from logging import Logger
 from pathlib import Path
 from pypomes_core import exc_format, str_is_float, str_sanitize
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Literal
 
 from .db_common import (
-    DB_BIND_META_TAG, _DB_CONN_DATA, _BUILTIN_FUNCTIONS, DbEngine, DbParam,
+    _DB_CONN_DATA, _BUILTIN_FUNCTIONS, DB_BIND_META_TAG, DbEngine, DbParam,
     _assert_engine, _get_param, _bind_columns, _bind_marks,
     _combine_insert_data, _combine_update_data, _combine_search_data
 )
@@ -42,7 +42,7 @@ def db_setup(engine: DbEngine,
     result: bool = False
 
     # are the parameters compliant ?
-    if engine in DbEngine and \
+    if engine in DbEngine and engine != DbEngine.SPANNER and \
        db_name and db_user and db_pwd and db_host and \
        not (engine != DbEngine.ORACLE and db_client) and \
        not (engine != DbEngine.SQLSERVER and db_driver) and \
@@ -73,14 +73,14 @@ def db_assert_access(engine: DbEngine = None,
     Determine whether the *engine*'s current configuration allows for connections.
 
     This function should be invoked once, at application's initialization time. This is necessary
-    to make sure connections are obtainable with the parameters specified, to establish the version
+    to make sure connections are obtainable with the provided parameters, to establish the version
     of the database engine in use, and, if applicable in the case of *Oracle*, to initialize access
     to its client library.
 
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
-    :return: *True* if the connection attempt succeeded, *False* otherwise
+    :return: *True* if the access attempt succeeded, *False* otherwise
     """
     # initialize the return variable
     result: bool = False
@@ -88,7 +88,12 @@ def db_assert_access(engine: DbEngine = None,
     # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=errors)
-    if engine:
+    if engine == DbEngine.SPANNER:
+        from .spanner_pomes import GoogleSpanner
+        spanner: GoogleSpanner = _DB_CONN_DATA[engine].get(DbParam.ENGINE)
+        spanner.assert_access(errors=errors,
+                              logger=logger)
+    elif engine:
         # determine if access to 'engine' has been asserted
         version: str = _DB_CONN_DATA[engine].get(DbParam.VERSION)
         if version:
@@ -432,29 +437,29 @@ def db_connect(autocommit: bool = False,
     # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=curr_errors)
-    # attempt to obtain a connection from the pool
     if engine:
+        # attempt to obtain a connection from the pool
         result: Any = db_pool_acquire(engine=engine,
                                       logger=logger)
-    if not result:
-        # connect to the database
-        if engine == DbEngine.MYSQL:
-            pass
-        elif engine == DbEngine.ORACLE:
-            from . import oracle_pomes
-            result = oracle_pomes.connect(autocommit=autocommit,
-                                          errors=curr_errors,
-                                          logger=logger)
-        elif engine == DbEngine.POSTGRES:
-            from . import postgres_pomes
-            result = postgres_pomes.connect(autocommit=autocommit,
-                                            errors=curr_errors,
-                                            logger=logger)
-        elif engine == DbEngine.SQLSERVER:
-            from . import sqlserver_pomes
-            result = sqlserver_pomes.connect(autocommit=autocommit,
-                                             errors=curr_errors,
-                                             logger=logger)
+        if not result:
+            # connect to the database
+            if engine == DbEngine.MYSQL:
+                pass
+            elif engine == DbEngine.ORACLE:
+                from . import oracle_pomes
+                result = oracle_pomes.connect(autocommit=autocommit,
+                                              errors=curr_errors,
+                                              logger=logger)
+            elif engine == DbEngine.POSTGRES:
+                from . import postgres_pomes
+                result = postgres_pomes.connect(autocommit=autocommit,
+                                                errors=curr_errors,
+                                                logger=logger)
+            elif engine == DbEngine.SQLSERVER:
+                from . import sqlserver_pomes
+                result = sqlserver_pomes.connect(autocommit=autocommit,
+                                                 errors=curr_errors,
+                                                 logger=logger)
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)
 
@@ -536,21 +541,34 @@ def db_count(table: str,
              count_clause: str = None,
              where_clause: str = None,
              where_vals: tuple = None,
-             where_data: dict[str, Any] = None,
+             where_data: dict[str | tuple |
+                              tuple[str,
+                                    Literal["=", ">", "<", ">=", "<=",
+                                            "<>", "in", "like", "between"] | None,
+                                    Literal["and", "or"] | None], Any] = None,
              engine: DbEngine = None,
              connection: Any = None,
              committable: bool = None,
              errors: list[str] = None,
              logger: Logger = None) -> int | None:
     """
-    Obtain and return the number of tuples in *table* meeting the criteria defined in *where_data*.
+    Obtain and return the number of tuples in *table*, meeting the criteria provided.
 
-    Optionally, selection criteria may be specified in *where_clause*, or additionally by
-    key-value pairs in *where_data*, which would be concatenated by the *AND* logical connector.
-    Care should be exercised if *where_clause* contains *IN* directives. In PostgreSQL, the list of values
-    for an attribute with the *IN* directive must be contained in a specific tuple, and the operation will
-    break for a list of values containing only 1 element. The safe way to specify *IN* directives is
-    to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
+    Optionally, selection criteria may be specified in *where_clause* and *where_vals*, or additionally but
+    preferably, by key-value pairs in *where_data*. Care should be exercised if *where_clause* contains *IN*
+    directives. In PostgreSQL, the list of values for an attribute with the *IN* directive must be contained
+    in a specific tuple, and the operation will break for a list of values containing only 1 element.
+    The safe way to specify *IN* directives is to add them to *where_data*, as the specifics of each DB flavor
+    will then be properly dealt with.
+
+    The syntax specific to *where_data*'s key/value pairs is as follows:
+        1. *key*:
+            - an attribute (possibly aliased), or
+            - a 2/3-tuple with an attribute and the corresponding SQL comparison operation
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), followed
+              by a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
+        2. *value*:
+            - a scalar, or a list, or an expression possibly containing other attribute(s)
 
     The target database engine, specified or default, must have been previously configured.
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
@@ -594,7 +612,11 @@ def db_count(table: str,
 def db_exists(table: str,
               where_clause: str = None,
               where_vals: tuple = None,
-              where_data: dict[str, Any] = None,
+              where_data: dict[str | tuple |
+                               tuple[str,
+                                     Literal["=", ">", "<", ">=", "<=",
+                                             "<>", "in", "like", "between"] | None,
+                                     Literal["and", "or"] | None], Any] = None,
               min_count: int = None,
               max_count: int = None,
               engine: DbEngine = None,
@@ -603,14 +625,23 @@ def db_exists(table: str,
               errors: list[str] = None,
               logger: Logger = None) -> bool | None:
     """
-    Determine whether at least one tuple in *table* meets the criteria defined in *where_data*.
+    Determine whether at least one tuple in *table* meets the criteria provided.
 
-    Optionally, selection criteria may be specified in *where_clause*, or additionally by
-    key-value pairs in *where_data*, which would be concatenated by the *AND* logical connector.
-    Care should be exercised if *where_clause* contains *IN* directives. In PostgreSQL, the list of values
-    for an attribute with the *IN* directive must be contained in a specific tuple, and the operation will
-    break for a list of values containing only 1 element. The safe way to specify *IN* directives is
-    to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
+    Optionally, selection criteria may be specified in *where_clause* and *where_vals*, or additionally but
+    preferably, by key-value pairs in *where_data*. Care should be exercised if *where_clause* contains *IN*
+    directives. In PostgreSQL, the list of values for an attribute with the *IN* directive must be contained
+    in a specific tuple, and the operation will break for a list of values containing only 1 element.
+    The safe way to specify *IN* directives is to add them to *where_data*, as the specifics of each DB flavor
+    will then be properly dealt with.
+
+    The syntax specific to *where_data*'s key/value pairs is as follows:
+        1. *key*:
+            - an attribute (possibly aliased), or
+            - a 2/3-tuple with an attribute and the corresponding SQL comparison operation
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), followed
+              by a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
+        2. *value*:
+            - a scalar, or a list, or an expression possibly containing other attribute(s)
 
     If not positive integers, *min_count* and *max_count* are ignored. If both *min_count* and *max_count*
     are specified with equal values, then exactly that number of tuples must exist.  If neither one is
@@ -660,7 +691,11 @@ def db_exists(table: str,
 def db_select(sel_stmt: str,
               where_clause: str = None,
               where_vals: tuple = None,
-              where_data: dict[str, Any] = None,
+              where_data: dict[str | tuple |
+                               tuple[str,
+                                     Literal["=", ">", "<", ">=", "<=",
+                                             "<>", "in", "like", "between"] | None,
+                                     Literal["and", "or"] | None], Any] = None,
               orderby_clause: str = None,
               min_count: int = None,
               max_count: int = None,
@@ -672,14 +707,23 @@ def db_select(sel_stmt: str,
               errors: list[str] = None,
               logger: Logger = None) -> list[tuple] | None:
     """
-    Query the database and return all tuples that satisfy the *sel_stmt* command.
+    Query the database and return all tuples that satisfy the criteria provided.
 
-    Optionally, selection criteria may be specified in *where_clause* and *where_vals*, or additionally by
-    key-value pairs in *where_data*, which would be concatenated by the *AND* logical connector.
-    Care should be exercised if *where_clause* contains *IN* directives. In PostgreSQL, the list of values
-    for an attribute with the *IN* directive must be contained in a specific tuple, and the operation will
-    break for a list of values containing only 1 element. The safe way to specify *IN* directives is
-    to put them in *where_data*, as the specifics of each DB flavor will then be properly dealt with.
+    Optionally, selection criteria may be specified in *where_clause* and *where_vals*, or additionally but
+    preferably, by key-value pairs in *where_data*. Care should be exercised if *where_clause* contains *IN*
+    directives. In PostgreSQL, the list of values for an attribute with the *IN* directive must be contained
+    in a specific tuple, and the operation will break for a list of values containing only 1 element.
+    The safe way to specify *IN* directives is to add them to *where_data*, as the specifics of each DB flavor
+    will then be properly dealt with.
+
+    The syntax specific to *where_data*'s key/value pairs is as follows:
+        1. *key*:
+            - an attribute (possibly aliased), or
+            - a 2/3-tuple with an attribute and the corresponding SQL comparison operation
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), followed
+              by a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
+        2. *value*:
+            - a scalar, or a list, or an expression possibly containing other attribute(s)
 
     If not positive integers, *min_count*, *max_count*, *offset_count*, and *limit_count* are ignored.
     If both *min_count* and *max_count* are specified with equal values, then exactly that number of
@@ -795,7 +839,7 @@ def db_insert(insert_stmt: str,
               errors: list[str] = None,
               logger: Logger = None) -> tuple | int | None:
     """
-    Insert a tuple, with values defined in *insert_vals*, and *insert_data*, into the database.
+    Insert a tuple, with values defined in *insert_vals* and *insert_data*, into the database.
 
     The optional *return_cols* indicate that the values of the columns therein should be returned.
     This is useful to retrieve values from identity columns (that is, columns whose values at insert time
@@ -836,7 +880,11 @@ def db_update(update_stmt: str,
               update_data: dict[str, Any] = None,
               where_clause: str = None,
               where_vals: tuple = None,
-              where_data: dict[str, Any] = None,
+              where_data: dict[str | tuple |
+                               tuple[str,
+                                     Literal["=", ">", "<", ">=", "<=",
+                                             "<>", "in", "like", "between"] | None,
+                                     Literal["and", "or"] | None], Any] = None,
               return_cols: dict[str, type] = None,
               min_count: int = None,
               max_count: int = None,
@@ -848,13 +896,21 @@ def db_update(update_stmt: str,
     """
     Update one or more tuples in the database, as defined by the command *update_stmt*.
 
-    The values for this update are in *update_vals*, and/or specified by key-value pairs in *update_data*.
-    The values for selecting the tuples to be updated are in *where_vals*, and/or additionally specified
-    by key-value pairs in *where_data*.
-    Care should be exercised if *where_clause* contains *IN* directives. In PostgreSQL, the list of values
-    for an attribute with the *IN* directive must be contained in a specific tuple, and the operation will
-    break for a list of values containing only 1 element. The safe way to specify *IN* directives is
-    to add them to *where_data*, as the specifics of each DB flavor will then be properly dealt with.
+    Optionally, selection criteria may be specified in *where_clause* and *where_vals*, or additionally but
+    preferably, by key-value pairs in *where_data*. Care should be exercised if *where_clause* contains *IN*
+    directives. In PostgreSQL, the list of values for an attribute with the *IN* directive must be contained
+    in a specific tuple, and the operation will break for a list of values containing only 1 element.
+    The safe way to specify *IN* directives is to add them to *where_data*, as the specifics of each DB flavor
+    will then be properly dealt with.
+
+    The syntax specific to *where_data*'s key/value pairs is as follows:
+        1. *key*:
+            - an attribute (possibly aliased), or
+            - a 2/3-tuple with an attribute and the corresponding SQL comparison operation
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), followed
+              by a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
+        2. *value*:
+            - a scalar, or a list, or an expression possibly containing other attribute(s)
 
     The optional *return_cols* indicate that the values of the columns therein should be returned.
     The target database engine, specified or default,  must have been previously configured.
@@ -915,7 +971,11 @@ def db_update(update_stmt: str,
 def db_delete(delete_stmt: str,
               where_clause: str = None,
               where_vals: tuple = None,
-              where_data: dict[str, Any] = None,
+              where_data: dict[str | tuple |
+                               tuple[str,
+                                     Literal["=", ">", "<", ">=", "<=",
+                                             "<>", "in", "like", "between"] | None,
+                                     Literal["and", "or"] | None], Any] = None,
               min_count: int = None,
               max_count: int = None,
               engine: DbEngine = None,
@@ -926,12 +986,21 @@ def db_delete(delete_stmt: str,
     """
     Delete one or more tuples in the database, as defined by the *delete_stmt* command.
 
-    The values for selecting the tuples to be deleted are in *where_vals*, and/or additionally specified
-    by key-value pairs in *where_data*. Care should be exercised if *where_clause* contains *IN* directives.
-    In PostgreSQL, the list of values for an attribute with the *IN* directive must be contained in a
-    specific tuple, and the operation will break for a list of values containing only 1 element.
-    The safe way to specify *IN* directives is to add them to *where_data*, as the specifics of each
-    DB flavor will then be properly dealt with.
+    Delete criteria may be specified in *where_clause* and *where_vals*, or additionally but preferably,
+    by key-value pairs in *where_data*. Care should be exercised if *where_clause* contains *IN*
+    directives. In PostgreSQL, the list of values for an attribute with the *IN* directive must be contained
+    in a specific tuple, and the operation will break for a list of values containing only 1 element.
+    The safe way to specify *IN* directives is to add them to *where_data*, as the specifics of each DB flavor
+    will then be properly dealt with.
+
+    The syntax specific to *where_data*'s key/value pairs is as follows:
+        1. *key*:
+            - an attribute (possibly aliased), or
+            - a 2/3-tuple with an attribute and the corresponding SQL comparison operation
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), followed
+              by a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
+        2. *value*:
+            - a scalar, or a list, or an expression possibly containing other attribute(s)
 
     If not positive integers, *min_count*, *max_count*, *offset_count*, and *limit_count* are ignored.
     If both *min_count* and *max_count* are specified with equal values, then exactly that number of

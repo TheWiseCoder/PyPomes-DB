@@ -175,7 +175,7 @@ def select(sel_stmt: str,
     :return: list of tuples containing the search result, *[]* on empty search, or *None* if error
     """
     # initialize the return variable
-    result: list[tuple] | None = []
+    result: list[tuple] | None = None
 
     # make sure to have an errors list
     if not isinstance(errors, list):
@@ -254,7 +254,6 @@ def select(sel_stmt: str,
                 logger.error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
-            result = None
         finally:
             # close the connection, if locally acquired
             if curr_conn and not conn:

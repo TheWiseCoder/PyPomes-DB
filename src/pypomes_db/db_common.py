@@ -5,7 +5,7 @@ from pypomes_core import (
     env_get_enum, env_get_enums, env_get_path
 )
 from enum import StrEnum, auto
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 
 class DbEngine(StrEnum):
@@ -16,11 +16,12 @@ class DbEngine(StrEnum):
     ORACLE = auto()
     POSTGRES = auto()
     SQLSERVER = auto()
+    SPANNER = auto()
 
 
 class DbParam(StrEnum):
     """
-    Parameters for connecting to database engines.
+    Parameters for connecting to database engines. Does not apply to Google Cloud Spanner.
     """
     ENGINE = auto()
     NAME = auto()
@@ -65,8 +66,10 @@ def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
     """
     Establish the connection data for select database engines, from environment variables.
 
-    The preferred way to specify database connection parameters is dynamically with *db_setup()*;.
-    Specifying database connection parameters with environment variables can be done in two ways:
+    The preferred way to specify database connection parameters is dynamically with *GoogleSpanner.setup()*
+    (for Google Cloud Spanner), or *db_setup()* (for the other database engines).
+    Specifying database connection parameters with environment variables cannot be done for Google Cloud Spanner.
+    For the other database engines, it can be done in two ways:
 
     1. for a single database engine, specify the data set
           - *<APP_PREFIX>_DB_ENGINE* (one of *mysql*, *oracle*, *postgres*, *sqlserver*)
@@ -95,7 +98,8 @@ def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
                                            enum_class=DbEngine)
     if single_engine:
         default_setup: bool = True
-        engines.append(single_engine)
+        if single_engine != DbEngine.SPANNER:
+            engines.append(single_engine)
     else:
         default_setup: bool = False
         multi_engines: list[DbEngine] = env_get_enums(key=f"{APP_PREFIX}_DB_ENGINES",
@@ -112,6 +116,7 @@ def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
                                          keys=tuple(DbEngine),
                                          values=("MSQL", "ORCL", "PG", "SQLS"))
         result[engine] = {
+            DbParam.ENGINE: engine.value,
             DbParam.NAME: env_get_str(key=f"{APP_PREFIX}_{prefix}_NAME"),
             DbParam.USER: env_get_str(key=f"{APP_PREFIX}_{prefix}_USER"),
             DbParam.PWD: env_get_str(key=f"{APP_PREFIX}_{prefix}_PWD"),
@@ -344,29 +349,41 @@ def _bind_marks(engine: DbEngine,
 def _combine_search_data(query_stmt: str,
                          where_clause: str,
                          where_vals: tuple,
-                         where_data: dict[str, Any],
+                         where_data: dict[str |
+                                          tuple[str,
+                                                Literal["=", ">", "<", ">=", "<=",
+                                                        "<>", "in", "like", "between"] | None,
+                                                Literal["and", "or"] | None], Any] | None,
                          orderby_clause: str | None,
                          engine: DbEngine) -> tuple[str, tuple]:
     """
     Rebuild the query statement *query_stmt* and the list of bind values *where_vals*.
 
     This is done by adding to them the search criteria specified by the key-value pairs in *where_data*.
+    The syntax specific to *where_data*'s key/value pairs is as follows:
+        1. *key*:
+            - an attribute (possibly aliased), or
+            - a 2/3-tuple with an attribute and the corresponding SQL comparison operation
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), followed
+              by a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
+        2. *value*:
+            - a scalar, or a list, or an expression possibly containing other attribute(s)
 
     :param query_stmt: the query statement to add to
     :param where_clause: optional criteria for tuple selection (ignored if *query_stmt* contains a *WHERE* clause)
     :param where_vals: the bind values list to add to
     :param where_data: the search criteria specified as key-value pairs
-    :param orderby_clause: optional retrieval order (ignored if *query_stmt* contains a *ORDER BY* clause)
+    :param orderby_clause: optional retrieval order (ignored if *query_stmt* contains an *ORDER BY* clause)
     :param engine: the reference database engine
     :return: the modified query statement and bind values list
     """
     # use 'WHERE' as found in 'stmt' (defaults to 'WHERE')
     pos: int = query_stmt.lower().find(" where ")
     if pos > 0:
-        where: str = query_stmt[pos + 1:pos + 6]
+        where_tag: str = query_stmt[pos + 1:pos + 6]
         where_clause = None
     else:
-        where = "WHERE"
+        where_tag = "WHERE"
 
     # extract 'ORDER BY' clause
     pos = query_stmt.lower().find(" order by ")
@@ -385,7 +402,7 @@ def _combine_search_data(query_stmt: str,
 
     # add 'WHERE' clause
     if where_clause:
-        query_stmt += f" {where} {where_clause}"
+        query_stmt += f" {where_tag} {where_clause}"
 
     # process the search parameters
     if where_data:
@@ -394,28 +411,64 @@ def _combine_search_data(query_stmt: str,
         else:
             where_vals = []
 
-        if where in query_stmt:
-            query_stmt = query_stmt.replace(f"{where} ", f"{where} (") + ") AND "
+        if where_tag in query_stmt:
+            query_stmt = query_stmt.replace(f"{where_tag} ", f"{where_tag} (") + ") AND "
         else:
-            query_stmt += f" {where} "
+            query_stmt += f" {where_tag} "
 
-        # process key-value pairs
+        # process key/value pairs in 'where_data'
         for key, value in where_data.items():
+
+            # set comparison and logical operators to their defaults
+            op: str = "="
+            con: str = "AND"
+
+            # normalize 'key', 'value', 'op', 'con'
+            if isinstance(key, list | tuple):
+                # make sure 'key' is a list
+                key = list(key)
+                if len(key) > 1 and key[-1] in ["and", "or"]:
+                    # extract logical operator from 'value'
+                    con = key[-1].upper()
+                    key = key[:-1]
+                if len(key) > 1 and key[-1] in ["=", ">", "<", ">=", "<=", "<>", "in", "like", "between"]:
+                    # set comparison operator
+                    op = key[1].upper()
+                # revert 'key' to scalar
+                key = key[0]
             if isinstance(value, list | tuple):
-                if len(value) == 1:
-                    where_vals.append(value[0])
-                    query_stmt += f"{key} = {DB_BIND_META_TAG} AND "
-                elif engine == DbEngine.POSTGRES:
+                # make sure 'value' is a list
+                value = list(value)
+                if len(value) < 2:
+                    # revert 'value' to scalar (breaks if 'value' is an empty list)
+                    value = value[0]
+                elif op == "=":
+                    # implicit IN operator
+                    op = "IN"
+            if op in ["BETWEEN", "IN"] and not isinstance(value, list):
+                # revert 'op' to simple equality
+                op = "="
+
+            # process the selection criteria
+            if op == "BETWEEN":
+                query_stmt += f"({key} BETWEEN {DB_BIND_META_TAG} AND {DB_BIND_META_TAG}) {con} "
+                where_vals.append(value[0])
+                where_vals.append(value[1])
+            elif op == "IN":
+                if engine == DbEngine.POSTGRES:
+                    query_stmt += f"{key} IN {DB_BIND_META_TAG} {con} "
                     where_vals.append(tuple(value))
-                    query_stmt += f"{key} IN {DB_BIND_META_TAG} AND "
                 else:
-                    where_vals.extend(value)
                     query_stmt += f"{key} IN (" + f"{DB_BIND_META_TAG}, " * len(value)
-                    query_stmt = f"{query_stmt[:-2]}) AND "
+                    query_stmt = f"{query_stmt[:-2]}) {con} "
+                    where_vals.extend(value)
             else:
+                query_stmt += f"{key} {op} {DB_BIND_META_TAG} {con} "
                 where_vals.append(value)
-                query_stmt += f"{key} = {DB_BIND_META_TAG} AND "
-        query_stmt = query_stmt[:-5]
+
+        # remove the dangling logical operator
+        query_stmt = query_stmt[:-5] if query_stmt.endswith(" AND ") else query_stmt[:-4]
+
         # set 'WHERE' values back to tuple
         where_vals = tuple(where_vals)
 

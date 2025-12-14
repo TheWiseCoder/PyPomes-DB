@@ -1,4 +1,5 @@
 from __future__ import annotations  # allow forward references
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, UTC
 from enum import StrEnum, auto
@@ -9,7 +10,7 @@ from pypomes_core import (
 from sys import getrefcount
 from time import sleep
 from threading import Lock
-from typing import Any, Callable, Final
+from typing import Any, Final
 
 from .db_common import DbEngine, _assert_engine
 
@@ -139,7 +140,7 @@ class DbConnectionPool:
       - *pool_size*: maximum number of connections in the pool
       - *pool_timeout*: number of seconds to wait for a connection to become available, before failing the request
       - *pool_recycle*: number of seconds after which connections in the pool are closed
-      - *pool_verify*: ensures the connection is still active and healthy before it is checked out from the pool
+      - *pool_verify*: whether to ensure that the connection is still healthy before it is checked out from the pool
 
     These are the events that a pool client may hook up to, with a call to *on_event_actions()*, by
     specifying a callback function to be invoked, and/or SQL commands to be executed:
@@ -154,9 +155,14 @@ class DbConnectionPool:
     on *db_close()*. It is worth emphasizing that a *close()* operation should not be invoked directly
     on the native connection, as this would prevent it from being reclaimed, and cause it to be eventually
     discarded, thus defeating the very purpose of the pool.
+
+    Finally, this implementation does not appy to Goggle's *spanner* database engine, as in that case a
+    built-in connection pool is always handled under the hood, thus rendering this implementation as unnecessary.
     """
     def __init__(self,
                  engine: DbEngine = None,
+                 /,
+                 *,
                  pool_size: int = None,
                  pool_timeout: int = None,
                  pool_recycle: int = None,
@@ -166,10 +172,12 @@ class DbConnectionPool:
         """
         Construct a connection pool specific for the database provided in *engine*.
 
-        The database engine specified must have been previously configured. If not provided, the values
-        for pool configuration parameters specified in the environment variables suffixed with their
-        uppercase names (namely, *POOL_SIZE*, *POOL_TIMEOUT*, *POOL_RECYCLE*, and *POOL_VERIFY*) are used.
-        If still not specified, these are the default values used:
+        The database engine specified must have been previously configured. This pool implementation does not
+        apply to Google's *spanner* database engine, as it handles a built-in connection pool under the hood.
+
+        If not provided, the values for pool configuration parameters specified in the environment variables
+        suffixed with their uppercase names (namely, *POOL_SIZE*, *POOL_TIMEOUT*, *POOL_RECYCLE*,
+        and *POOL_VERIFY*) are used. If still not specified, these are the default values used:
           - *pool_size*: 40 connections
           - *pool_timeout*: 60 seconds
           - *pool_recycle*: 3600 seconds (60 minutos)
@@ -178,58 +186,67 @@ class DbConnectionPool:
         All instance attributes are final and should not be directly changed, lest the pool malfunction.
 
         :param engine: the database engine to use (uses the default engine, if not provided)
-        :param pool_size: number of connections to keep in the pool
+        :param pool_size: maximum number of connections to keep in the pool
         :param pool_timeout: number of seconds to wait for an available connection before failing
         :param pool_recycle: number of seconds after which connections in the pool are closed and reopened
-        :param pool_verify: ensures the connection is still active and healthy before it is checked out
+        :param pool_verify: whether to ensure that the connection is still healthy before it is checked out
         :param errors: incidental error messages (might be a non-empty list)
         :param logger: optional logger
         """
+        # declare the instance variables
+        self.db_engine: DbEngine
+        self.pool_size: int
+        self.pool_timeout: int
+        self.pool_recycle: int
+        self.pool_verify: bool
+        self.stage_lock: Lock
+        self.event_lock: Lock
+        self.event_callbacks: dict[DbPoolEvent, tuple[Callable[[Any, Logger], None], list[str]]]
+        self.conn_data: list[dict[_ConnStage, Any]]
+
         # make sure a configured databasee engine has been specified
-        engine = _assert_engine(engine=engine,
-                                errors=errors)
+        engine: DbEngine = _assert_engine(engine=engine,
+                                          errors=errors)
 
         # obtain the default values for the pool parameters
         pool_params: dict[_PoolParam, Any] | None = None
         if engine:
-            with _instances_lock:
-                if engine in _POOL_INSTANCES:
-                    msg: str = f"Attempt to create connection pool failed: {engine} pool already exists"
-                    if logger:
-                        logger.error(msg)
-                    if isinstance(errors, list):
-                        errors.append(msg)
-                else:
-                    pool_params = _POOL_PARAMS[engine]
+            msg: str | None = None
+            if engine == DbEngine.SPANNER:
+                msg = f"pool does not apply to {engine}"
+            else:
+                with _instances_lock:
+                    if engine in _POOL_INSTANCES:
+                        msg += f"{engine} pool already exists"
+                    else:
+                        pool_params = _POOL_PARAMS[engine]
+            if msg:
+                msg = "Attempt to create connection pool failed: " + msg
+                if logger:
+                    logger.error(msg)
+                if isinstance(errors, list):
+                    errors.append(msg)
 
         if pool_params:
             if not isinstance(pool_size, int):
                 pool_size = pool_params[_PoolParam.SIZE]
             if pool_size > 0:
-                self.db_engine: Final[DbEngine] = engine
-                self.pool_size: Final[int] = pool_size
-                self.pool_timeout: Final[int] = pool_timeout if isinstance(pool_timeout, int) \
-                    else pool_params[_PoolParam.TIMEOUT]
-                self.pool_recycle: Final[int] = pool_recycle if isinstance(pool_recycle, int) \
-                    else pool_params[_PoolParam.RECYCLE]
-                self.pool_verify: Final[bool] = pool_verify if isinstance(pool_verify, bool) \
-                    else pool_params[_PoolParam.VERIFY]
-                self.stage_lock: Final[Lock] = Lock()
-                self.event_lock: Final[Lock] = Lock()
+                self.db_engine = engine
+                self.pool_size = pool_size
+                self.pool_timeout = pool_timeout \
+                    if isinstance(pool_timeout, int) else pool_params[_PoolParam.TIMEOUT]
+                self.pool_recycle = pool_recycle \
+                    if isinstance(pool_recycle, int) else pool_params[_PoolParam.RECYCLE]
+                self.pool_verify = pool_verify \
+                    if isinstance(pool_verify, bool) else pool_params[_PoolParam.VERIFY]
+                self.stage_lock = Lock()
+                self.event_lock = Lock()
 
-                self.event_callbacks: Final[dict[DbPoolEvent, Callable | None]] = {
-                    DbPoolEvent.CREATE: None,
-                    DbPoolEvent.CHECKOUT: None,
-                    DbPoolEvent.CHECKIN: None,
-                    DbPoolEvent.CLOSE: None
-                }
-                self.event_stmts: Final[dict[DbPoolEvent, list[str]]] = {
-                    DbPoolEvent.CREATE: [],
-                    DbPoolEvent.CHECKOUT: [],
-                    DbPoolEvent.CHECKIN: [],
-                    DbPoolEvent.CLOSE: []
-                }
-                self.conn_data: Final[list[dict[_ConnStage, Any]]] = []
+                self.event_callbacks = {DbPoolEvent.CREATE: (None, []),
+                                        DbPoolEvent.CHECKOUT: (None, []),
+                                        DbPoolEvent.CHECKIN: (None, []),
+                                        DbPoolEvent.CLOSE: (None, [])}
+                self.conn_data = []
 
                 # register this instance
                 _POOL_INSTANCES[engine] = self
@@ -410,7 +427,7 @@ class DbConnectionPool:
 
     def on_event_actions(self,
                          event: DbPoolEvent,
-                         callback: Callable = None,
+                         callback: Callable[[Any, Logger], None] = None,
                          stmts: list[str] = None) -> None:
         """
         Specify a callback function to be invoked, and/or SQL commands to be executed, when *event* occurs.
@@ -440,10 +457,8 @@ class DbConnectionPool:
         :param stmts: optional list of SQL commands to be executed
         """
         with self.event_lock:
-            # register the event hook
-            self.event_callbacks[event] = callback
-            # register the SQL commands
-            self.event_stmts[event] = stmts
+            # register the event hook and the associated SQL commands
+            self.event_callbacks[event] = (callback, stmts)
 
     def reclaim(self,
                 conn: Any,
@@ -490,7 +505,6 @@ class DbConnectionPool:
 
         with self.event_lock:
             self.event_callbacks.clear()
-            self.event_stmts.clear()
 
         if logger:
             logger.debug(msg=f"{self.db_engine} pool terminated")
@@ -514,7 +528,7 @@ class DbConnectionPool:
               - *oracle.Connection* (oracledb)
               - *psycopg2._psycopg.connection* (psycopg2)
               - *pyodbc.connection* (pyodbc)
-          - the logger in use by the operation that raised the event, its type being *logging.Logger* (may be *None*)
+          - the logger in use by the operation that raised the event (may be *None*)
 
         :param event: the reference event
         :param conn: the reference connection
@@ -522,27 +536,29 @@ class DbConnectionPool:
         """
         with self.event_lock:
             # invoke the callback
-            callback: Callable = self.event_callbacks[event]
-            if callback:
-                callback(conn,
-                         logger)
+            # noinspection PyTypeChecker
+            event_callback: Callable[[Any, Logger], None] = self.event_callbacks[event][0]
+            if callable(event_callback):
+                # noinspection PyCallingNonCallable
+                event_callback(conn,
+                               logger)
                 if logger:
                     logger.debug(msg=f"Event '{event}' on {self.db_engine}, "
-                                     f"connection {id(conn)}: '{callback.__name__}' invoked")
+                                     f"connection {id(conn)}: '{event_callback.__name__}' invoked")
             # execute the statements
-            if self.event_stmts[event]:
-                from . import db_pomes
-                for stmt in self.event_stmts[event]:
-                    errors: list[str] = []
-                    db_pomes.db_execute(exc_stmt=stmt,
-                                        engine=self.db_engine,
-                                        connection=conn,
-                                        errors=errors,
-                                        logger=logger)
-                    if logger and not errors:
-                        msg: str = (f"Event '{event}' on {self.db_engine}, "
-                                    f"connection {id(conn)}: '{stmt}' executed")
-                        logger.debug(msg=msg)
+            stmts: list[str] = self.event_callbacks[event][1]
+            from . import db_pomes
+            for stmt in stmts:
+                errors: list[str] = []
+                db_pomes.db_execute(exc_stmt=stmt,
+                                    engine=self.db_engine,
+                                    connection=conn,
+                                    errors=errors,
+                                    logger=logger)
+                if logger and not errors:
+                    msg: str = (f"Event '{event}' on {self.db_engine}, "
+                                f"connection {id(conn)}: '{stmt}' executed")
+                    logger.debug(msg=msg)
 
 
 def db_get_pool(engine: DbEngine = None) -> DbConnectionPool | None:
