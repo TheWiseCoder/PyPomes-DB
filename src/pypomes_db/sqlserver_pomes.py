@@ -186,30 +186,11 @@ def select(sel_stmt: str,
                                             errors=errors,
                                             logger=logger)
     if not errors:
-        # establish offset and limit for query (TOP and OFFSET clauses cannot be used together)
-        if isinstance(offset_count, int) and offset_count > 0:
-            # establish an offset into the result set
-            sel_stmt += f" OFFSET {offset_count} ROWS"
-            if isinstance(limit_count, int) and limit_count > 0:
-                # establish a limit to the number of tuples returned
-                sel_stmt += f" FETCH NEXT {limit_count} ROWS ONLY"
-        elif isinstance(limit_count, int) and limit_count > 0:
-            # establish a limit to the number of tuples returned
-            if "SELECT DISTINCT " in sel_stmt:
-                # 1. to get the top N distinct rows:
-                #    'DISTINCT' is applied before the 'TOP' clause -
-                #    the top N rows are selected, and then duplicates are removed
-                # 2. to get the distinct rows first, and then pick the top N from that set:
-                #    a subquery has to be used -
-                #    SELECT TOP (N) *
-                #    FROM (
-                #        SELECT DISTINCT <coumns>
-                #        FROM <table
-                #    ) AS distinct_rows
-                #    ...
-                sel_stmt = sel_stmt.replace("SELECT DISTINCT ", f"SELECT DISTINCT TOP {limit_count} ", 1)
-            else:
-                sel_stmt = sel_stmt.replace("SELECT ", f"SELECT TOP {limit_count} ", 1)
+        # establish offset and limit
+        if offset_count or limit_count:
+            sel_stmt = add_query_limits(sel_stmt=sel_stmt,
+                                        offset_count=offset_count,
+                                        limit_count=limit_count)
         try:
             # obtain a cursor and execute the operation
             with curr_conn.cursor() as cursor:
@@ -554,6 +535,52 @@ def update_lob(lob_table: str,
             logger.error(msg=_build_query_msg(query_stmt=update_stmt,
                                               engine=DbEngine.SQLSERVER,
                                               bind_vals=pk_vals))
+
+
+def add_query_limits(sel_stmt: str,
+                     offset_count: int | None,
+                     limit_count: int | None) -> str:
+    """
+    Add offset and limit to *sel_stmt*.
+
+    If not positive integers, *offset_count*, and *limit_count* are ignored. The parameter *offset_count*
+    is used to offset the retrieval of tuples, whereas *limit_count* establishes a ceiling on the number
+    of tuples returned.
+
+    :param sel_stmt: the query statement to modify
+    :param offset_count: number of tuples to skip
+    :param limit_count: limit to the number of tuples returned
+    :return: the modified query statement
+    """
+    # initialize the return variable
+    result: str = sel_stmt
+
+    # establish offset and limit for query (TOP and OFFSET clauses cannot be used together)
+    if isinstance(offset_count, int) and offset_count > 0:
+        # establish an offset into the result set
+        result += f" OFFSET {offset_count} ROWS"
+        if isinstance(limit_count, int) and limit_count > 0:
+            # establish a limit to the number of tuples returned
+            result += f" FETCH NEXT {limit_count} ROWS ONLY"
+    elif isinstance(limit_count, int) and limit_count > 0:
+        # establish a limit to the number of tuples returned
+        if "SELECT DISTINCT " in result:
+            # 1. to get the top N distinct rows:
+            #    'DISTINCT' is applied before the 'TOP' clause -
+            #    the top N rows are selected, and then duplicates are removed
+            # 2. to get the distinct rows first, and then pick the top N from that set:
+            #    a subquery has to be used -
+            #    SELECT TOP (N) *
+            #    FROM (
+            #        SELECT DISTINCT <coumns>
+            #        FROM <table
+            #    ) AS distinct_rows
+            #    ...
+            result = result.replace("SELECT DISTINCT ", f"SELECT DISTINCT TOP {limit_count} ", 1)
+        else:
+            result = result.replace("SELECT ", f"SELECT TOP {limit_count} ", 1)
+
+    return result
 
 
 def call_procedure(proc_name: str,

@@ -109,8 +109,7 @@ def bind_arguments(stmt: str,
     result: str = stmt
 
     # bind the arguments
-    for i, bind_val in enumerate(iterable=bind_vals,
-                                 start=1):
+    for bind_val in bind_vals:
         val: str
         if isinstance(bind_val, bool):
             val = "1" if bind_val else "0"
@@ -122,7 +121,18 @@ def bind_arguments(stmt: str,
             val = f"TO_DATE('{bind_val.strftime(format=DatetimeFormat.INV)}', 'YYYY-MM-DD H24:MI:SS')"
         else:
             val = f"'{bind_val}'"
-        result = result.replace(f":{i}", val, 1)
+
+        # make sure there is a bind mark
+        if re.search(pattern=r":[1-9]\d*",
+                     string=result):
+            # bind to the lowest index
+            inx: int = 0
+            while result.find(f":{inx}") < 0:
+                inx += 1
+            result = result.replace(f":{inx}", val, 1)
+        else:
+            # no more bind marks
+            break
 
     return result
 
@@ -173,18 +183,11 @@ def select(sel_stmt: str,
                                             errors=errors,
                                             logger=logger)
     if not errors:
-        # establish an offset into the result set
-        if isinstance(offset_count, int) and offset_count > 0:
-            sel_stmt += f" OFFSET {offset_count} ROWS"
-
-        # establish a limit to the number of tuples returned
-        if isinstance(limit_count, int) and limit_count > 0:
-            if isinstance(offset_count, int) and offset_count > 0:
-                sel_stmt += " FETCH NEXT"
-            else:
-                sel_stmt += " FETCH FIRST"
-            sel_stmt += f" {limit_count} ROWS ONLY"
-
+        # establish offset and limit
+        if offset_count or limit_count:
+            sel_stmt = add_query_limits(sel_stmt=sel_stmt,
+                                        offset_count=offset_count,
+                                        limit_count=limit_count)
         try:
             # obtain a cursor and perform the operation
             with curr_conn.cursor() as cursor:
@@ -527,6 +530,39 @@ def update_lob(lob_table: str,
             logger.error(msg=_build_query_msg(query_stmt=update_stmt,
                                               engine=DbEngine.ORACLE,
                                               bind_vals=pk_vals))
+
+
+def add_query_limits(sel_stmt: str,
+                     offset_count: int | None,
+                     limit_count: int | None) -> str:
+    """
+    Add offset and limit to *sel_stmt*.
+
+    If not positive integers, *offset_count*, and *limit_count* are ignored. The parameter *offset_count*
+    is used to offset the retrieval of tuples, whereas *limit_count* establishes a ceiling on the number
+    of tuples returned.
+
+    :param sel_stmt: the query statement to modify
+    :param offset_count: number of tuples to skip
+    :param limit_count: limit to the number of tuples returned
+    :return: the modified query statement
+    """
+    # initialize the return variable
+    result: str = sel_stmt
+
+    # establish an offset into the result set
+    if isinstance(offset_count, int) and offset_count > 0:
+        result += f" OFFSET {offset_count} ROWS"
+
+    # establish a limit to the number of tuples returned
+    if isinstance(limit_count, int) and limit_count > 0:
+        if isinstance(offset_count, int) and offset_count > 0:
+            result += " FETCH NEXT"
+        else:
+            result += " FETCH FIRST"
+        result += f" {limit_count} ROWS ONLY"
+
+    return result
 
 
 # see https://python-oracledb.readthedocs.io/en/latest/user_guide/plsql_execution.html (TODO)

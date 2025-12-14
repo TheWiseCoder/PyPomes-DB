@@ -537,6 +537,129 @@ def db_close(connection: Any,
                                  f"{str_sanitize(f'{e}')}")
 
 
+def db_build_stmt(base_stmt: str,
+                  modify_vals: tuple = None,
+                  modify_data: dict[str, Any] = None,
+                  where_clause: str = None,
+                  where_vals: tuple = None,
+                  where_data: dict[str | tuple |
+                                   tuple[str,
+                                         Literal["=", ">", "<", ">=", "<=",
+                                                 "<>", "in", "like", "between"] | None,
+                                         Literal["and", "or"] | None], Any] = None,
+                  orderby_clause: str = None,
+                  offset_count: int = None,
+                  limit_count: int = None,
+                  engine: DbEngine = None,
+                  errors: list[str] = None) -> str | None:
+    """
+    Build and return the *SQL* query statement as per the parameters provided.
+
+    It is left to the invoker to make sure *base_stmt* makes sense and is consistent with the parameters
+    provided:
+        - it can refer to *SELECT*, *INSERT*, *UPDATE*, or *DELETE* operations
+        - *modify_vals* and *modify_data* may be specified for *INSERT*s and *UPDATE*s only
+        - *orderby_clause*, *offset_count*, and *limit_count* may be specified for *SELECT*s only
+        _ *where_clause*, *where_vals*, and *where_data* may not be specified for *INSERTs*
+
+    If applicable, selection criteria may be specified in *where_clause* and *where_vals*, or additionally
+    but preferably, by key-value pairs in *where_data*. The syntax specific to *where_data*'s key/value pairs
+    is as follows:
+        1. *key*:
+            - an attribute (possibly aliased), or
+            - a 2/3-tuple with an attribute and the corresponding SQL comparison operation
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), followed
+              by a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
+        2. *value*:
+            - a scalar, or a list, or an expression possibly containing other attribute(s)
+
+    :param base_stmt: the base *SQL* statement to build upon
+    :param modify_vals: values for *INSERT* or *UPDATE* operations
+    :param modify_data: insert or update data as key-value pairs
+    :param where_clause: criteria for tuple selection (ignored if *sel_stmt* contains a *WHERE* clause)
+    :param where_vals: values to be associated with the selection criteria
+    :param where_data: selection criteria specified as key-value pairs
+    :param orderby_clause: retrieval order (ignored if *base_stmt* contains a *ORDER BY* clause)
+    :param offset_count: number of tuples to skip (defaults to none)
+    :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param errors: incidental error messages (might be a non-empty list)
+    :return: the *SQL* query statement built as per the given parameters , or *None* if error
+    """
+    # initialize the return variable
+    result: str | None = None
+
+    # determine the type of query
+    is_select: bool = base_stmt.lower().startswith("select")
+    is_insert: bool = base_stmt.lower().startswith("insert")
+    is_update: bool = base_stmt.lower().startswith("update")
+    is_delete: bool = base_stmt.lower().startswith("delete")
+
+    # make sure parameters are consistent
+    if (is_select or is_insert or is_update or is_delete) and \
+       (is_select or not (orderby_clause or offset_count or limit_count)) and \
+       (is_insert or not (where_clause or where_vals or where_data)) and \
+       (is_insert or is_update or not (modify_vals or modify_data)):
+
+        # assert the database engine
+        engine = _assert_engine(engine=engine,
+                                errors=errors)
+        if engine:
+            result = base_stmt
+
+            # process update data
+            if modify_data:
+                if is_insert:
+                    result, modify_vals = _combine_insert_data(insert_stmt=result,
+                                                               insert_vals=modify_vals,
+                                                               insert_data=modify_data)
+                else:
+                    result, modify_vals = _combine_update_data(update_stmt=result,
+                                                               update_vals=modify_vals,
+                                                               update_data=modify_data)
+            # process search data
+            if where_clause or where_data or orderby_clause:
+                result, where_vals = _combine_search_data(query_stmt=result,
+                                                          where_clause=where_clause,
+                                                          where_vals=where_vals,
+                                                          where_data=where_data,
+                                                          orderby_clause=orderby_clause,
+                                                          engine=engine)
+            # bind the arguments
+            bind_vals: list = []
+            if modify_vals:
+                bind_vals.extend(list(modify_vals))
+            if where_vals:
+                bind_vals.extend(list(where_vals))
+            if bind_vals:
+                result = db_bind_arguments(stmt=result,
+                                           bind_vals=bind_vals,
+                                           engine=engine)
+            # add limits
+            if offset_count or limit_count:
+                if engine == DbEngine.MYSQL:
+                    pass
+                elif engine == DbEngine.ORACLE:
+                    from . import oracle_pomes
+                    result = oracle_pomes.add_query_limits(sel_stmt=result,
+                                                           offset_count=offset_count,
+                                                           limit_count=limit_count)
+                elif engine == DbEngine.POSTGRES:
+                    from . import postgres_pomes
+                    result = postgres_pomes.add_query_limits(sel_stmt=result,
+                                                             offset_count=offset_count,
+                                                             limit_count=limit_count)
+                elif engine == DbEngine.SQLSERVER:
+                    from . import sqlserver_pomes
+                    result = sqlserver_pomes.add_query_limits(sel_stmt=result,
+                                                              offset_count=offset_count,
+                                                              limit_count=limit_count)
+    elif isinstance(errors, list):
+        errors.append("Inconsistent parameters")
+
+    return result
+
+
 def db_count(table: str,
              count_clause: str = None,
              where_clause: str = None,
@@ -761,67 +884,67 @@ def db_select(sel_stmt: str,
     # assert the database engine
     engine = _assert_engine(engine=engine,
                             errors=curr_errors)
-
-    # process search data provided as key-value pairs
-    if where_clause or where_data or orderby_clause:
-        sel_stmt, where_vals = _combine_search_data(query_stmt=sel_stmt,
-                                                    where_clause=where_clause,
-                                                    where_vals=where_vals,
-                                                    where_data=where_data,
-                                                    orderby_clause=orderby_clause,
-                                                    engine=engine)
-    # establish the correct bind tags
-    if where_vals and DB_BIND_META_TAG in sel_stmt:
-        sel_stmt = db_adjust_placeholders(stmt=sel_stmt,
-                                          engine=engine)
-    # make sure to have a connection
-    curr_conn: Any = connection or db_connect(engine=engine,
-                                              errors=curr_errors,
-                                              logger=logger)
-    if not curr_errors:
-        if engine == DbEngine.MYSQL:
-            pass
-        elif engine == DbEngine.ORACLE:
-            from . import oracle_pomes
-            result = oracle_pomes.select(sel_stmt=sel_stmt,
-                                         where_vals=where_vals,
-                                         min_count=min_count,
-                                         max_count=max_count,
-                                         offset_count=offset_count,
-                                         limit_count=limit_count,
-                                         conn=curr_conn,
-                                         committable=committable if connection else True,
-                                         errors=curr_errors,
-                                         logger=logger)
-        elif engine == DbEngine.POSTGRES:
-            from . import postgres_pomes
-            result = postgres_pomes.select(sel_stmt=sel_stmt,
-                                           where_vals=where_vals,
-                                           min_count=min_count,
-                                           max_count=max_count,
-                                           offset_count=offset_count,
-                                           limit_count=limit_count,
-                                           conn=curr_conn,
-                                           committable=committable if connection else True,
-                                           errors=curr_errors,
-                                           logger=logger)
-        elif engine == DbEngine.SQLSERVER:
-            from . import sqlserver_pomes
-            result = sqlserver_pomes.select(sel_stmt=sel_stmt,
-                                            where_vals=where_vals,
-                                            min_count=min_count,
-                                            max_count=max_count,
-                                            offset_count=offset_count,
-                                            limit_count=limit_count,
-                                            conn=curr_conn,
-                                            committable=committable if connection else True,
-                                            errors=curr_errors,
-                                            logger=logger)
-        # close the locally acquired connection
-        if not connection:
-            db_close(connection=curr_conn,
-                     engine=engine,
-                     logger=logger)
+    if engine:
+        # process search data provided as key-value pairs
+        if where_clause or where_data or orderby_clause:
+            sel_stmt, where_vals = _combine_search_data(query_stmt=sel_stmt,
+                                                        where_clause=where_clause,
+                                                        where_vals=where_vals,
+                                                        where_data=where_data,
+                                                        orderby_clause=orderby_clause,
+                                                        engine=engine)
+        # establish the correct bind tags
+        if where_vals and DB_BIND_META_TAG in sel_stmt:
+            sel_stmt = db_adjust_placeholders(stmt=sel_stmt,
+                                              engine=engine)
+        # make sure to have a connection
+        curr_conn: Any = connection or db_connect(engine=engine,
+                                                  errors=curr_errors,
+                                                  logger=logger)
+        if not curr_errors:
+            if engine == DbEngine.MYSQL:
+                pass
+            elif engine == DbEngine.ORACLE:
+                from . import oracle_pomes
+                result = oracle_pomes.select(sel_stmt=sel_stmt,
+                                             where_vals=where_vals,
+                                             min_count=min_count,
+                                             max_count=max_count,
+                                             offset_count=offset_count,
+                                             limit_count=limit_count,
+                                             conn=curr_conn,
+                                             committable=committable if connection else True,
+                                             errors=curr_errors,
+                                             logger=logger)
+            elif engine == DbEngine.POSTGRES:
+                from . import postgres_pomes
+                result = postgres_pomes.select(sel_stmt=sel_stmt,
+                                               where_vals=where_vals,
+                                               min_count=min_count,
+                                               max_count=max_count,
+                                               offset_count=offset_count,
+                                               limit_count=limit_count,
+                                               conn=curr_conn,
+                                               committable=committable if connection else True,
+                                               errors=curr_errors,
+                                               logger=logger)
+            elif engine == DbEngine.SQLSERVER:
+                from . import sqlserver_pomes
+                result = sqlserver_pomes.select(sel_stmt=sel_stmt,
+                                                where_vals=where_vals,
+                                                min_count=min_count,
+                                                max_count=max_count,
+                                                offset_count=offset_count,
+                                                limit_count=limit_count,
+                                                conn=curr_conn,
+                                                committable=committable if connection else True,
+                                                errors=curr_errors,
+                                                logger=logger)
+            # close the locally acquired connection
+            if not connection:
+                db_close(connection=curr_conn,
+                         engine=engine,
+                         logger=logger)
 
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)
@@ -933,39 +1056,46 @@ def db_update(update_stmt: str,
     :param logger: optional logger
     :return: the values of *return_cols*, or the number of updated tuples, or *None* if error
     """
-    # process update data provided as key-value pairs
-    if update_data:
-        update_stmt, update_vals = _combine_update_data(update_stmt=update_stmt,
-                                                        update_vals=update_vals,
-                                                        update_data=update_data)
-    # process search data provided as key-value pairs
-    if where_clause or where_data:
-        engine = _assert_engine(engine=engine)
-        update_stmt, where_vals = _combine_search_data(query_stmt=update_stmt,
-                                                       where_clause=where_clause,
-                                                       where_vals=where_vals,
-                                                       where_data=where_data,
-                                                       orderby_clause=None,
-                                                       engine=engine)
-    # combine 'update' and 'where' bind values
-    bind_vals: tuple | None = None
-    if update_vals and where_vals:
-        bind_vals = update_vals + where_vals
-    elif update_vals:
-        bind_vals = update_vals
-    elif where_vals:
-        bind_vals = where_vals
+    # initialize the return variable
+    result:  tuple | int | None = None
 
-    return db_execute(exc_stmt=update_stmt,
-                      bind_vals=bind_vals,
-                      return_cols=return_cols,
-                      min_count=min_count,
-                      max_count=max_count,
-                      engine=engine,
-                      connection=connection,
-                      committable=committable,
-                      errors=errors,
-                      logger=logger)
+    # assert the database engine
+    engine = _assert_engine(engine=engine,
+                            errors=errors)
+    if engine:
+        # process update data provided as key-value pairs
+        if update_data:
+            update_stmt, update_vals = _combine_update_data(update_stmt=update_stmt,
+                                                            update_vals=update_vals,
+                                                            update_data=update_data)
+        # process search data provided as key-value pairs
+        if where_clause or where_data:
+            update_stmt, where_vals = _combine_search_data(query_stmt=update_stmt,
+                                                           where_clause=where_clause,
+                                                           where_vals=where_vals,
+                                                           where_data=where_data,
+                                                           orderby_clause=None,
+                                                           engine=engine)
+        # combine 'update' and 'where' bind values
+        bind_vals: tuple | None = None
+        if update_vals and where_vals:
+            bind_vals = update_vals + where_vals
+        elif update_vals:
+            bind_vals = update_vals
+        elif where_vals:
+            bind_vals = where_vals
+
+        result = db_execute(exc_stmt=update_stmt,
+                            bind_vals=bind_vals,
+                            return_cols=return_cols,
+                            min_count=min_count,
+                            max_count=max_count,
+                            engine=engine,
+                            connection=connection,
+                            committable=committable,
+                            errors=errors,
+                            logger=logger)
+    return result
 
 
 def db_delete(delete_stmt: str,

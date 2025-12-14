@@ -145,7 +145,7 @@ def _assert_engine(engine: DbEngine,
     the first engine in the list of configured engines (the default engine) is returned.
 
     :param engine: the reference database engine
-    :param errors: incidental errors
+    :param errors: incidental error messages (might be a non-empty list)
     :return: the validated or the default engine, or *None* if error
     """
     # initialize the return valiable

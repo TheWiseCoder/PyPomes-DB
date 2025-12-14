@@ -149,7 +149,8 @@ def select(sel_stmt: str,
     If not positive integers, *min_count*, *max_count*, *offset_count*, and *limit_count* are ignored.
     If both *min_count* and *max_count* are specified with equal values, then exactly that number of
     tuples must be returned by the query. The parameter *offset_count* is used to offset the retrieval
-    of tuples. If the search is empty, an empty list is returned.
+    of tuples, and *limit_count* establishes a ceiling on the number of tuples returned.
+    If the search is empty, an empty list is returned.
 
     The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
@@ -178,14 +179,11 @@ def select(sel_stmt: str,
                                             errors=errors,
                                             logger=logger)
     if not errors:
-        # establish an offset into the result set
-        if isinstance(offset_count, int) and offset_count > 0:
-            sel_stmt += f" OFFSET {offset_count}"
-
-        # establish a limit to the number of tuples returned
-        if isinstance(limit_count, int) and limit_count > 0:
-            sel_stmt += f" LIMIT {limit_count}"
-
+        # establish offset and limit
+        if offset_count or limit_count:
+            sel_stmt = add_query_limits(sel_stmt=sel_stmt,
+                                        offset_count=offset_count,
+                                        limit_count=limit_count)
         try:
             # obtain a cursor and execute the operation
             with curr_conn.cursor() as cursor:
@@ -539,6 +537,35 @@ def update_lob(lob_table: str,
             logger.error(msg=_build_query_msg(query_stmt=update_stmt,
                                               engine=DbEngine.POSTGRES,
                                               bind_vals=pk_vals))
+
+
+def add_query_limits(sel_stmt: str,
+                     offset_count: int | None,
+                     limit_count: int | None) -> str:
+    """
+    Add offset and limit to *sel_stmt*.
+
+    If not positive integers, *offset_count*, and *limit_count* are ignored. The parameter *offset_count*
+    is used to offset the retrieval of tuples, whereas *limit_count* establishes a ceiling on the number
+    of tuples returned.
+
+    :param sel_stmt: the query statement to modify
+    :param offset_count: number of tuples to skip
+    :param limit_count: limit to the number of tuples returned
+    :return: the modified query statement
+    """
+    # initialize the return variable
+    result: str = sel_stmt
+
+    # establish an offset into the result set
+    if isinstance(offset_count, int) and offset_count > 0:
+        result += f" OFFSET {offset_count}"
+
+    # establish a limit to the number of tuples returned
+    if isinstance(limit_count, int) and limit_count > 0:
+        result += f" LIMIT {limit_count}"
+
+    return result
 
 
 def call_procedure(proc_name: str,
