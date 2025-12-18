@@ -21,7 +21,7 @@ class DbEngine(StrEnum):
 
 class DbParam(StrEnum):
     """
-    Parameters for connecting to database engines. Does not apply to Google Cloud Spanner.
+    Parameters for connecting to database engines. Class does not apply to Google Cloud Spanner.
     """
     ENGINE = auto()
     NAME = auto()
@@ -66,9 +66,9 @@ def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
     """
     Establish the connection data for select database engines, from environment variables.
 
-    The preferred way to specify database connection parameters is dynamically with *GoogleSpanner.setup()*
-    (for Google Cloud Spanner), or *db_setup()* (for the other database engines).
-    Specifying database connection parameters with environment variables cannot be done for Google Cloud Spanner.
+    The preferred way to specify database connection parameters is dynamically with *db_setup()*.
+    Specifying database connection parameters with environment variables cannot be done for Google Cloud Spanner
+    (instead, *GoogleSpanner.setup()* in module *spanner_pomes* must be used).
     For the other database engines, it can be done in two ways:
 
     1. for a single database engine, specify the data set

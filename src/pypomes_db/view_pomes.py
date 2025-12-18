@@ -105,7 +105,7 @@ def db_view_exists(view_name: str,
                    errors: list[str] = None,
                    logger: Logger = None) -> bool | None:
     """
-    Determine whether the view *view_name* exists in the database.
+    Determine whether the view given by *view_name* exists in the database.
 
     If *view_name* is schema-qualified, then the search will be restricted to that schema.
 
@@ -186,7 +186,7 @@ def db_drop_view(view_name: str,
                  errors: list[str] = None,
                  logger: Logger = None) -> None:
     """
-    Drop the view given by the, possibly schema-qualified, *view_name*.
+    Drop the view given by *view_name*.
 
     This is a silent *DDL* operation. Whether commits or rollbacks are applicable,
     and what their use would entail, depends on the response of the *engine* to the
@@ -261,7 +261,7 @@ def db_get_view_ddl(view_name: str,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param view_name: the name of the view
+    :param view_name: the, possibly schema-qualified, name of the view
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
@@ -344,7 +344,7 @@ def db_get_view_dependencies(view_name: str,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param view_name: the name of the view
+    :param view_name: the, possibly schema-qualified, name of the view
     :param view_type: the type of the view ("M": materialized, 'P': plain, defaults to 'P')
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)

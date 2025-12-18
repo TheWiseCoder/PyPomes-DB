@@ -385,7 +385,7 @@ def db_get_column_metadata(table_name: str,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param table_name: the possibly schema-qualified name of the table
+    :param table_name: the, possibly schema-qualified, name of the table
     :param column_name: the name of the column to retrieve
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
@@ -482,7 +482,7 @@ def db_get_columns_metadata(table_name: str,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param table_name: the possibly schema-qualified name of the table
+    :param table_name: the, possibly schema-qualified, name of the table
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion

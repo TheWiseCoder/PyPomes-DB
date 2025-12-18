@@ -152,8 +152,7 @@ def select(sel_stmt: str,
     of tuples, and *limit_count* establishes a ceiling on the number of tuples returned.
     If the search is empty, an empty list is returned.
 
-    The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the selection criteria
@@ -215,7 +214,7 @@ def select(sel_stmt: str,
             if committable or not conn:
                 curr_conn.commit()
         except Exception as e:
-            if curr_conn:
+            if committable or not conn:
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
@@ -264,8 +263,7 @@ def execute(exc_stmt: str,
     if provided. An error is issued if a disagreement exists, followed by a rollback. This is an optional feature,
     intended to minimize data loss due to programming mistakes.
 
-    The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
@@ -316,7 +314,7 @@ def execute(exc_stmt: str,
             if committable or not conn:
                 curr_conn.commit()
         except Exception as e:
-            if curr_conn:
+            if committable or not conn:
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
@@ -374,8 +372,7 @@ def bulk_execute(exc_stmt: str,
     The data types (*int4*, *numeric*, *timestamp*, etc.) may be obtained by querying the columns' metadata.
     Enriching the query statements in this manner is conveniently made available in *add_types()* below.
 
-    The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param exc_stmt: the command to update the database with
     :param exc_vals: the list of values for tuple identification, and to update the database with
@@ -413,7 +410,7 @@ def bulk_execute(exc_stmt: str,
             if committable or not conn:
                 curr_conn.commit()
         except Exception as e:
-            if curr_conn:
+            if committable or not conn:
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
@@ -453,8 +450,7 @@ def update_lob(lob_table: str,
     The data for the update may come from *bytes*, from a *Path* or its string representation, or from
     a pointer obtained from *BytesIO* or *Path.open()* in binary mode.
 
-    The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param lob_table: the table to be update with the new LOB
     :param lob_column: the column to be updated with the new LOB
@@ -516,7 +512,7 @@ def update_lob(lob_table: str,
             if committable or not conn:
                 curr_conn.commit()
         except Exception as e:
-            if curr_conn:
+            if committable or not conn:
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
@@ -577,10 +573,9 @@ def call_procedure(proc_name: str,
     """
     Execute the stored procedure *proc_name*, with the arguments given in *proc_vals*.
 
-    The parameter *committable* is relevant only if *conn* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
-    :param proc_name: the name of the sotred procedure
+    :param proc_name: the name of the stored procedure
     :param proc_vals: the arguments to be passed
     :param conn: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation upon errorless completion
@@ -616,7 +611,7 @@ def call_procedure(proc_name: str,
             if committable or not conn:
                 curr_conn.commit()
         except Exception as e:
-            if curr_conn:
+            if committable or not conn:
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,

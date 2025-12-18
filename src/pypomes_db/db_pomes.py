@@ -123,7 +123,7 @@ def db_get_engines() -> list[DbEngine]:
     Retrieve the *list* of configured engines.
 
     This *list* may include any of the supported engines:
-    *mysql*, *oracle*, *postgres*, *sqlserver*.
+    *mysql*, *oracle*, *postgres*, *sqlserver*, *spanner*.
     Note that the values in the returned *list* are instances of *DbEngine*, not strings.
 
     :return: the *list* of configured engines
@@ -597,9 +597,9 @@ def db_build_stmt(base_stmt: str,
 
     # make sure parameters are consistent
     if (is_select or is_insert or is_update or is_delete) and \
-       (is_select or not (orderby_clause or offset_count or limit_count)) and \
-       (is_insert or not (where_clause or where_vals or where_data)) and \
-       (is_insert or is_update or not (modify_vals or modify_data)):
+       not (not is_select and (orderby_clause or offset_count or limit_count)) and \
+       not (is_insert and (where_clause or where_vals or where_data)) and \
+       not ((is_select or is_delete) and (modify_vals or modify_data)):
 
         # assert the database engine
         engine = _assert_engine(engine=engine,
@@ -694,8 +694,7 @@ def db_count(table: str,
             - a scalar, or a list, or an expression possibly containing other attribute(s)
 
     The target database engine, specified or default, must have been previously configured.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param table: the table to be searched
     :param count_clause: optional parameters in the *COUNT* clause (defaults to 'COUNT(*)')
@@ -771,10 +770,9 @@ def db_exists(table: str,
     specified, than at least one tuple is expected to exist.
 
     The targer database engine, specified or default, must have been previously configured.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
-    :param table: the table to be searched
+    :param table: the, possibly schema-qualified, name of the table to be searched
     :param where_clause: optional criteria for tuple selection
     :param where_vals: values to be associated with the selection criteria
     :param where_data: the selection criteria specified as key-value pairs
@@ -856,8 +854,7 @@ def db_select(sel_stmt: str,
 
     If the search is empty, an empty list is returned.
     The target database engine, specified or default, must have been previously configured.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param sel_stmt: SELECT command for the search
     :param where_clause: optional criteria for tuple selection (ignored if *sel_stmt* contains a *WHERE* clause)
@@ -969,8 +966,7 @@ def db_insert(insert_stmt: str,
     are handled by the database).
 
     The target database engine, specified or default, must have been previously configured.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param insert_stmt: the INSERT command
     :param insert_vals: values to be inserted
@@ -1037,8 +1033,7 @@ def db_update(update_stmt: str,
 
     The optional *return_cols* indicate that the values of the columns therein should be returned.
     The target database engine, specified or default,  must have been previously configured.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param update_stmt: the UPDATE command
     :param update_vals: values for the update operation
@@ -1137,8 +1132,7 @@ def db_delete(delete_stmt: str,
     tuples must be deleted from the database table.
 
     The target database engine, specified or default, must have been previously configured.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param delete_stmt: the DELETE command
     :param where_clause: optional criteria for tuple selection (ignored if *delete_stmt* contains a *WHERE* clause)
@@ -1190,10 +1184,10 @@ def db_bulk_insert(target_table: str,
     The number of attributes in *insert_attrs* must match the number of bind values in *insert_vals* tuples.
     Specific handling is required for identity columns (i.e., columns whose values are generated directly
     by the database engine - typically, they are also primary keys), and thus they must be identified
-    by *identity_column*, and ommited from *insert_stmt*,
+    by *identity_column*, and ommited from *insert_stmt*.
+
     The target database engine, specified or default, must have been previously configured.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param target_table: the possibly schema-qualified table to insert into
     :param insert_attrs: the list of table attributes to insert values into
@@ -1320,9 +1314,9 @@ def db_bulk_update(target_table: str,
     The number of attributes in *set_attrs*, plus the number of attributes in *where_attrs*,
     must match the number of bind values in *update_vals* tuples. Note that within *update_vals*,
     the bind values for the *WHERE* clause will follow the ones for the *SET* clause.
+
     The target database engine, specified or default, must have been previously configured.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param target_table: the possibly schema-qualified table to update
     :param set_attrs: the list of table attributes to update
@@ -1429,9 +1423,9 @@ def db_bulk_delete(target_table: str,
 
     Bulk deletes may require non-standard syntax, depending on the database engine being targeted.
     The number of attributes in *where_attrs* must match the number of bind values in *where_vals* tuples.
+
     The target database engine, specified or default, must have been previously configured.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param target_table: the possibly schema-qualified table to delete from
     :param where_attrs: the list of attributes for identifying the tuples to be deleted
@@ -1521,9 +1515,9 @@ def db_update_lob(lob_table: str,
 
     The data for the update may come from *bytes*, from a *Path* or its string representation,
     or from a pointer obtained from *BytesIO* or *Path.open()* in binary mode.
+
     The target database engine, specified or default, must have been previously configured.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param lob_table: the table to be update with the new LOB
     :param lob_column: the column to be updated with the new LOB
@@ -1624,8 +1618,8 @@ def db_execute(exc_stmt: str,
     if provided. An error is issued if a disagreement exists, followed by a rollback. This is an optional feature,
     intended to minimize data loss due to programming mistakes.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The target database engine, specified or default, must have been previously configured.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
@@ -1716,8 +1710,7 @@ def db_call_function(func_name: str,
     Execute the stored function *func_name* in the database, with the parameters given in *func_vals*.
 
     The target database engine, specified or default, must have been previously configured.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param func_name: name of the stored function
     :param func_vals: parameters for the stored function
@@ -1792,8 +1785,7 @@ def db_call_procedure(proc_name: str,
     Execute the stored procedure *proc_name* in the database, with the parameters given in *proc_vals*.
 
     The target database engine, specified or default, must have been previously configured.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param proc_name: name of the stored procedure
     :param proc_vals: parameters for the stored procedure

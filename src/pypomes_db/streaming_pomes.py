@@ -1,4 +1,5 @@
 import time
+from collections.abc import Generator
 from contextlib import suppress
 from logging import Logger
 from pypomes_core import timestamp_duration
@@ -20,7 +21,7 @@ def db_stream_data(table: str,
                    batch_size_in: int = None,
                    batch_size_out: int = None,
                    errors: list[str] = None,
-                   logger: Logger = None) -> int | None:
+                   logger: Logger = None) -> Generator[list[tuple], None, None]:
     """
     Stream data from a database table.
 
@@ -36,7 +37,7 @@ def db_stream_data(table: str,
     The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
     A rollback is always attempted, if an error occurs.
 
-    :param table: the possibly schema-qualified table to read the data from
+    :param table: the, possibly schema-qualified, table to read the data from
     :param columns: the table columns to stream
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
@@ -49,12 +50,8 @@ def db_stream_data(table: str,
     :param batch_size_out: maximum number of tuples to stream in each batch (defaults to no limit)
     :param errors: incidental error messages (might be a non-empty list)
     :param logger: optional logger
-    :return: the number of tuples effectively streamed, or *None* if error
     """
-    # initialize the return variable
-    result: int | None = 0
-
-    # necessary, lest the state of 'errors' be tested
+    # initialize a local errors list
     curr_errors: list[str] = []
 
     # assert the database engine
@@ -104,6 +101,7 @@ def db_stream_data(table: str,
                              f"batch size out {batch_size_out}, connection {id(curr_conn)}")
         # stream the tuples
         row_count: int = 0
+        stream_count: int = 0  # number of tuples effectively streamed
         err_msg: str | None = None
         try:
             source_cursor: Any = curr_conn.cursor()
@@ -132,7 +130,7 @@ def db_stream_data(table: str,
                 # log the retrieval operation
                 if logger:
                     logger.debug(msg=f"Read {len(rows_in)} tuples from {engine}.{table}, "
-                                     f"offset {offset_count + result}, connection {id(curr_conn)}")
+                                     f"offset {offset_count + stream_count}, connection {id(curr_conn)}")
                 pos_from: int = 0
 
                 # migrate the tuples
@@ -140,21 +138,20 @@ def db_stream_data(table: str,
                     pos_to: int = min(pos_from + batch_size_out, len(rows_in)) \
                                   if batch_size_out else len(rows_in)
                     rows_out: list[tuple] = rows_in[pos_from:pos_to]
-                    # noinspection PyTypeChecker
                     yield rows_out
                     pos_from = pos_to
 
                     # increment the tuple streaming counter and log the partial streaming
-                    result += len(rows_out)
+                    stream_count += len(rows_out)
                     if logger:
-                        logger.debug(msg=f"Streamed {result} tuples "
+                        logger.debug(msg=f"Streamed {stream_count} tuples "
                                          f"from {engine}.{table}, connection {id(curr_conn)}")
                 # read the next batch
-                if limit_count > result or (batch_size_in and not limit_count):
-                    curr_limit = min(batch_size_in, limit_count - result)
+                if limit_count > stream_count or (batch_size_in and not limit_count):
+                    curr_limit = min(batch_size_in, limit_count - stream_count)
                     if curr_limit <= 0:
-                        curr_limit = max(batch_size_in, limit_count - result)
-                    curr_stmt = sel_stmt.replace("@offset", str(offset_count + result), 1)\
+                        curr_limit = max(batch_size_in, limit_count - stream_count)
+                    curr_stmt = sel_stmt.replace("@offset", str(offset_count + stream_count), 1)\
                                         .replace("@limit", str(curr_limit), 1)\
                                         .replace(" FETCH ", " FETCH NEXT ", 1)
                     source_cursor.execute(statement=curr_stmt)
@@ -195,8 +192,6 @@ def db_stream_data(table: str,
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)
 
-    return result
-
 
 def db_stream_lobs(table: str,
                    lob_column: str,
@@ -213,7 +208,7 @@ def db_stream_lobs(table: str,
                    chunk_size: int = None,
                    errors: list[str] = None,
                    logger: Logger = None,
-                   log_trigger: int = 10000) -> None:
+                   log_trigger: int = 10000) -> Generator[dict[str, Any] | str | bytes | None, None, None]:
     """
     Stream data in large binary objects (LOBs) from a database table.
 
@@ -252,7 +247,7 @@ def db_stream_lobs(table: str,
     :param logger: optional logger
     :param log_trigger: number of tuples to trigger logging info on migration (defaults to 10000 tuples)
     """
-    # necessary, lest the state of 'errors' be tested
+    # initialize a local errors list
     curr_errors: list[str] = []
 
     # assert the database engine
@@ -354,7 +349,6 @@ def db_stream_lobs(table: str,
                     for inx, pk_val in enumerate(ref_vals):
                         identifier[ref_columns[inx]] = pk_val
                     # send the LOB's metadata
-                    # noinspection PyTypeChecker
                     yield identifier
 
                     # access the LOB's bytes in chunks and stream them
@@ -369,7 +363,6 @@ def db_stream_lobs(table: str,
                         first = False
                         is_migrated = True
                         # send a data chunk
-                        # noinspection PyTypeChecker
                         yield lob_data
 
                         # read the next chunk
@@ -385,7 +378,6 @@ def db_stream_lobs(table: str,
                         row_step += 1
 
                     # signal that sending data chunks for the current LOB is finished
-                    # noinspection PyTypeChecker
                     yield None
 
                     # log partial result at each 'log_trigger' LOBs migrated
