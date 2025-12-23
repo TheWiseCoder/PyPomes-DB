@@ -5,46 +5,48 @@ from decimal import Decimal
 from google.cloud.spanner_v1.param_types import (
     Type, BOOL, BYTES, DATE, FLOAT32, FLOAT64, INT64, STRING, TIMESTAMP
 )
-from logging import Logger
-from pypomes_core import exc_format, str_splice
+from pypomes_core import env_get_str, exc_format, str_splice
 from typing import Any
 
 from .db_common import (
     _DB_CONN_DATA, _DB_LOGGERS, DbEngine, _assert_query_quota
 )
 from .db_pomes import db_add_query_limits
-from .spanner_frame import GoogleSpanner, SpannerConnection, SpannerParam
+from .spanner_frame import SpannerConnection, SpannerParam
 
 
 def spanner_setup(instance_id: str,
                   database_id: str,
                   session_pool_size: int = 10,
                   session_ping_interval: int = 3000,
-                  session_default_timeout: int = 10,
-                  logger: Logger = None) -> bool:
+                  session_default_timeout: int = 10) -> bool:
     """
     Establish the configuration parameters for access to the Google Cloud Spanner engine.
 
+    If the Cloud Spanner's local emulator is being used, no session usage is possible, and consequently,
+    no session pools are available. The standard way to enable local emulation is to set the environment
+    variable *SPANNER_EMULATOR_HOST* to its local IP address (e.g., *http://localhost:9010*).
+
     :param instance_id: the instance identification
     :param database_id: the databae identification
-    :param session_pool_size: size of the session pool (defaults to 10)
+    :param session_pool_size: size of the session pool (defaults to 10 for cloud operation)
     :param session_ping_interval: interval at which to ping sessions in the background (defaults to 3000 seconds)
     :param session_default_timeout: time to wait for a returned session (defaults to 10 seconds)
-    :param logger: optional class logger
     :return: *True* if the data was accepted, *False* otherwise
     """
     # initialize the return variable
     result: bool = False
 
+    emulated: bool = bool(env_get_str(key="SPANNER_EMULATOR_HOST"))
+
     # accept data only if GoogleSpanner has not been instantiated
     if not (_DB_CONN_DATA.get(DbEngine.SPANNER) or {}).get(SpannerParam.ENGINE):
-        GoogleSpanner.LOGGER = logger
         _DB_CONN_DATA[DbEngine.SPANNER] = {
             SpannerParam.DATABASE_ID: database_id,
             SpannerParam.INSTANCE_ID: instance_id,
-            SpannerParam.SESSION_POOL_SIZE: session_pool_size,
-            SpannerParam.SESSION_PING_INTERVAL: session_ping_interval,
-            SpannerParam.SESSION_DEFAULT_TIMEOUT: session_default_timeout
+            SpannerParam.SESSION_POOL_SIZE: 0 if emulated else session_pool_size,
+            SpannerParam.SESSION_PING_INTERVAL: 0 if emulated else session_ping_interval,
+            SpannerParam.SESSION_DEFAULT_TIMEOUT: 0 if emulated else session_default_timeout
         }
         result = True
 

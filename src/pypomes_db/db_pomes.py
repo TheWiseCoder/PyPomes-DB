@@ -20,8 +20,7 @@ def db_setup(engine: DbEngine,
              db_host: str,
              db_port: int,
              db_client: str | Path = None,
-             db_driver: str = None,
-             logger: Logger = None) -> bool:
+             db_driver: str = None) -> bool:
     """
     Establish the parameters for access to *engine*.
 
@@ -38,7 +37,6 @@ def db_setup(engine: DbEngine,
     :param db_port: the connection port (a positive integer)
     :param db_driver: the database driver (SQLServer only)
     :param db_client: the path to the client software (Oracle only)
-    :param logger: optional logger for the database engine
     :return: *True* if the data was accepted, *False* otherwise
     """
     # initialize the return variable
@@ -50,7 +48,6 @@ def db_setup(engine: DbEngine,
        not (engine != DbEngine.SQLSERVER and db_driver) and \
        not (engine == DbEngine.SQLSERVER and not db_driver) and \
        isinstance(db_port, int) and db_port > 0:
-        _DB_LOGGERS[engine] = logger
         _DB_CONN_DATA[engine] = {
             DbParam.NAME: db_name,
             DbParam.USER: db_user,
@@ -63,6 +60,30 @@ def db_setup(engine: DbEngine,
             _DB_CONN_DATA[engine][DbParam.CLIENT] = Path(db_client)
         elif engine == DbEngine.SQLSERVER:
             _DB_CONN_DATA[engine][DbParam.DRIVER] = db_driver
+        result = True
+
+    return result
+
+
+def db_set_logger(engine: DbEngine = None,
+                  logger: Logger = None) -> bool:
+    """
+    Establish the logger for logging operations involving *engine*.
+
+    This operation must be invoked after *engine* has been configured. If specified,
+    *engine* must be one of [*mysql*, *oracle*, *postgres*, *sqlserver*, *spanner*].
+
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param logger: the logger for the database engine
+    :return: *True* if the logger was estabished, *False* otherwise
+    """
+    # initialize the return variable
+    result: bool = False
+
+    # assert the database engine
+    engine = _assert_engine(engine=engine)
+    if engine:
+        _DB_LOGGERS[engine] = logger
         result = True
 
     return result

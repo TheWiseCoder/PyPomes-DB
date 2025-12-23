@@ -53,9 +53,9 @@ class GoogleSpanner:
     These are the instance variables:
         - *_client*: *google.cloud.spanner.Client* - the Cloud Spanner Client
         - *_credentials*: *dict[str, str]* - the access credentials
-        _ *_database*: *google.cloud.spanner_v1.database.Database* - database to use
-        _ *_instance*: *google.cloud.spanner_v1.instance.Instance* - instance to use
-        _ *_pinger*:   *threading.Thread* - thread for background pinging
+        - *_database*: *google.cloud.spanner_v1.database.Database* - database to use
+        - *_instance*: *google.cloud.spanner_v1.instance.Instance* - instance to use
+        - *_pinger*: *threading.Thread* - thread for background pinging
     """
 
     def __init__(self,
@@ -150,6 +150,7 @@ class GoogleSpanner:
             err_msg = "Unable to obtain session configuratiom parameters"
         elif not conn_data.get(DbParam.VERSION):
             try:
+                # obtain a Cloud Spanner Client
                 if self._credentials:
                     # use specific service account data
                     credentials: Any = Credentials.from_service_account_info(info=self._credentials)
@@ -159,16 +160,22 @@ class GoogleSpanner:
                     # fallback to Application Default Credentials (ADC)
                     self._client = spanner.Client(project=conn_data[SpannerParam.PROJECT_ID])
 
-                # use PingingPool for mixed read/write workloads
-                session_pool: PingingPool = PingingPool(
-                    size=conn_data[SpannerParam.SESSION_POOL_SIZE],
-                    default_timeout=conn_data[SpannerParam.SESSION_DEFAULT_TIMEOUT],
-                    ping_interval=conn_data[SpannerParam.SESSION_PING_INTERVAL],
-                )
-
+                # establish the instance
                 self._instance = self._client.instance(instance_id=conn_data[SpannerParam.INSTANCE_ID])
-                self._database = self._instance.database(database_id=conn_data[SpannerParam.DATABASE_ID],
-                                                         pool=session_pool)
+
+                if conn_data[SpannerParam.SESSION_POOL_SIZE] > 0:
+                    # use PingingPool for mixed read/write workloads
+                    session_pool: PingingPool = PingingPool(
+                        size=conn_data[SpannerParam.SESSION_POOL_SIZE],
+                        default_timeout=conn_data[SpannerParam.SESSION_DEFAULT_TIMEOUT],
+                        ping_interval=conn_data[SpannerParam.SESSION_PING_INTERVAL],
+                    )
+                    self._database = self._instance.database(database_id=conn_data[SpannerParam.DATABASE_ID],
+                                                             pool=session_pool)
+                else:
+                    # no pools available (local emulation is being used)
+                    self._database = self._instance.database(database_id=conn_data[SpannerParam.DATABASE_ID])
+
                 from google.cloud.spanner_v1 import __version__
                 conn_data[DbParam.VERSION] = __version__
             except Exception as e:
@@ -189,7 +196,7 @@ class GoogleSpanner:
         """
         # make sure database pool is the proper type
         # noinspection PyProtectedMember
-        if isinstance(self._database._pool, PingingPool):
+        if isinstance(self._database._pool, PingingPool):  # noqa: SLF001 - private member accessed
             # noinspection PyTypeChecker
             params: dict[SpannerParam, Any] = _DB_CONN_DATA[DbEngine.SPANNER]
             name: str = f"spanner-ping-{params[SpannerParam.INSTANCE_ID]}/{params[SpannerParam.DATABASE_ID]}"
@@ -211,7 +218,7 @@ class GoogleSpanner:
 
         # retrieve the database pool
         # noinspection PyProtectedMember
-        db_pool: PingingPool = self._database._pool
+        db_pool: PingingPool = self._database._pool  # noqa: SLF001 - private member accessed
 
         # background-ping the sessions
         while True:
@@ -238,7 +245,11 @@ class SpannerConnection:
         """
         Instantiate a *connection* with a Cloud Spanner database.
 
-        :param autocommit: whether the connection is to be in autocommit mode (defaults to *False*)
+        The parameter *autocommit* indicates whether the connection should operate in autocommit mode.
+        Regardless of its setting, the connection automatically falls back to autocommit mode if no
+        session pools are available.
+
+        :param autocommit: whether the connection is to operate in autocommit mode (defaults to *False*)
         :param errors: incidental error messages (might be a non-empty list)
         """
         # instance variables
@@ -251,18 +262,21 @@ class SpannerConnection:
         spanner_data: dict[str, Any] = _DB_CONN_DATA.get(DbEngine.SPANNER) or {}
         google_spanner: GoogleSpanner = spanner_data.get(SpannerParam.ENGINE)
         if google_spanner:
-            self._autocommit = autocommit
             # noinspection PyProtectedMember
-            self._database = google_spanner._database
+            self._database = google_spanner._database  # noqa: SLF001 - private member accessed
+
+            self._autocommit = autocommit
             if not self._autocommit:
                 try:
                     # retrieve the database pool
-                    # ruff: noqa: SLF001
                     # noinspection PyProtectedMember
-                    self._db_pool = self._database._pool
-
-                    # acquire a session from the pool
-                    self._pool_session = self._db_pool.get()
+                    self._db_pool = self._database._pool  # noqa: SLF001 - private member accessed
+                    if self._db_pool is None:
+                        # autocommit mode is required when pools are not available
+                        self._autocommit = True
+                    else:
+                        # acquire a session from the pool
+                        self._pool_session = self._db_pool.get()
                 except Exception as e:
                     exc_err: str = exc_format(exc=e,
                                               exc_info=sys.exc_info())
