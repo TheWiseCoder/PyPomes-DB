@@ -3,21 +3,21 @@ from contextlib import suppress
 from datetime import date, datetime
 from logging import Logger
 from pathlib import Path
-from pypomes_core import (
-    DateFormat, DatetimeFormat, str_as_list, list_get_coupled
-)
 from psycopg2 import Binary
 from psycopg2.extras import execute_values
 # noinspection PyProtectedMember
-from psycopg2._psycopg import connection
-from pypomes_core import str_between, str_splice
+# ruff: noqa: N812 - checks for lowercase imports that are aliased to non-lowercase names
+from psycopg2._psycopg import connection as Connection
+from pypomes_core import (
+    DateFormat, DatetimeFormat,
+    list_get_coupled, str_as_list, str_between, str_splice
+)
 from typing import Any, BinaryIO, Final
 
 from .db_common import (
-    DbEngine, DbParam,
+    _DB_LOGGERS, DbEngine, DbParam,
     _assert_query_quota, _build_query_msg, _get_params, _except_msg
 )
-from .db_pomes import db_close
 
 RESERVED_WORDS: Final[list[str]] = [
     "ALL", "ANALYSE", "ANALYZE", "AND", "ANY", "ARRAY", "AS", "ASC", "ASYMMETRIC", "AUTHORIZATION",
@@ -50,8 +50,7 @@ def get_connection_string() -> str:
 
 
 def connect(autocommit: bool = None,
-            errors: list[str] = None,
-            logger: Logger = None) -> connection | None:
+            errors: list[str] = None) -> Connection | None:
     """
     Obtain and return a connection to the database.
 
@@ -59,11 +58,10 @@ def connect(autocommit: bool = None,
 
     :param autocommit: whether the connection is to be in autocommit mode (defaults to *False*)
     :param errors: incidental error messages (must be *[]* or *None*)
-    :param logger: optional logger
     :return: the connection to the database, or *None* if error
     """
     # initialize the return variable
-    result: connection | None = None
+    result: Connection | None = None
 
     # retrieve the connection parameters
     db_params: dict[DbParam, Any] = _get_params(DbEngine.POSTGRES)
@@ -81,15 +79,15 @@ def connect(autocommit: bool = None,
         msg: str = _except_msg(exception=e,
                                connection=None,
                                engine=DbEngine.POSTGRES)
-        if logger:
-            logger.error(msg=msg)
+        if _DB_LOGGERS[DbEngine.POSTGRES]:
+            _DB_LOGGERS[DbEngine.POSTGRES].error(msg=msg)
         if isinstance(errors, list):
             errors.append(msg)
 
     # log errors
-    if logger and errors:
-        logger.error(msg="Error connecting to "
-                         f"'{db_params.get(DbParam.NAME)}' at '{db_params.get(DbParam.HOST)}'")
+    if _DB_LOGGERS[DbEngine.POSTGRES] and errors:
+        _DB_LOGGERS[DbEngine.POSTGRES].error(msg="Error connecting to "
+                                                 f"'{db_params.get(DbParam.NAME)}' at '{db_params.get(DbParam.HOST)}'")
     return result
 
 
@@ -133,18 +131,16 @@ def select(sel_stmt: str,
            max_count: int | None,
            offset_count: int | None,
            limit_count: int | None,
-           conn: connection | None,
+           connection: Connection | None,
            committable: bool | None,
-           errors: list[str] = None,
-           logger: Logger = None) -> list[tuple] | None:
+           errors: list[str] = None) -> list[tuple] | None:
     """
     Query the database and return all tuples that satisfy the *sel_stmt* command.
 
     The command can optionally contain selection criteria, with respective values given in *where_vals*.
     Care should be exercised if *where_clause* contains *IN* directives. In PostgreSQL, the list of values
     for an attribute with the *IN* directive must be contained in a specific tuple, and the operation will
-    break for a list of values containing only 1 element. The safe way to specify *IN* directives is
-    to add them to *where_data*, as the specifics for PostgreSQL will then be properly dealt with.
+    break for a list of values containing only 1 element.
 
     If not positive integers, *min_count*, *max_count*, *offset_count*, and *limit_count* are ignored.
     If both *min_count* and *max_count* are specified with equal values, then exactly that number of
@@ -160,10 +156,9 @@ def select(sel_stmt: str,
     :param max_count: optionally defines the maximum number of expected
     :param offset_count: number of tuples to skip
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
-    :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit operation upon errorless completion
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit or rollback the operation, upon completion
     :param errors: incidental error messages (must be *[]* or *None*)
-    :param logger: optional logger
     :return: list of tuples containing the search result, *[]* on empty search, or *None* if error
     """
     # initialize the return variable
@@ -174,15 +169,15 @@ def select(sel_stmt: str,
         errors = []
 
     # make sure to have a connection
-    curr_conn: connection = conn or connect(autocommit=False,
-                                            errors=errors,
-                                            logger=logger)
+    curr_conn: Connection = connection or connect(autocommit=False,
+                                                  errors=errors)
     if not errors:
         # establish offset and limit
         if offset_count or limit_count:
-            sel_stmt = add_query_limits(sel_stmt=sel_stmt,
-                                        offset_count=offset_count,
-                                        limit_count=limit_count)
+            from . import db_pomes
+            sel_stmt = db_pomes.db_add_query_limits(sel_stmt=sel_stmt,
+                                                    offset_count=offset_count,
+                                                    limit_count=limit_count)
         try:
             # obtain a cursor and execute the operation
             with curr_conn.cursor() as cursor:
@@ -193,48 +188,46 @@ def select(sel_stmt: str,
                 count: int = len(rows)
 
                 # log the retrieval operation
-                if logger:
+                if _DB_LOGGERS[DbEngine.POSTGRES]:
                     from_table: str = str_splice(sel_stmt + " ",
                                                  seps=(" FROM ", " "))[1]
-                    logger.debug(msg=f"Read {count} tuples from {DbEngine.POSTGRES}.{from_table}, "
-                                     f"offset {offset_count}, connection {id(curr_conn)}")
+                    _DB_LOGGERS[DbEngine.POSTGRES].debug(msg=f"Read {count} tuples from "
+                                                             f"{DbEngine.POSTGRES}.{from_table}, offset "
+                                                             f"{offset_count}, connection {id(curr_conn)}")
 
-                # has the query quota been satisfied ?
-                if _assert_query_quota(engine=DbEngine.POSTGRES,
-                                       query=sel_stmt,
+                if _assert_query_quota(query=sel_stmt,
+                                       engine=DbEngine.POSTGRES,
                                        where_vals=where_vals,
                                        count=count,
                                        min_count=min_count,
                                        max_count=max_count,
                                        errors=errors):
-                    # yes, retrieve the returned tuples
+                    # the query quota was satisfied, retrieve the returned tuples
                     result = rows
 
-            # commit the transaction, if appropriate
-            if committable or not conn:
+            # commit the transaction
+            if committable or not connection:
                 curr_conn.commit()
         except Exception as e:
-            if committable or not conn:
+            if committable or not connection:
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
                                    connection=curr_conn,
                                    engine=DbEngine.POSTGRES)
-            if logger:
-                logger.error(msg=msg)
+            if _DB_LOGGERS[DbEngine.POSTGRES]:
+                _DB_LOGGERS[DbEngine.POSTGRES].error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
             # close the connection, if locally acquired
-            if curr_conn and not conn:
-                db_close(connection=curr_conn,
-                         engine=DbEngine.POSTGRES,
-                         logger=logger)
+            if curr_conn and not connection:
+                curr_conn.close()
         # log errors
-        if logger and errors:
-            logger.error(msg=_build_query_msg(query_stmt=sel_stmt,
-                                              engine=DbEngine.POSTGRES,
-                                              bind_vals=where_vals))
+        if _DB_LOGGERS[DbEngine.POSTGRES] and errors:
+            _DB_LOGGERS[DbEngine.POSTGRES].error(msg=_build_query_msg(query_stmt=sel_stmt,
+                                                                      engine=DbEngine.POSTGRES,
+                                                                      bind_vals=where_vals))
     return result
 
 
@@ -243,10 +236,9 @@ def execute(exc_stmt: str,
             return_cols: dict[str, type] | None,
             min_count: int | None,
             max_count: int | None,
-            conn: connection | None,
+            connection: Connection | None,
             committable: bool | None,
-            errors: list[str] = None,
-            logger: Logger = None) -> tuple | int | None:
+            errors: list[str] = None) -> tuple | int | None:
     """
     Execute the command *exc_stmt* on the database.
 
@@ -259,9 +251,9 @@ def execute(exc_stmt: str,
     are generated by the database itself. Otherwise, the value returned is the number of inserted, modified,
     or deleted tuples, or *None* if an error occurred.
 
-    The value returned by this operation (as *cursor.rowcount*) is verified against *min_count* or *max_count*,
-    if provided. An error is issued if a disagreement exists, followed by a rollback. This is an optional feature,
-    intended to minimize data loss due to programming mistakes.
+    If not positive integers, *min_count* and *max_count* are ignored. If both *min_count* and *max_count*
+    are specified with equal values, then exactly that number of tuples must have been affected by the query,
+    as reported by *cursor.rowcount*.
 
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
@@ -270,10 +262,9 @@ def execute(exc_stmt: str,
     :param return_cols: optional columns and respective types, whose values are to be returned on *INSERT* or *UPDATE*
     :param min_count: optionally defines the minimum number of tuples to be affected
     :param max_count: optionally defines the maximum number of tuples to be affected
-    :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit operation upon errorless completion
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit or rollback the operation, upon completion
     :param errors: incidental error messages (must be *[]* or *None*)
-    :param logger: optional logger
     :return: the values of *return_cols*, the value returned by the operation, or *None* if error
     """
     # initialize the return variable
@@ -284,9 +275,8 @@ def execute(exc_stmt: str,
         errors = []
 
     # make sure to have a connection
-    curr_conn: connection = conn or connect(autocommit=False,
-                                            errors=errors,
-                                            logger=logger)
+    curr_conn: Connection = connection or connect(autocommit=False,
+                                                  errors=errors)
     if not errors:
         if return_cols:
             exc_stmt += F" RETURNING {', '.join(return_cols.keys())}"
@@ -298,8 +288,8 @@ def execute(exc_stmt: str,
 
                 # has the query quota been satisfied ?
                 count: int = cursor.rowcount
-                if _assert_query_quota(engine=DbEngine.ORACLE,
-                                       query=exc_stmt,
+                if _assert_query_quota(query=exc_stmt,
+                                       engine=DbEngine.POSTGRES,
                                        where_vals=None,
                                        count=count,
                                        min_count=min_count,
@@ -311,40 +301,37 @@ def execute(exc_stmt: str,
                         result = cursor.rowcount
 
             # commit the transaction, if appropriate
-            if committable or not conn:
+            if committable or not connection:
                 curr_conn.commit()
         except Exception as e:
-            if committable or not conn:
+            if committable or not connection:
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
                                    connection=curr_conn,
                                    engine=DbEngine.POSTGRES)
-            if logger:
-                logger.error(msg=msg)
+            if _DB_LOGGERS[DbEngine.POSTGRES]:
+                _DB_LOGGERS[DbEngine.POSTGRES].error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
             # close the connection, if locally acquired
-            if curr_conn and not conn:
-                db_close(connection=curr_conn,
-                         engine=DbEngine.POSTGRES,
-                         logger=logger)
+            if curr_conn and not connection:
+                curr_conn.close()
         # log errors
-        if logger and errors:
-            logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
-                                              engine=DbEngine.POSTGRES,
-                                              bind_vals=bind_vals))
+        if _DB_LOGGERS[DbEngine.POSTGRES] and errors:
+            _DB_LOGGERS[DbEngine.POSTGRES].error(msg=_build_query_msg(query_stmt=exc_stmt,
+                                                                      engine=DbEngine.POSTGRES,
+                                                                      bind_vals=bind_vals))
     return result
 
 
 def bulk_execute(exc_stmt: str,
                  exc_vals: list[tuple],
                  template: str | None,
-                 conn: connection | None,
+                 connection: Connection | None,
                  committable: bool | None,
-                 errors: list[str] = None,
-                 logger: Logger = None) -> int | None:
+                 errors: list[str] = None) -> int | None:
     """
     Bulk-update the database with the statement defined in *execute_stmt*, and the values in *execute_vals*.
 
@@ -377,10 +364,9 @@ def bulk_execute(exc_stmt: str,
     :param exc_stmt: the command to update the database with
     :param exc_vals: the list of values for tuple identification, and to update the database with
     :param template: the snippet to merge to every item in *exc_vals* to compose the query
-    :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit operation upon errorless completion
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit or rollback the operation, upon completion
     :param errors: incidental error messages (must be *[]* or *None*)
-    :param logger: optional logger
     :return: the number of inserted or updated tuples, or *None* if error
     """
     # initialize the return variable
@@ -391,9 +377,8 @@ def bulk_execute(exc_stmt: str,
         errors = []
 
     # make sure to have a connection
-    curr_conn: connection = conn or connect(autocommit=False,
-                                            errors=errors,
-                                            logger=logger)
+    curr_conn: Connection = connection or connect(autocommit=False,
+                                                  errors=errors)
     if not errors:
         # execute the bulk query
         try:
@@ -407,30 +392,28 @@ def bulk_execute(exc_stmt: str,
                 result = len(exc_vals)
 
             # commit the transaction, if appropriate
-            if committable or not conn:
+            if committable or not connection:
                 curr_conn.commit()
         except Exception as e:
-            if committable or not conn:
+            if committable or not connection:
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
                                    connection=curr_conn,
                                    engine=DbEngine.POSTGRES)
-            if logger:
-                logger.error(msg=msg)
+            if _DB_LOGGERS[DbEngine.POSTGRES]:
+                _DB_LOGGERS[DbEngine.POSTGRES].error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
             # close the connection, if locally acquired
-            if curr_conn and not conn:
-                db_close(connection=curr_conn,
-                         engine=DbEngine.POSTGRES,
-                         logger=logger)
+            if curr_conn and not connection:
+                curr_conn.close()
         # log errors
-        if logger and errors:
-            logger.error(msg=_build_query_msg(query_stmt=exc_stmt,
-                                              engine=DbEngine.POSTGRES,
-                                              bind_vals=exc_vals[0]))
+        if _DB_LOGGERS[DbEngine.POSTGRES] and errors:
+            _DB_LOGGERS[DbEngine.POSTGRES].error(msg=_build_query_msg(query_stmt=exc_stmt,
+                                                                      engine=DbEngine.POSTGRES,
+                                                                      bind_vals=exc_vals[0]))
     return result
 
 
@@ -440,7 +423,7 @@ def update_lob(lob_table: str,
                pk_vals: tuple,
                lob_data: bytes | str | Path | BinaryIO,
                chunk_size: int,
-               conn: connection | None,
+               connection: Connection | None,
                committable: bool | None,
                errors: list[str] = None,
                logger: Logger = None) -> None:
@@ -458,8 +441,8 @@ def update_lob(lob_table: str,
     :param pk_vals: values with which to locate the tuple to be updated
     :param lob_data: the LOB data (bytes, a file path, or a file pointer)
     :param chunk_size: size in bytes of the data chunk to read/write, or 0 or *None* for no limit
-    :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit operation upon errorless completion
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit or rollback the operation, upon completion
     :param errors: incidental error messages (must be *[]* or *None*)
     :param logger: optional logger
     """
@@ -468,9 +451,8 @@ def update_lob(lob_table: str,
         errors = []
 
     # make sure to have a connection
-    curr_conn: connection = conn or connect(autocommit=False,
-                                            errors=errors,
-                                            logger=logger)
+    curr_conn: Connection = connection or connect(autocommit=False,
+                                                  errors=errors)
     if not errors:
         if isinstance(lob_data, str):
             lob_data = Path(lob_data)
@@ -509,10 +491,10 @@ def update_lob(lob_table: str,
                     lob_data.close()
 
             # commit the transaction, if appropriate
-            if committable or not conn:
+            if committable or not connection:
                 curr_conn.commit()
         except Exception as e:
-            if committable or not conn:
+            if committable or not connection:
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
@@ -524,10 +506,8 @@ def update_lob(lob_table: str,
                 errors.append(msg)
         finally:
             # close the connection, if locally acquired
-            if curr_conn and not conn:
-                db_close(connection=curr_conn,
-                         engine=DbEngine.POSTGRES,
-                         logger=logger)
+            if curr_conn and not connection:
+                curr_conn.close()
         # log errors
         if logger and errors:
             logger.error(msg=_build_query_msg(query_stmt=update_stmt,
@@ -535,41 +515,11 @@ def update_lob(lob_table: str,
                                               bind_vals=pk_vals))
 
 
-def add_query_limits(sel_stmt: str,
-                     offset_count: int | None,
-                     limit_count: int | None) -> str:
-    """
-    Add offset and limit to *sel_stmt*.
-
-    If not positive integers, *offset_count*, and *limit_count* are ignored. The parameter *offset_count*
-    is used to offset the retrieval of tuples, whereas *limit_count* establishes a ceiling on the number
-    of tuples returned.
-
-    :param sel_stmt: the query statement to modify
-    :param offset_count: number of tuples to skip
-    :param limit_count: limit to the number of tuples returned
-    :return: the modified query statement
-    """
-    # initialize the return variable
-    result: str = sel_stmt
-
-    # establish an offset into the result set
-    if isinstance(offset_count, int) and offset_count > 0:
-        result += f" OFFSET {offset_count}"
-
-    # establish a limit to the number of tuples returned
-    if isinstance(limit_count, int) and limit_count > 0:
-        result += f" LIMIT {limit_count}"
-
-    return result
-
-
 def call_procedure(proc_name: str,
                    proc_vals: tuple | None,
-                   conn: connection | None,
+                   connection: Connection | None,
                    committable: bool | None,
-                   errors: list[str] = None,
-                   logger: Logger = None) -> list[tuple] | None:
+                   errors: list[str] = None) -> list[tuple] | None:
     """
     Execute the stored procedure *proc_name*, with the arguments given in *proc_vals*.
 
@@ -577,10 +527,9 @@ def call_procedure(proc_name: str,
 
     :param proc_name: the name of the stored procedure
     :param proc_vals: the arguments to be passed
-    :param conn: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit operation upon errorless completion
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit or rollback the operation, upon completion
     :param errors: incidental error messages (must be *[]* or *None*)
-    :param logger: optional logger
     :return: the data returned by the procedure, or *None* if error
     """
     # initialize the return variable
@@ -591,9 +540,8 @@ def call_procedure(proc_name: str,
         errors = []
 
     # make sure to have a connection
-    curr_conn: connection = conn or connect(autocommit=False,
-                                            errors=errors,
-                                            logger=logger)
+    curr_conn: Connection = connection or connect(autocommit=False,
+                                                  errors=errors)
     if not errors:
         # build the command
         proc_stmt: str = f"{proc_name}(" + "%s, " * (len(proc_vals) - 1) + "%s)"
@@ -608,39 +556,36 @@ def call_procedure(proc_name: str,
                 result = list(cursor)
 
             # commit the transaction
-            if committable or not conn:
+            if committable or not connection:
                 curr_conn.commit()
         except Exception as e:
-            if committable or not conn:
+            if committable or not connection:
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
                                    connection=curr_conn,
                                    engine=DbEngine.POSTGRES)
-            if logger:
-                logger.error(msg=msg)
+            if _DB_LOGGERS[DbEngine.POSTGRES]:
+                _DB_LOGGERS[DbEngine.POSTGRES].error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
             # close the connection, if locally acquired
-            if curr_conn and not conn:
-                db_close(connection=curr_conn,
-                         engine=DbEngine.POSTGRES,
-                         logger=logger)
+            if curr_conn and not connection:
+                curr_conn.close()
         # log errors
-        if logger and errors:
-            logger.error(msg=_build_query_msg(query_stmt=proc_stmt,
-                                              engine=DbEngine.POSTGRES,
-                                              bind_vals=proc_vals))
+        if _DB_LOGGERS[DbEngine.POSTGRES] and errors:
+            _DB_LOGGERS[DbEngine.POSTGRES].error(msg=_build_query_msg(query_stmt=proc_stmt,
+                                                                      engine=DbEngine.POSTGRES,
+                                                                      bind_vals=proc_vals))
     return result
 
 
 def identity_post_insert(insert_stmt: str,
-                         conn: connection,
+                         connection: Connection,
                          committable: bool,
                          identity_column: str,
-                         errors: list[str] = None,
-                         logger: Logger = None) -> None:
+                         errors: list[str] = None) -> None:
     """
     Handle the post-insert for tables with identity columns.
 
@@ -648,11 +593,10 @@ def identity_post_insert(insert_stmt: str,
     require special handling before and after bulk inserts.
 
     :param insert_stmt: the INSERT command
-    :param conn: the connection to use
-    :param committable: whether to commit operation upon errorless completion
+    :param connection: the connection to use
+    :param committable: whether to commit or rollback the operation, upon completion
     :param identity_column: column whose values are generated by the database
     :param errors: incidental error messages (must be *[]* or *None*)
-    :param logger: optional logger
     """
     # make sure to have an errors list
     if not isinstance(errors, list):
@@ -669,10 +613,9 @@ def identity_post_insert(insert_stmt: str,
                                     max_count=None,
                                     offset_count=None,
                                     limit_count=None,
-                                    conn=conn,
+                                    connection=connection,
                                     committable=False,
-                                    errors=errors,
-                                    logger=logger)
+                                    errors=errors)
     if not errors:
         sel_stmt: str = (f"SELECT setval("
                          f"pg_get_serial_sequence('{table_name}', '{identity_column}'), "
@@ -682,17 +625,15 @@ def identity_post_insert(insert_stmt: str,
                 return_cols=None,
                 min_count=None,
                 max_count=None,
-                conn=conn,
+                connection=connection,
                 committable=committable,
-                errors=errors,
-                logger=logger)
+                errors=errors)
 
 
 def build_typified_template(insert_stmt: str,
                             nullable_only: bool,
-                            conn: connection,
-                            errors: list[str] = None,
-                            logger: Logger = None) -> str:
+                            connection: Connection,
+                            errors: list[str] = None) -> str:
     """
     Build the typified template corresponding to the columns in *insert_stmt*, by setting the appropriate data types.
 
@@ -706,9 +647,8 @@ def build_typified_template(insert_stmt: str,
 
     :param insert_stmt: the bulk *INSERT* statement
     :param nullable_only: whether to disregard non-nullable columns
-    :param conn: the connection to use
+    :param connection: the connection to use
     :param errors: incidental error messages (must be *[]* or *None*)
-    :param logger: optional logger
     :return: the typified template, or *None* if error or no column was typified
     """
     # initialize the return variable
@@ -738,10 +678,9 @@ def build_typified_template(insert_stmt: str,
                                          max_count=None,
                                          offset_count=None,
                                          limit_count=None,
-                                         conn=conn,
+                                         connection=connection,
                                          committable=False,
-                                         errors=errors,
-                                         logger=logger)
+                                         errors=errors)
     # build the template
     if not errors:
         result = "("
@@ -765,9 +704,8 @@ def build_typified_template(insert_stmt: str,
 
 def tipify_bulk_update(update_stmt: str,
                        nullable_only: bool,
-                       conn: connection,
-                       errors: list[str] = None,
-                       logger: Logger = None) -> str:
+                       connection: Connection,
+                       errors: list[str] = None) -> str:
     """
     Modify the bulk *update_stmt* statement by adding the appropriate data types.
 
@@ -783,9 +721,8 @@ def tipify_bulk_update(update_stmt: str,
 
     :param update_stmt: the bulk *UPDATE* statement
     :param nullable_only: whether to disregard non-nullable columns
-    :param conn: the connection to use
+    :param connection: the connection to use
     :param errors: incidental error messages (must be *[]* or *None*)
-    :param logger: optional logger
     :return: a new statement, enriched with the columns' data types, or *None* if error
     """
     # initialize the return variable
@@ -815,10 +752,9 @@ def tipify_bulk_update(update_stmt: str,
                                          max_count=None,
                                          offset_count=None,
                                          limit_count=None,
-                                         conn=conn,
+                                         connection=connection,
                                          committable=False,
-                                         errors=errors,
-                                         logger=logger)
+                                         errors=errors)
     # tipify the columns
     if not errors:
         result = update_stmt

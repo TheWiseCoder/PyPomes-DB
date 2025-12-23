@@ -1,12 +1,11 @@
 from datetime import date, datetime
-from logging import Logger
 from mysql import connector
 from mysql.connector.aio import MySQLConnectionAbstract
 from pypomes_core import DateFormat, DatetimeFormat
 from typing import Any, Final
 
 from .db_common import (
-    DbEngine, DbParam, _get_params, _except_msg
+    _DB_LOGGERS, DbEngine, DbParam, _get_params, _except_msg
 )
 
 RESERVED_WORDS: Final[list[str]] = [
@@ -42,8 +41,7 @@ RESERVED_WORDS: Final[list[str]] = [
 
 
 def connect(autocommit: bool = None,
-            errors: list[str] = None,
-            logger: Logger = None) -> MySQLConnectionAbstract | None:
+            errors: list[str] = None) -> MySQLConnectionAbstract | None:
     """
     Obtain and return a connection to the database.
 
@@ -51,7 +49,6 @@ def connect(autocommit: bool = None,
 
     :param autocommit: whether the connection is to be in autocommit mode (defaults to *False*)
     :param errors: incidental error messages (must be *[]* or *None*)
-    :param logger: optional logger
     :return: the connection to the database, or *None* if error
     """
     # initialize the return variable
@@ -73,16 +70,15 @@ def connect(autocommit: bool = None,
         msg: str = _except_msg(exception=e,
                                connection=result,
                                engine=DbEngine.ORACLE)
-        if logger:
-            logger.error(msg=msg)
+        if _DB_LOGGERS[DbEngine.MYSQL]:
+            _DB_LOGGERS[DbEngine.MYSQL].error(msg=msg)
         if isinstance(errors, list):
             errors.append(msg)
 
     # log errors
-    if logger and errors:
-        logger.error(msg=f"Error connecting to '{db_params.get(DbParam.NAME)} '"
-                         f"at '{db_params.get(DbParam.NAME)}'")
-
+    if _DB_LOGGERS[DbEngine.MYSQL] and errors:
+        _DB_LOGGERS[DbEngine.MYSQL].error(msg=f"Error connecting to '{db_params.get(DbParam.NAME)} '"
+                                              f"at '{db_params.get(DbParam.NAME)}'")
     return result
 
 

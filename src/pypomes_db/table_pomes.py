@@ -1,9 +1,7 @@
-from logging import Logger
 from typing import Any
 
-from . import DbParam
 from .db_common import (
-    _DB_CONN_DATA, DbEngine, _assert_engine, _get_param
+    _DB_CONN_DATA, DbEngine, DbParam, _assert_engine, _get_param
 )
 from .db_pomes import db_execute, db_select
 
@@ -12,8 +10,7 @@ def db_create_session_table(engine: DbEngine,
                             connection: Any,
                             table_name: str,
                             column_data: list[str],
-                            errors: list[str] = None,
-                            logger: Logger = None) -> None:
+                            errors: list[str] = None) -> None:
     """
     Create the session-scoped table *table_name*, with the list of columns specifications in *column_data*.
 
@@ -34,7 +31,6 @@ def db_create_session_table(engine: DbEngine,
     :param table_name: the, possibly schema-qualified, name of the table to be created
     :param column_data: this list of column information for the table cration
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     """
     # necessary, lest the state of 'errors' be tested
     curr_errors: list[str] = []
@@ -65,8 +61,7 @@ def db_create_session_table(engine: DbEngine,
                             f"({', '.join(column_data)}) ON COMMIT PRESERVE DEFINITION")
                 elif not db_table_exists(table_name=table_name,
                                          engine=DbEngine.ORACLE,
-                                         errors=curr_errors,
-                                         logger=logger) and not curr_errors:
+                                         errors=curr_errors) and not curr_errors:
                     # - the table definition remains in the database permanently, but the data is session-specific
                     # - 'ON COMMIT PRESERVE ROWS' keeps data for the entire session
                     stmt = (f"CREATE GLOBAL TEMPORARY TABLE {table_name} "
@@ -79,8 +74,7 @@ def db_create_session_table(engine: DbEngine,
             db_execute(exc_stmt=stmt,
                        engine=engine,
                        connection=connection,
-                       errors=curr_errors,
-                       logger=logger)
+                       errors=curr_errors)
 
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)
@@ -117,8 +111,7 @@ def db_get_tables(schema: str = None,
                   engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
-                  errors: list[str] = None,
-                  logger: Logger = None) -> list[str] | None:
+                  errors: list[str] = None) -> list[str] | None:
     """
     Retrieve the list of schema-qualified tables in the database.
 
@@ -130,7 +123,6 @@ def db_get_tables(schema: str = None,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     :return: the schema-qualified table names found, or *None* if error
     """
     # initialize the return variable
@@ -157,8 +149,7 @@ def db_get_tables(schema: str = None,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=errors,
-                                           logger=logger)
+                                           errors=errors)
         # process the query result
         if isinstance(recs, list):
             result = [rec[0] for rec in recs]
@@ -170,8 +161,7 @@ def db_table_exists(table_name: str,
                     engine: DbEngine = None,
                     connection: Any = None,
                     committable: bool = None,
-                    errors: list[str] = None,
-                    logger: Logger = None) -> bool | None:
+                    errors: list[str] = None) -> bool | None:
     """
     Determine whether the table *table_name* exists in the database.
 
@@ -184,7 +174,6 @@ def db_table_exists(table_name: str,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     :return: *True* if the table was found, *False* otherwise, or *None* if error
     """
     # initialize the return variable
@@ -217,8 +206,7 @@ def db_table_exists(table_name: str,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=errors,
-                                           logger=logger)
+                                           errors=errors)
         # process the query result
         if isinstance(recs, list):
             result = recs[0][0] > 0
@@ -230,8 +218,7 @@ def db_drop_table(table_name: str,
                   engine: DbEngine = None,
                   connection: Any = None,
                   committable: bool = None,
-                  errors: list[str] = None,
-                  logger: Logger = None) -> None:
+                  errors: list[str] = None) -> None:
     """
     Drop the table given by the, possibly schema-qualified, *table_name*.
 
@@ -247,7 +234,6 @@ def db_drop_table(table_name: str,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     """
     # assert the database engine
     engine = _assert_engine(engine=engine,
@@ -285,16 +271,14 @@ def db_drop_table(table_name: str,
                    engine=engine,
                    connection=connection,
                    committable=committable,
-                   errors=errors,
-                   logger=logger)
+                   errors=errors)
 
 
 def db_get_table_ddl(table_name: str,
                      engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
-                     errors: list[str] = None,
-                     logger: Logger = None) -> str | None:
+                     errors: list[str] = None) -> str | None:
     """
     Retrieve the DDL script used to create the table *table_name*.
 
@@ -310,7 +294,6 @@ def db_get_table_ddl(table_name: str,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     :return: the DDL script used to create the index, or *None* if error or the table does not exist
     """
     # initialize the return variable
@@ -346,8 +329,7 @@ def db_get_table_ddl(table_name: str,
                                                engine=engine,
                                                connection=connection,
                                                committable=committable,
-                                               errors=errors,
-                                               logger=logger)
+                                               errors=errors)
             # process the query result
             if isinstance(recs, list) and recs:
                 result = recs[0][0].strip()
@@ -363,8 +345,7 @@ def db_get_column_metadata(table_name: str,
                            engine: DbEngine = None,
                            connection: Any = None,
                            committable: bool = None,
-                           errors: list[str] = None,
-                           logger: Logger = None) -> tuple[str, int, int, bool] | None:
+                           errors: list[str] = None) -> tuple[str, int, int, bool] | None:
     """
     Retrieve metadata on column *column_name* in *table_name*.
 
@@ -391,7 +372,6 @@ def db_get_column_metadata(table_name: str,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     :return: the metadata on column *column_name* in *table_name*, or *None* if error or metadata not found
     """
     # initialize the return variable
@@ -445,8 +425,7 @@ def db_get_column_metadata(table_name: str,
                                                                engine=engine,
                                                                connection=connection,
                                                                committable=committable,
-                                                               errors=errors,
-                                                               logger=logger)
+                                                               errors=errors)
         # process the query result
         if isinstance(recs, list) and recs:
             rec = recs[0]
@@ -459,8 +438,7 @@ def db_get_columns_metadata(table_name: str,
                             engine: DbEngine = None,
                             connection: Any = None,
                             committable: bool = None,
-                            errors: list[str] = None,
-                            logger: Logger = None) -> list[tuple[str, str, int, int, bool]] | None:
+                            errors: list[str] = None) -> list[tuple[str, str, int, int, bool]] | None:
     """
     Retrieve metadata on all columns in *table_name*.
 
@@ -487,7 +465,6 @@ def db_get_columns_metadata(table_name: str,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit operation on errorless completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     :return: a list of tuples with the metadata on all columns in *table_name*, or *None* if error
     """
     # initialize the return variable
@@ -538,8 +515,7 @@ def db_get_columns_metadata(table_name: str,
                                                                     engine=engine,
                                                                     connection=connection,
                                                                     committable=committable,
-                                                                    errors=errors,
-                                                                    logger=logger)
+                                                                    errors=errors)
         # process the query result
         if isinstance(recs, list) and recs:
             result = [(rec[0], rec[1], rec[2 if "char" in rec[1] else 3], rec[4], rec[5].startswith("Y"))

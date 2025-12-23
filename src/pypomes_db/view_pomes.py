@@ -1,4 +1,3 @@
-from logging import Logger
 from typing import Any, Literal
 
 from .db_common import DbEngine, _assert_engine
@@ -11,8 +10,7 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
                  engine: DbEngine = None,
                  connection: Any = None,
                  committable: bool = None,
-                 errors: list[str] = None,
-                 logger: Logger = None) -> list[str] | None:
+                 errors: list[str] = None) -> list[str] | None:
     """
     Retrieve the list of views in the database.
 
@@ -28,9 +26,8 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
     :param tables: optional list of, possibly schema-qualified, table names containing all views' dependencies
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     :return: the schema-qualified views found, or *None* if error
     """
     # initialize the return variable
@@ -69,8 +66,7 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=errors,
-                                           logger=logger)
+                                           errors=errors)
         # process the query result
         if isinstance(recs, list):
             result = [rec[0] for rec in recs]
@@ -82,8 +78,7 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
                                                                engine=engine,
                                                                connection=connection,
                                                                committable=committable,
-                                                               errors=errors,
-                                                               logger=logger)
+                                                               errors=errors)
             if isinstance(dependencies, list):
                 for dependency in dependencies:
                     if dependency not in tables:
@@ -102,8 +97,7 @@ def db_view_exists(view_name: str,
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
-                   errors: list[str] = None,
-                   logger: Logger = None) -> bool | None:
+                   errors: list[str] = None) -> bool | None:
     """
     Determine whether the view given by *view_name* exists in the database.
 
@@ -116,9 +110,8 @@ def db_view_exists(view_name: str,
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     :return: *True* if the view was found, *False* otherwise, or *None* if error
     """
     # initialize the return variable
@@ -169,8 +162,7 @@ def db_view_exists(view_name: str,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=errors,
-                                           logger=logger)
+                                           errors=errors)
         # process the query result
         if isinstance(recs, list):
             result = recs[0][0] > 0
@@ -183,8 +175,7 @@ def db_drop_view(view_name: str,
                  engine: DbEngine = None,
                  connection: Any = None,
                  committable: bool = None,
-                 errors: list[str] = None,
-                 logger: Logger = None) -> None:
+                 errors: list[str] = None) -> None:
     """
     Drop the view given by *view_name*.
 
@@ -199,9 +190,8 @@ def db_drop_view(view_name: str,
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     """
     # assert the database engine
     engine = _assert_engine(engine=engine,
@@ -241,8 +231,7 @@ def db_drop_view(view_name: str,
                    engine=engine,
                    connection=connection,
                    committable=committable,
-                   errors=errors,
-                   logger=logger)
+                   errors=errors)
 
 
 def db_get_view_ddl(view_name: str,
@@ -250,8 +239,7 @@ def db_get_view_ddl(view_name: str,
                     engine: DbEngine = None,
                     connection: Any = None,
                     committable: bool = None,
-                    errors: list[str] = None,
-                    logger: Logger = None) -> str | None:
+                    errors: list[str] = None) -> str | None:
     """
     Retrieve the DDL script used to create the view *view_name*.
 
@@ -265,9 +253,8 @@ def db_get_view_ddl(view_name: str,
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     :return: the DDL script used to create the view, or *None* if error or view does not exist
     """
     # initialize the return variable
@@ -320,8 +307,7 @@ def db_get_view_ddl(view_name: str,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=errors,
-                                           logger=logger)
+                                           errors=errors)
         # process the query result
         if isinstance(recs, list) and recs:
             result = recs[0][0].strip()
@@ -334,8 +320,7 @@ def db_get_view_dependencies(view_name: str,
                              engine: DbEngine = None,
                              connection: Any = None,
                              committable: bool = None,
-                             errors: list[str] = None,
-                             logger: Logger = None) -> list[str] | None:
+                             errors: list[str] = None) -> list[str] | None:
     """
     Retrieve the schema-qualified names of the tables *view_name* depends on.
 
@@ -348,9 +333,8 @@ def db_get_view_dependencies(view_name: str,
     :param view_type: the type of the view ("M": materialized, 'P': plain, defaults to 'P')
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     :return: the schema-qualified tables the view depends on, or *None* if error or view not found
     """
     # initialize the return variable
@@ -406,8 +390,7 @@ def db_get_view_dependencies(view_name: str,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=errors,
-                                           logger=logger)
+                                           errors=errors)
         # process the query result
         if isinstance(recs, list):
             result = [rec[0] for rec in recs]

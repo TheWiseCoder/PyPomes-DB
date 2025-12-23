@@ -1,10 +1,11 @@
+from enum import StrEnum, auto
+from logging import Logger
 from pypomes_core import (
     APP_PREFIX,
     str_sanitize, str_positional,
     env_get_str,  env_get_int,
     env_get_enum, env_get_enums, env_get_path
 )
-from enum import StrEnum, auto
 from typing import Any, Final, Literal
 
 
@@ -23,7 +24,6 @@ class DbParam(StrEnum):
     """
     Parameters for connecting to database engines. Class does not apply to Google Cloud Spanner.
     """
-    ENGINE = auto()
     NAME = auto()
     USER = auto()
     PWD = auto()
@@ -33,6 +33,15 @@ class DbParam(StrEnum):
     DRIVER = auto()
     VERSION = auto()
 
+
+# database engine loggers
+_DB_LOGGERS: Final[dict[DbEngine, Logger | None]] = {
+    DbEngine.MYSQL: None,
+    DbEngine.ORACLE: None,
+    DbEngine.POSTGRES: None,
+    DbEngine.SQLSERVER: None,
+    DbEngine.SPANNER: None
+}
 
 # the bind meta-tag to use in DML statements
 # (guarantees cross-engine compatilitiy, as this is replaced by the engine's bind tag)
@@ -68,7 +77,7 @@ def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
 
     The preferred way to specify database connection parameters is dynamically with *db_setup()*.
     Specifying database connection parameters with environment variables cannot be done for Google Cloud Spanner
-    (instead, *GoogleSpanner.setup()* in module *spanner_pomes* must be used).
+    (instead, *spanner_setup()* in module *spanner_pomes* must be used).
     For the other database engines, it can be done in two ways:
 
     1. for a single database engine, specify the data set
@@ -116,7 +125,6 @@ def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
                                          keys=tuple(DbEngine),
                                          values=("MSQL", "ORCL", "PG", "SQLS"))
         result[engine] = {
-            DbParam.ENGINE: engine.value,
             DbParam.NAME: env_get_str(key=f"{APP_PREFIX}_{prefix}_NAME"),
             DbParam.USER: env_get_str(key=f"{APP_PREFIX}_{prefix}_USER"),
             DbParam.PWD: env_get_str(key=f"{APP_PREFIX}_{prefix}_PWD"),
@@ -137,7 +145,7 @@ _DB_CONN_DATA: Final[dict[DbEngine, dict[DbParam, Any]]] = __get_conn_data()
 
 
 def _assert_engine(engine: DbEngine,
-                   errors: list[str] = None) -> DbEngine | None:
+                   errors: list[str] = None) -> DbEngine:
     """
     Verify if *engine* is in the list of configured engines.
 
@@ -161,8 +169,8 @@ def _assert_engine(engine: DbEngine,
     return result
 
 
-def _assert_query_quota(engine: DbEngine,
-                        query: str,
+def _assert_query_quota(query: str,
+                        engine: DbEngine,
                         where_vals: tuple | None,
                         count: int,
                         min_count: int | None,
@@ -549,7 +557,7 @@ def _combine_insert_data(insert_stmt: str,
     # add the key-value pairs
     insert_stmt += (f"{', '.join(insert_data.keys())})" +
                     values_clause + f"{DB_BIND_META_TAG}, " * len(insert_data))[:-2] + ")"
-    insert_vals += insert_vals + tuple(insert_data.values())
+    insert_vals += tuple(insert_data.values())
 
     return insert_stmt, insert_vals
 

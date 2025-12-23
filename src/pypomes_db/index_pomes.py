@@ -1,4 +1,3 @@
-from logging import Logger
 from pypomes_core import str_positional
 from typing import Any
 
@@ -12,8 +11,7 @@ def db_get_indexes(schema: str = None,
                    engine: DbEngine = None,
                    connection: Any = None,
                    committable: bool = None,
-                   errors: list[str] = None,
-                   logger: Logger = None) -> list[str]:
+                   errors: list[str] = None) -> list[str]:
     """
     Retrieve the list of schema-qualified indexes in the database.
 
@@ -30,9 +28,8 @@ def db_get_indexes(schema: str = None,
     :param tables: optional list of possibly schema-qualified tables whose columns the indexes were created on
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     :return: the list of schema-qualified indexes in the database
     """
     # initialize the return variable
@@ -122,8 +119,7 @@ def db_get_indexes(schema: str = None,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=errors,
-                                           logger=logger)
+                                           errors=errors)
         # process the query result
         if isinstance(recs, list):
             result = [rec[0] for rec in recs]
@@ -135,8 +131,7 @@ def db_get_index_ddl(index_name: str,
                      engine: DbEngine = None,
                      connection: Any = None,
                      committable: bool = None,
-                     errors: list[str] = None,
-                     logger: Logger = None) -> str | None:
+                     errors: list[str] = None) -> str | None:
     """
     Retrieve the DDL script used to create the index *index_name*.
 
@@ -148,9 +143,8 @@ def db_get_index_ddl(index_name: str,
     :param index_name: the schema-qualified name of the index
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
+    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
-    :param logger: optional logger
     :return: the DDL script used to create the index, or *None* if error or if the index does not exist
     """
     # initialize the return variable
@@ -196,8 +190,7 @@ def db_get_index_ddl(index_name: str,
                                            engine=engine,
                                            connection=connection,
                                            committable=committable,
-                                           errors=curr_errors,
-                                           logger=logger)
+                                           errors=curr_errors)
         # process the query result
         if not curr_errors and recs:
             result = recs[0][0].strip()
