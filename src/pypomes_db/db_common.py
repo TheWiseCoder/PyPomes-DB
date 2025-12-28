@@ -34,15 +34,6 @@ class DbParam(StrEnum):
     VERSION = auto()
 
 
-# database engine loggers
-_DB_LOGGERS: Final[dict[DbEngine, Logger | None]] = {
-    DbEngine.MYSQL: None,
-    DbEngine.ORACLE: None,
-    DbEngine.POSTGRES: None,
-    DbEngine.SQLSERVER: None,
-    DbEngine.SPANNER: None
-}
-
 # the bind meta-tag to use in DML statements
 # (guarantees cross-engine compatilitiy, as this is replaced by the engine's bind tag)
 DB_BIND_META_TAG: Final[str] = env_get_str(key=f"{APP_PREFIX}_DB_BIND_META_TAG",
@@ -142,6 +133,15 @@ def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
 
 # connection data for the configured database engines
 _DB_CONN_DATA: Final[dict[DbEngine, dict[DbParam, Any]]] = __get_conn_data()
+
+# database engine loggers
+_DB_LOGGERS: Final[dict[DbEngine, Logger | None]] = {
+    DbEngine.MYSQL: None,
+    DbEngine.ORACLE: None,
+    DbEngine.POSTGRES: None,
+    DbEngine.SQLSERVER: None,
+    DbEngine.SPANNER: None
+}
 
 
 def _assert_engine(engine: DbEngine,
