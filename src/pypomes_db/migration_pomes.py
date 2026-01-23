@@ -598,13 +598,16 @@ def db_migrate_lobs(source_engine: DbEngine,
                                 target_cursor.execute(query=update_pg,
                                                       vars=(col_data, *pk_vals))
                             case DbEngine.SQLSERVER:
-                                from pyodbc import Binary
                                 # remove append indication on initial update
                                 update_sqls: str = update_stmt if offset > 1 else \
                                     update_stmt.replace(f"{target_lob_column} || ", "", 1)
 
                                 # string data may come from a LOB (Oracle's NCLOB is a good example)
-                                col_data: str | Binary = Binary(lob_data) if isinstance(lob_data, bytes) else lob_data
+                                # ('pyodbc.Binary' is an alias for 'bytes')
+                                # from pyodbc import Binary
+                                # col_data: str | Binary = Binary(lob_data) \
+                                #     if isinstance(lob_data, bytes) else lob_data
+                                col_data: str | bytes = lob_data
                                 target_cursor.execute(sql=update_sqls,
                                                       params=(col_data, *pk_vals))
                         if len(lob_data) > 0:

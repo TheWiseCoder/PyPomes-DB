@@ -5,7 +5,7 @@ from datetime import datetime, UTC
 from enum import StrEnum, auto
 from logging import Logger
 from pypomes_core import (
-    APP_PREFIX, env_get_int, env_get_bool, str_positional, str_sanitize
+    APP_PREFIX, env_get_int, env_get_bool, obj_positional, str_sanitize
 )
 from sys import getrefcount
 from time import sleep
@@ -79,7 +79,7 @@ def __get_pool_params() -> dict[DbEngine, dict[_PoolParam, Any]]:
     result: dict[DbEngine, dict[_PoolParam, Any]] = {}
 
     for engine in DbEngine:
-        prefix: str = str_positional(engine,
+        prefix: str = obj_positional(engine,
                                      keys=tuple(DbEngine),
                                      values=("MSQL", "ORCL", "PG", "SQLS"))
         # establish pool size

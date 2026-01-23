@@ -2,7 +2,7 @@ from enum import StrEnum, auto
 from logging import Logger
 from pypomes_core import (
     APP_PREFIX,
-    str_sanitize, str_positional,
+    str_sanitize, obj_positional,
     env_get_str,  env_get_int,
     env_get_enum, env_get_enums, env_get_path
 )
@@ -112,7 +112,7 @@ def __get_conn_data() -> dict[DbEngine, dict[DbParam, Any]]:
             prefix: str = "DB"
             default_setup = False
         else:
-            prefix: str = str_positional(engine,
+            prefix: str = obj_positional(engine,
                                          keys=tuple(DbEngine),
                                          values=("MSQL", "ORCL", "PG", "SQLS"))
         result[engine] = {
@@ -359,8 +359,8 @@ def _combine_search_data(query_stmt: str,
                          where_vals: tuple,
                          where_data: dict[str |
                                           tuple[str,
-                                                Literal["=", ">", "<", ">=", "<=",
-                                                        "<>", "in", "like", "between"] | None,
+                                                Literal["=", ">", "<", ">=", "<=", "<>",
+                                                        "in", "like", "ilike", "between"] | None,
                                                 Literal["and", "or"] | None], Any] | None,
                          orderby_clause: str | None,
                          engine: DbEngine) -> tuple[str, tuple]:
@@ -372,7 +372,7 @@ def _combine_search_data(query_stmt: str,
         1. *key*:
             - an attribute (possibly aliased), or
             - a 2/3-tuple with an attribute and the corresponding SQL comparison operation
-              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), followed
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "ilike", , "between" - defaults to "="), followed
               by a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
         2. *value*:
             - a scalar, or a list, or an expression possibly containing other attribute(s)
@@ -439,7 +439,8 @@ def _combine_search_data(query_stmt: str,
                     # extract logical operator from 'value'
                     con = key[-1].upper()
                     key = key[:-1]
-                if len(key) > 1 and key[-1] in ["=", ">", "<", ">=", "<=", "<>", "in", "like", "between"]:
+                if len(key) > 1 and key[-1] in ["=", ">", "<", ">=", "<=", "<>",
+                                                "in", "like", "ilike", "between"]:
                     # set comparison operator
                     op = key[1].upper()
                 # revert 'key' to scalar
@@ -567,8 +568,8 @@ def _remove_ctrlchars(rows: list[tuple]) -> None:
     Remove all occurrences of control characters from *str* elements of rows in *rows*.
 
     Only the elements of type *str* are inspected. Control characters are characters in the
-    ASCII range [0 - 31] less:
-      - *HT*: Hotizontal Tab (09)
+    ASCII range [0 - 31] except:
+      - *HT*: Horizontal Tab (09)
       - *LF*: Line Feed (10)
       - *VT*: Vertical Tab (11)
       - *FF*: Form Feed (12)
@@ -583,7 +584,7 @@ def _remove_ctrlchars(rows: list[tuple]) -> None:
         # traverse the row
         cleaned: bool = False
         for val in row:
-            if isinstance(val, str) and any(ord(ch) < 32 and ord(ch) not in range(9, 14)for ch in val):
+            if isinstance(val, str) and any(ord(ch) < 32 and ord(ch) not in range(9, 14) for ch in val):
                 # 'val' contains control characters, clean it up
                 new_row.append("".join(ch if ord(ch) > 31 or ord(ch) in range(9, 14) else " " for ch in val))
                 cleaned = True

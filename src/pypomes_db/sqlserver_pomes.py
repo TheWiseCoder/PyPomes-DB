@@ -2,7 +2,7 @@ import pyodbc
 from contextlib import suppress
 from datetime import date, datetime
 from pathlib import Path
-from pyodbc import Binary, Connection, Row
+from pyodbc import Connection, Row
 from pypomes_core import (
     DateFormat, DatetimeFormat,  str_between, str_splice
 )
@@ -22,7 +22,7 @@ RESERVED_WORDS: Final[list[str]] = [
     "DISTINCT", "DISTRIBUTED", "DOUBLE", "DROP", "DUMP", "ELSE", "END", "ERRLVL", "ESCAPE", "EXCEPT",
     "EXEC", "EXECUTE", "EXISTS", "EXIT", "EXTERNAL", "FETCH", "FILE", "FILLFACTOR", "FOR", "FOREIGN",
     "FREETEXT", "FREETEXTTABLE", "FROM", "FULL", "FUNCTION", "GOTO", "GRANT", "GROUP", "HAVING", "HOLDLOCK",
-    "IDENTITY", "IDENTITY_INSERT", "IDENTITYCOL", "IF", "IN", "INDEX", "INNER", "INSERT", "INTERSECT",
+    "IDENTITY", "IDENTITY_INSERT", "IDENTITYCOL", "IF", "ILIKE", "IN", "INDEX", "INNER", "INSERT", "INTERSECT",
     "INTO", "IS", "JOIN", "KEY", "KILL", "LEFT", "LIKE", "LINENO", "LOAD", "MERGE", "NATIONAL", "NOCHECK",
     "NONCLUSTERED", "NOT", "NULL", "NULLIF", "OF", "OFF", "OFFSETS", "ON", "OPEN", "OPENDATASOURCE",
     "OPENQUERY", "OPENROWSET", "OPENXML", "OPTION", "OR", "ORDER", "OUTER", "OVER", "PERCENT", "PIVOT",
@@ -464,22 +464,30 @@ def update_lob(lob_table: str,
             with curr_conn.cursor() as cursor:
 
                 # retrieve the lob data and write to the database
+                # ('pyodbc.Binary' is an alias for 'bytes')
+                # from pyodbc import Binary
                 if isinstance(lob_data, bytes):
+                    # cursor.execute(update_stmt,
+                    #                (Binary(lob_data), *pk_vals))
                     cursor.execute(update_stmt,
-                                   (Binary(lob_data), *pk_vals))
+                                   (lob_data, *pk_vals))
                 elif isinstance(lob_data, Path):
                     data_bytes: bytes
                     with lob_data.open("rb") as file:
                         data_bytes = file.read(chunk_size)
                         while data_bytes:
+                            # cursor.execute(update_stmt,
+                            #                (Binary(data_bytes), *pk_vals))
                             cursor.execute(update_stmt,
-                                           (Binary(data_bytes), *pk_vals))
+                                           (data_bytes, *pk_vals))
                             data_bytes = file.read(chunk_size)
                 else:
                     data_bytes: bytes = lob_data.read(chunk_size)
                     while data_bytes:
+                        # cursor.execute(update_stmt,
+                        #                (Binary(data_bytes), *pk_vals))
                         cursor.execute(update_stmt,
-                                       (Binary(data_bytes), *pk_vals))
+                                       (data_bytes, *pk_vals))
                         data_bytes = lob_data.read(chunk_size)
                     lob_data.close()
 

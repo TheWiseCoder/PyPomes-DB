@@ -1,4 +1,4 @@
-from pypomes_core import str_positional
+from pypomes_core import obj_positional
 from typing import Any
 
 from .db_common import DbEngine, _assert_engine
@@ -40,10 +40,10 @@ def db_get_indexes(schema: str = None,
                             errors=errors)
     if engine:
         # process table names
-        tbl_name = str_positional(engine,
+        tbl_name = obj_positional(engine,
                                   keys=tuple(DbEngine),
                                   values=("", "table_name", "LOWER(t.relname)", "LOWER(t.name)"))
-        sch_name = str_positional(engine,
+        sch_name = obj_positional(engine,
                                   keys=tuple(DbEngine),
                                   values=("", "aic.table_name",
                                           "LOWER(ns.nspname)", "SCHEMA_NAME(t.schema_id)"))

@@ -136,6 +136,18 @@ def db_assert_access(engine: DbEngine = None,
     return result
 
 
+def db_get_default_engine() -> DbEngine | None:
+    """
+    Retrieve the database engine configred as the default engine.
+
+    The default engine is typically the first database engine configured, either from environment variables or
+    by an invocation of *db_setup()*.
+
+    :return: the default database engine, or *None* if no engine has been configured
+    """
+    return next(iter(_DB_CONN_DATA)) if _DB_CONN_DATA else None
+
+
 def db_get_engines() -> list[DbEngine]:
     """
     Retrieve the *list* of configured engines.
@@ -410,9 +422,9 @@ def db_convert_default(value: str,
     # initialize the return variable
     result: str | None = None
 
-    # 'str_is_int()' is not necessary here
-    if str_is_float(value):
-        # 'value' is a numeric literal
+    # note that 'str_is_int()' is not necessary here
+    if str_is_float(value) or (value.startswith("'") and value.endswith("'")):
+        # 'value' is a literal (numeric or string)
         result = value
     else:
         pos_source: int | None = None
@@ -441,10 +453,6 @@ def db_convert_default(value: str,
             if func[pos_source] == value.upper():
                 result = func[pos_target]
                 break
-
-    if not result and not value.endswith("()"):
-        # 'value' is a string literal, possibly missing a proper mapping
-        result = value
 
     return result
 
@@ -613,8 +621,8 @@ def db_build_stmt(base_stmt: str,
                   where_vals: tuple = None,
                   where_data: dict[str | tuple |
                                    tuple[str,
-                                         Literal["=", ">", "<", ">=", "<=",
-                                                 "<>", "in", "like", "between"] | None,
+                                         Literal["=", ">", "<", ">=", "<=", "<>",
+                                                 "in", "like", "ilike", "between"] | None,
                                          Literal["and", "or"] | None], Any] = None,
                   orderby_clause: str = None,
                   offset_count: int = None,
@@ -637,7 +645,7 @@ def db_build_stmt(base_stmt: str,
         1. *key*:
             - an attribute (possibly aliased), or
             - a 2/3-tuple with an attribute and the corresponding SQL comparison operation
-              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), followed
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "ilike", "between" - defaults to "="), followed
               by a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
         2. *value*:
             - a scalar, or a list, or an expression possibly containing other attribute(s)
@@ -734,8 +742,8 @@ def db_count(table: str,
              where_vals: tuple = None,
              where_data: dict[str | tuple |
                               tuple[str,
-                                    Literal["=", ">", "<", ">=", "<=",
-                                            "<>", "in", "like", "between"] | None,
+                                    Literal["=", ">", "<", ">=", "<=", "<>",
+                                            "in", "like", "ilike", "between"] | None,
                                     Literal["and", "or"] | None], Any] = None,
              engine: DbEngine = None,
              connection: Any = None,
@@ -755,7 +763,7 @@ def db_count(table: str,
         1. *key*:
             - an attribute (possibly aliased), or
             - a 2/3-tuple with an attribute, the corresponding SQL comparison operation
-              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), and
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "ilike", "between" - defaults to "="), and
               a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
         2. *value*:
             - a scalar, or a list, or an expression possibly containing other attribute(s)
@@ -801,8 +809,8 @@ def db_exists(table: str,
               where_vals: tuple = None,
               where_data: dict[str | tuple |
                                tuple[str,
-                                     Literal["=", ">", "<", ">=", "<=",
-                                             "<>", "in", "like", "between"] | None,
+                                     Literal["=", ">", "<", ">=", "<=", "<>",
+                                             "in", "like", "ilike", "between"] | None,
                                      Literal["and", "or"] | None], Any] = None,
               min_count: int = None,
               max_count: int = None,
@@ -824,7 +832,7 @@ def db_exists(table: str,
         1. *key*:
             - an attribute (possibly aliased), or
             - a 2/3-tuple with an attribute, the corresponding SQL comparison operation
-              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), and
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "ilike", "between" - defaults to "="), and
               a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
         2. *value*:
             - a scalar, or a list, or an expression possibly containing other attribute(s)
@@ -876,8 +884,8 @@ def db_select(sel_stmt: str,
               where_vals: tuple = None,
               where_data: dict[str | tuple |
                                tuple[str,
-                                     Literal["=", ">", "<", ">=", "<=",
-                                             "<>", "in", "like", "between"] | None,
+                                     Literal["=", ">", "<", ">=", "<=", "<>",
+                                             "in", "like", "ilike", "between"] | None,
                                      Literal["and", "or"] | None], Any] = None,
               orderby_clause: str = None,
               min_count: int = None,
@@ -902,7 +910,7 @@ def db_select(sel_stmt: str,
         1. *key*:
             - an attribute (possibly aliased), or
             - a 2/3-tuple with an attribute, the corresponding SQL comparison operation
-              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), and
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "ilike", "between" - defaults to "="), and
               a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
         2. *value*:
             - a scalar, or a list, or an expression possibly containing other attribute(s)
@@ -1065,8 +1073,8 @@ def db_update(update_stmt: str,
               where_vals: tuple = None,
               where_data: dict[str | tuple |
                                tuple[str,
-                                     Literal["=", ">", "<", ">=", "<=",
-                                             "<>", "in", "like", "between"] | None,
+                                     Literal["=", ">", "<", ">=", "<=", "<>",
+                                             "in", "like", "ilike", "between"] | None,
                                      Literal["and", "or"] | None], Any] = None,
               return_cols: dict[str, type] = None,
               min_count: int = None,
@@ -1089,7 +1097,7 @@ def db_update(update_stmt: str,
         1. *key*:
             - an attribute (possibly aliased), or
             - a 2/3-tuple with an attribute, the corresponding SQL comparison operation
-              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), and
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "ilike", "between" - defaults to "="), and
               a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
         2. *value*:
             - a scalar, or a list, or an expression possibly containing other attribute(s)
@@ -1159,8 +1167,8 @@ def db_delete(delete_stmt: str,
               where_vals: tuple = None,
               where_data: dict[str | tuple |
                                tuple[str,
-                                     Literal["=", ">", "<", ">=", "<=",
-                                             "<>", "in", "like", "between"] | None,
+                                     Literal["=", ">", "<", ">=", "<=", "<>",
+                                             "in", "like", "ilike", "between"] | None,
                                      Literal["and", "or"] | None], Any] = None,
               min_count: int = None,
               max_count: int = None,
@@ -1182,7 +1190,7 @@ def db_delete(delete_stmt: str,
         1. *key*:
             - an attribute (possibly aliased), or
             - a 2/3-tuple with an attribute and the corresponding SQL comparison operation
-              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "between" - defaults to "="), followed
+              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "ilike", "between" - defaults to "="), followed
               by a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
         2. *value*:
             - a scalar, or a list, or an expression possibly containing other attribute(s)
