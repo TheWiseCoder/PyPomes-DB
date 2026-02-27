@@ -34,8 +34,8 @@ class DbParam(StrEnum):
     VERSION = auto()
 
 
-# the bind meta-tag to use in DML statements
-# (guarantees cross-engine compatilitiy, as this is replaced by the engine's bind tag)
+# the bind placeholder meta-tag to use in DML statements
+# (guarantees cross-engine compatilitiy, as this is replaced by the engine's actual bind placeholder)
 DB_BIND_META_TAG: Final[str] = env_get_str(key=f"{APP_PREFIX}_DB_BIND_META_TAG",
                                            def_value="%?")
 _BUILTIN_FUNCTIONS: Final[list[tuple[str, str, str, str]]] = [
@@ -348,7 +348,7 @@ def _bind_marks(engine: DbEngine,
             result = ",".join([f":{inx}" for inx in range(start, finish)])
         case DbEngine.POSTGRES:
             result = ",".join(["%s" for _inx in range(start, finish)])
-        case DbEngine.SQLSERVER:
+        case _:  # DbEngine.MYSQL or DbEngine.SQLSERVER
             result = ",".join(["?" for _inx in range(start, finish)])
 
     return result

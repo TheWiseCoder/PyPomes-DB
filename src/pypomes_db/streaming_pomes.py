@@ -10,15 +10,15 @@ from .db_pomes import db_connect, db_close
 
 def db_stream_data(table: str,
                    columns: list[str],
-                   engine: DbEngine = None,
-                   connection: Any = None,
-                   committable: bool = None,
                    where_clause: str = None,
                    orderby_clause: str = None,
                    offset_count: int = None,
                    limit_count: int = None,
                    batch_size_in: int = None,
                    batch_size_out: int = None,
+                   engine: DbEngine = None,
+                   connection: Any = None,
+                   committable: bool = None,
                    errors: list[str] = None) -> Generator[list[tuple], None, None]:
     """
     Stream data from a database table.
@@ -27,25 +27,24 @@ def db_stream_data(table: str,
     is returned, allowing the invoker to iterate over the values being streamed.
     The database in *engine* must be in the list of databases configured and supported by this package.
 
-    It is recommend that *orderby_clause* be provided, specially if partial migration is being requested.
+    It is recommend that *orderby_clause* be provided, specially if partial streaming is being requested.
     If not positive integers, *offset_count*, *limit_count*, *batch_size_in*, and *chunk_size_out* are ignored.
     Care should be exercised when specifying *offset_count*, so as not to skip wanted tuples,
     as it is used to offset the retrieval of tuples.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param table: the, possibly schema-qualified, table to read the data from
     :param columns: the table columns to stream
-    :param engine: the database engine to use (uses the default engine, if not provided)
-    :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
     :param where_clause: the criteria for tuple selection
     :param orderby_clause: optional retrieval order
     :param offset_count: number of tuples to skip in source table (defaults to none)
     :param limit_count: maximum number of tuples to migrate (defaults to no limit)
     :param batch_size_in: maximum number of tuples to read in each batch (defaults to no limit)
     :param batch_size_out: maximum number of tuples to stream in each batch (defaults to no limit)
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion
     :param errors: incidental error messages (might be a non-empty list)
     """
     # initialize a local errors list
@@ -162,7 +161,7 @@ def db_stream_data(table: str,
                 curr_conn.commit()
         except Exception as e:
             # rollback the transactions
-            if curr_conn:
+            if committable or not connection:
                 with suppress(Exception):
                     curr_conn.rollback()
             row_count = 0
@@ -192,15 +191,15 @@ def db_stream_lobs(table: str,
                    lob_column: str,
                    pk_columns: list[str] = None,
                    ret_column: str = None,
-                   engine: DbEngine = None,
-                   connection: Any = None,
-                   committable: bool = None,
                    where_clause: str = None,
                    orderby_clause: str = None,
                    offset_count: int = None,
                    limit_count: int = None,
                    batch_size: int = None,
                    chunk_size: int = None,
+                   engine: DbEngine = None,
+                   connection: Any = None,
+                   committable: bool = None,
                    errors: list[str] = None,
                    log_trigger: int = 10000) -> Generator[dict[str, Any] | str | bytes | None, None, None]:
     """
@@ -221,22 +220,21 @@ def db_stream_lobs(table: str,
     to offset the retrieval of tuples. Finally, if *batch_size* or *offset_count* has been specified,
     but *orderby_clause* has not, then an ORDER BY clause is constructed from the data in *pk_columns*.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
+    The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
     :param table: the table holding the LOBs
     :param lob_column: the column holding the LOB
     :param pk_columns: columns making up a primary key, or a unique identifier for a tuple, in database
     :param ret_column: optional column whose content to return as metadata when yielding
-    :param engine: the database engine to use (uses the default engine, if not provided)
-    :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit upon errorless completion
     :param where_clause: the criteria for tuple selection
     :param orderby_clause: optional retrieval order
     :param offset_count: number of tuples to skip in source table (defaults to none)
     :param limit_count: maximum number of tuples to migrate (defaults to no limit)
     :param batch_size: maximum number of tuples to read in each batch (defaults to no limit)
     :param chunk_size: size in bytes of the data chunk to read/write (defaults to no limit)
+    :param engine: the database engine to use (uses the default engine, if not provided)
+    :param connection: optional connection to use (obtains a new one, if not provided)
+    :param committable: whether to commit upon errorless completion
     :param errors: incidental error messages
     :param log_trigger: number of tuples to trigger logging info on migration (defaults to 10000 tuples)
     """
@@ -316,11 +314,11 @@ def db_stream_lobs(table: str,
                 curr_stmt = curr_stmt.replace(" LIMIT @limit", "", 1)
                 curr_stmt = curr_stmt.replace(" FETCH @limit ROWS ONLY", "", 1)
             if offset_count:
-                curr_stmt = curr_stmt.replace("@offset", str(offset_count), 1)\
-                                     .replace(" FETCH ", " FETCH NEXT ", 1)
+                curr_stmt = (curr_stmt.replace("@offset", str(offset_count), 1)
+                                      .replace(" FETCH ", " FETCH NEXT ", 1))
             else:
-                curr_stmt = curr_stmt.replace(" OFFSET @offset ROWS", "", 1)\
-                                     .replace(" FETCH ", " FETCH FIRST ", 1)
+                curr_stmt = (curr_stmt.replace(" OFFSET @offset ROWS", "", 1)
+                                      .replace(" FETCH ", " FETCH FIRST ", 1))
             # go for the data
             next_rs: bool = True
             while next_rs:
@@ -409,7 +407,7 @@ def db_stream_lobs(table: str,
                 curr_conn.commit()
         except Exception as e:
             # rollback the transactions
-            if curr_conn:
+            if committable or not connection:
                 with suppress(Exception):
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,

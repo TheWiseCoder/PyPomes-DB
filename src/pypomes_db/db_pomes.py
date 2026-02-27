@@ -1094,13 +1094,13 @@ def db_update(update_stmt: str,
     will then be properly dealt with.
 
     The syntax specific to *where_data*'s key/value pairs is as follows:
-        1. *key*:
-            - an attribute (possibly aliased), or
-            - a 2/3-tuple with an attribute, the corresponding SQL comparison operation
-              ("=", ">", "<", ">=", "<=", "<>", "in", "like", "ilike", "between" - defaults to "="), and
-              a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
-        2. *value*:
-            - a scalar, or a list, or an expression possibly containing other attribute(s)
+      1. *key*:
+          - an attribute (possibly aliased), or
+          - a 2/3-tuple with an attribute, the corresponding SQL comparison operation
+            ("=", ">", "<", ">=", "<=", "<>", "in", "like", "ilike", "between" - defaults to "="), and
+            a SQL logical operator relating it to the next item ("and", "or" - defaults to "and")
+      2. *value*:
+          - a scalar, or a list, or an expression possibly containing other attribute(s)
 
     The optional *return_cols* indicate that the values of the columns therein should be returned.
     The target database engine, specified or default,  must have been previously configured.
@@ -1347,6 +1347,12 @@ def db_bulk_insert(target_table: str,
         db_close(connection=curr_conn,
                  engine=engine)
 
+    # log the operation
+    if isinstance(result, int):
+        logger: Logger = _DB_LOGGERS[engine]
+        if logger:
+            logger.debug(f"INSERTed {result} rows into table {engine}.{target_table}")
+
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)
 
@@ -1451,6 +1457,12 @@ def db_bulk_update(target_table: str,
         db_close(connection=curr_conn,
                  engine=engine)
 
+    # log the operation
+    if isinstance(result, int):
+        logger: Logger = _DB_LOGGERS[engine]
+        if logger:
+            logger.debug(f"UPDATEd {result} rows on {engine}.{target_table}")
+
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)
 
@@ -1532,6 +1544,12 @@ def db_bulk_delete(target_table: str,
     if curr_conn and not connection:
         db_close(connection=curr_conn,
                  engine=engine)
+
+    # log the operation
+    if isinstance(result, int):
+        logger: Logger = _DB_LOGGERS[engine]
+        if logger:
+            logger.debug(f"DELETEd {result} rows from table {engine}.{target_table}")
 
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)
