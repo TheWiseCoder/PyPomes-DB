@@ -234,7 +234,7 @@ def db_sync_data(source_engine: DbEngine,
                 total_target: int = target_count
                 # log query result
                 if logger:
-                    logger.debug(msg=f"Read {len(target_rows)} tuples "
+                    logger.debug(msg=f"Read {target_count} tuples "
                                      f"from {target_engine}.{target_table}, "
                                      f"offset {target_offset}, limit {curr_limit}, "
                                      f"connection {id(curr_target_conn)}")
@@ -331,7 +331,7 @@ def db_sync_data(source_engine: DbEngine,
                                 total_target += target_count
                                 # log query result
                                 if logger:
-                                    logger.debug(msg=f"Read {len(target_rows)} tuples "
+                                    logger.debug(msg=f"Read {target_count} tuples "
                                                      f"from {target_engine}.{target_table}, "
                                                      f"offset {target_offset}, limit {curr_limit},"
                                                      f" connection {id(curr_target_conn)}")
