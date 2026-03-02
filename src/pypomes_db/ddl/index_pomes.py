@@ -1,8 +1,8 @@
 from pypomes_core import obj_positional
 from typing import Any
 
-from .db_common import DbEngine, _assert_engine
-from .db_pomes import db_select
+from ..db_common import DbEngine, _assert_engine
+from ..db_pomes import db_select
 
 
 def db_get_indexes(schema: str = None,
@@ -10,7 +10,6 @@ def db_get_indexes(schema: str = None,
                    tables: list[str] = None,
                    engine: DbEngine = None,
                    connection: Any = None,
-                   committable: bool = None,
                    errors: list[str] = None) -> list[str]:
     """
     Retrieve the list of schema-qualified indexes in the database.
@@ -20,15 +19,11 @@ def db_get_indexes(schema: str = None,
     If *omit_pks* is set to 'True' (its default value),
     indexes created on primary key columns will not be included.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
     :param schema: optional name of the schema to restrict the search to
     :param omit_pks: omit indexes on primary key columns (defaults to 'True')
     :param tables: optional list of possibly schema-qualified tables whose columns the indexes were created on
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
     :return: the list of schema-qualified indexes in the database
     """
@@ -118,7 +113,6 @@ def db_get_indexes(schema: str = None,
         recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
                                            engine=engine,
                                            connection=connection,
-                                           committable=committable,
                                            errors=errors)
         # process the query result
         if isinstance(recs, list):
@@ -130,20 +124,15 @@ def db_get_indexes(schema: str = None,
 def db_get_index_ddl(index_name: str,
                      engine: DbEngine = None,
                      connection: Any = None,
-                     committable: bool = None,
                      errors: list[str] = None) -> str | None:
     """
     Retrieve the DDL script used to create the index *index_name*.
 
     Note that *index_name* must be schema-qualified, or else the invocation will fail.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
     :param index_name: the schema-qualified name of the index
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
     :return: the DDL script used to create the index, or *None* if error or if the index does not exist
     """
@@ -189,7 +178,6 @@ def db_get_index_ddl(index_name: str,
         recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
                                            engine=engine,
                                            connection=connection,
-                                           committable=committable,
                                            errors=curr_errors)
         # process the query result
         if not curr_errors and recs:

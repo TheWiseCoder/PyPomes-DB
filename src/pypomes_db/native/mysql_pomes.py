@@ -4,7 +4,7 @@ from mysql.connector.aio import MySQLConnectionAbstract
 from pypomes_core import DateFormat, DatetimeFormat
 from typing import Any, Final
 
-from .db_common import (
+from ..db_common import (
     _DB_LOGGERS, DbEngine, DbParam, _get_params, _except_msg
 )
 

@@ -1,7 +1,7 @@
 from typing import Any, Literal
 
-from .db_common import DbEngine, _assert_engine
-from .db_pomes import db_execute, db_select
+from ..db_common import DbEngine, _assert_engine
+from ..db_pomes import db_execute, db_select
 
 
 def db_get_views(view_type: Literal["M", "P"] = "P",
@@ -9,7 +9,6 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
                  tables: list[str] = None,
                  engine: DbEngine = None,
                  connection: Any = None,
-                 committable: bool = None,
                  errors: list[str] = None) -> list[str] | None:
     """
     Retrieve the list of views in the database.
@@ -18,15 +17,11 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
     If a list of, possibly schema-qualified, table names is provided in *tables*, then only
     the views whose table dependencies are all included therein are returned.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param schema: optional name of the schema to restrict the search to
     :param tables: optional list of, possibly schema-qualified, table names containing all views' dependencies
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
     :return: the schema-qualified views found, or *None* if error
     """
@@ -65,7 +60,6 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
         recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
                                            engine=engine,
                                            connection=connection,
-                                           committable=committable,
                                            errors=errors)
         # process the query result
         if isinstance(recs, list):
@@ -77,7 +71,6 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
             dependencies: list[str] = db_get_view_dependencies(view_name=view_name,
                                                                engine=engine,
                                                                connection=connection,
-                                                               committable=committable,
                                                                errors=errors)
             if isinstance(dependencies, list):
                 for dependency in dependencies:
@@ -96,21 +89,16 @@ def db_view_exists(view_name: str,
                    view_type: Literal["M", "P"] = "P",
                    engine: DbEngine = None,
                    connection: Any = None,
-                   committable: bool = None,
                    errors: list[str] = None) -> bool | None:
     """
     Determine whether the view given by *view_name* exists in the database.
 
     If *view_name* is schema-qualified, then the search will be restricted to that schema.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
     :param view_name: the, possibly schema-qualified, name of the view to look for
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
     :return: *True* if the view was found, *False* otherwise, or *None* if error
     """
@@ -161,7 +149,6 @@ def db_view_exists(view_name: str,
         recs: list[tuple[int]] = db_select(sel_stmt=sel_stmt,
                                            engine=engine,
                                            connection=connection,
-                                           committable=committable,
                                            errors=errors)
         # process the query result
         if isinstance(recs, list):
@@ -174,7 +161,6 @@ def db_drop_view(view_name: str,
                  view_type: Literal["M", "P"] = "P",
                  engine: DbEngine = None,
                  connection: Any = None,
-                 committable: bool = None,
                  errors: list[str] = None) -> None:
     """
     Drop the view given by *view_name*.
@@ -183,14 +169,10 @@ def db_drop_view(view_name: str,
     and what their use would entail, depends on the response of the *engine* to the
     mixing of *DDL* and *DML* statements in a transaction.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
     :param view_name: the, possibly schema-qualified, name of the view to drop
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
     """
     # assert the database engine
@@ -230,7 +212,6 @@ def db_drop_view(view_name: str,
         db_execute(exc_stmt=drop_stmt,
                    engine=engine,
                    connection=connection,
-                   committable=committable,
                    errors=errors)
 
 
@@ -238,7 +219,6 @@ def db_get_view_ddl(view_name: str,
                     view_type: Literal["M", "P"] = "P",
                     engine: DbEngine = None,
                     connection: Any = None,
-                    committable: bool = None,
                     errors: list[str] = None) -> str | None:
     """
     Retrieve the DDL script used to create the view *view_name*.
@@ -246,14 +226,10 @@ def db_get_view_ddl(view_name: str,
     If *view_name* is schema-qualified, then the search will be pointed to the view in that schema.
     For Oracle databases, if the schema qualification is not provided, the search will fail.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
     :param view_name: the, possibly schema-qualified, name of the view
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
     :return: the DDL script used to create the view, or *None* if error or view does not exist
     """
@@ -306,7 +282,6 @@ def db_get_view_ddl(view_name: str,
         recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
                                            engine=engine,
                                            connection=connection,
-                                           committable=committable,
                                            errors=errors)
         # process the query result
         if isinstance(recs, list) and recs:
@@ -319,21 +294,16 @@ def db_get_view_dependencies(view_name: str,
                              view_type: Literal["M", "P"] = "P",
                              engine: DbEngine = None,
                              connection: Any = None,
-                             committable: bool = None,
                              errors: list[str] = None) -> list[str] | None:
     """
     Retrieve the schema-qualified names of the tables *view_name* depends on.
 
     If *view_name* is schema-qualified, then the search will be pointed to the view in that schema.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
     :param view_name: the, possibly schema-qualified, name of the view
     :param view_type: the type of the view ("M": materialized, 'P': plain, defaults to 'P')
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit or rollback operation, upon completion
     :param errors: incidental error messages (might be a non-empty list)
     :return: the schema-qualified tables the view depends on, or *None* if error or view not found
     """
@@ -389,7 +359,6 @@ def db_get_view_dependencies(view_name: str,
         recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
                                            engine=engine,
                                            connection=connection,
-                                           committable=committable,
                                            errors=errors)
         # process the query result
         if isinstance(recs, list):

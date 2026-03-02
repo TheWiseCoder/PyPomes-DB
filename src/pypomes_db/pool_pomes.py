@@ -366,19 +366,19 @@ class DbConnectionPool:
                     if len(self.conn_data) < self.pool_size:
                         match self.db_engine:
                             case DbEngine.MYSQL:
-                                from . import mysql_pomes
+                                from .native import mysql_pomes
                                 conn = mysql_pomes.connect(autocommit=False,
                                                            errors=curr_errors)
                             case DbEngine.ORACLE:
-                                from . import oracle_pomes
+                                from .native import oracle_pomes
                                 conn = oracle_pomes.connect(autocommit=False,
                                                             errors=curr_errors)
                             case DbEngine.POSTGRES:
-                                from . import postgres_pomes
+                                from .native import postgres_pomes
                                 conn = postgres_pomes.connect(autocommit=False,
                                                               errors=curr_errors)
                             case DbEngine.SQLSERVER:
-                                from . import sqlserver_pomes
+                                from .native import sqlserver_pomes
                                 conn = sqlserver_pomes.connect(autocommit=False,
                                                                errors=curr_errors)
                         if not curr_errors:

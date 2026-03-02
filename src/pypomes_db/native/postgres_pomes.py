@@ -14,7 +14,7 @@ from pypomes_core import (
 )
 from typing import Any, BinaryIO, Final
 
-from .db_common import (
+from ..db_common import (
     _DB_LOGGERS, DbEngine, DbParam,
     _assert_query_quota, _build_query_msg, _get_params, _except_msg
 )
@@ -174,7 +174,7 @@ def select(sel_stmt: str,
     if not errors:
         # establish offset and limit
         if offset_count or limit_count:
-            from . import db_pomes
+            from .. import db_pomes
             sel_stmt = db_pomes.db_add_query_limits(sel_stmt=sel_stmt,
                                                     offset_count=offset_count,
                                                     limit_count=limit_count)

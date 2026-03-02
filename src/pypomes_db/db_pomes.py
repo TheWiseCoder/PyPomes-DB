@@ -115,13 +115,13 @@ def db_assert_access(engine: DbEngine = None,
         if version:
             result = True
         elif engine == DbEngine.SPANNER:
-            from .spanner_frame import SpannerParam, GoogleSpanner
+            from src.pypomes_db.native.spanner_frame import SpannerParam, GoogleSpanner
             spanner: GoogleSpanner = _DB_CONN_DATA[engine][SpannerParam.ENGINE]
             result = spanner.initialize(errors=errors)
         else:
             # assert access to 'engine'
             if engine == DbEngine.ORACLE:
-                from . import oracle_pomes
+                from .native import oracle_pomes
                 oracle_pomes.initialize(errors=errors)
             conn: Any = db_connect(engine=engine,
                                    errors=errors)
@@ -231,13 +231,13 @@ def db_get_connection_string(engine: DbEngine = None) -> str:
     if engine == DbEngine.MYSQL:
         pass
     elif engine == DbEngine.ORACLE:
-        from . import oracle_pomes
+        from .native import oracle_pomes
         result = oracle_pomes.get_connection_string()
     elif engine == DbEngine.POSTGRES:
-        from . import postgres_pomes
+        from .native import postgres_pomes
         result = postgres_pomes.get_connection_string()
     elif engine == DbEngine.SQLSERVER:
-        from . import sqlserver_pomes
+        from .native import sqlserver_pomes
         result = sqlserver_pomes.get_connection_string()
 
     return result
@@ -260,16 +260,16 @@ def db_get_reserved_words(engine: DbEngine = None) -> list[str] | None:
 
     match engine:
         case DbEngine.MYSQL:
-            from . import mysql_pomes
+            from .native import mysql_pomes
             result = mysql_pomes.RESERVED_WORDS
         case DbEngine.ORACLE:
-            from . import oracle_pomes
+            from .native import oracle_pomes
             result = oracle_pomes.RESERVED_WORDS
         case DbEngine.POSTGRES:
-            from . import postgres_pomes
+            from .native import postgres_pomes
             result = postgres_pomes.RESERVED_WORDS
         case DbEngine.SQLSERVER:
-            from . import sqlserver_pomes
+            from .native import sqlserver_pomes
             result = sqlserver_pomes.RESERVED_WORDS
 
     return result
@@ -296,16 +296,16 @@ def db_is_reserved_word(word: str,
         word = word.upper()
     match engine:
         case DbEngine.MYSQL:
-            from . import mysql_pomes
+            from .native import mysql_pomes
             result = word in mysql_pomes.RESERVED_WORDS
         case DbEngine.ORACLE:
-            from . import oracle_pomes
+            from .native import oracle_pomes
             result = word in oracle_pomes.RESERVED_WORDS
         case DbEngine.POSTGRES:
-            from . import postgres_pomes
+            from .native import postgres_pomes
             result = word in postgres_pomes.RESERVED_WORDS
         case DbEngine.SQLSERVER:
-            from . import sqlserver_pomes
+            from .native import sqlserver_pomes
             result = word in sqlserver_pomes.RESERVED_WORDS
 
     return result
@@ -390,19 +390,19 @@ def db_bind_arguments(stmt: str,
                                   engine=engine)
     # bind the arguments
     if engine == DbEngine.MYSQL:
-        from . import mysql_pomes
+        from .native import mysql_pomes
         result = mysql_pomes.bind_arguments(stmt=stmt,
                                             bind_vals=bind_vals)
     elif engine == DbEngine.ORACLE:
-        from . import oracle_pomes
+        from .native import oracle_pomes
         result = oracle_pomes.bind_arguments(stmt=stmt,
                                              bind_vals=bind_vals)
     elif engine == DbEngine.POSTGRES:
-        from . import postgres_pomes
+        from .native import postgres_pomes
         result = postgres_pomes.bind_arguments(stmt=stmt,
                                                bind_vals=bind_vals)
     elif engine == DbEngine.SQLSERVER:
-        from . import sqlserver_pomes
+        from .native import sqlserver_pomes
         result = sqlserver_pomes.bind_arguments(stmt=stmt,
                                                 bind_vals=bind_vals)
     return result
@@ -489,15 +489,15 @@ def db_connect(autocommit: bool = False,
             if engine == DbEngine.MYSQL:
                 pass
             elif engine == DbEngine.ORACLE:
-                from . import oracle_pomes
+                from .native import oracle_pomes
                 result = oracle_pomes.connect(autocommit=autocommit,
                                               errors=curr_errors)
             elif engine == DbEngine.POSTGRES:
-                from . import postgres_pomes
+                from .native import postgres_pomes
                 result = postgres_pomes.connect(autocommit=autocommit,
                                                 errors=curr_errors)
             elif engine == DbEngine.SQLSERVER:
-                from . import sqlserver_pomes
+                from .native import sqlserver_pomes
                 result = sqlserver_pomes.connect(autocommit=autocommit,
                                                  errors=curr_errors)
     if curr_errors and isinstance(errors, list):
@@ -717,7 +717,7 @@ def db_build_stmt(base_stmt: str,
                 if engine == DbEngine.MYSQL:
                     pass
                 elif engine == DbEngine.ORACLE:
-                    from . import oracle_pomes
+                    from .native import oracle_pomes
                     result = oracle_pomes.add_query_limits(sel_stmt=result,
                                                            offset_count=offset_count,
                                                            limit_count=limit_count)
@@ -726,7 +726,7 @@ def db_build_stmt(base_stmt: str,
                                                  offset_count=offset_count,
                                                  limit_count=limit_count)
                 elif engine == DbEngine.SQLSERVER:
-                    from . import sqlserver_pomes
+                    from .native import sqlserver_pomes
                     result = sqlserver_pomes.add_query_limits(sel_stmt=result,
                                                               offset_count=offset_count,
                                                               limit_count=limit_count)
@@ -970,7 +970,7 @@ def db_select(sel_stmt: str,
             if engine == DbEngine.MYSQL:
                 pass
             elif engine == DbEngine.ORACLE:
-                from . import oracle_pomes
+                from .native import oracle_pomes
                 result = oracle_pomes.select(sel_stmt=sel_stmt,
                                              where_vals=where_vals,
                                              min_count=min_count,
@@ -981,7 +981,7 @@ def db_select(sel_stmt: str,
                                              committable=committable if connection else True,
                                              errors=curr_errors)
             elif engine == DbEngine.POSTGRES:
-                from . import postgres_pomes
+                from .native import postgres_pomes
                 result = postgres_pomes.select(sel_stmt=sel_stmt,
                                                where_vals=where_vals,
                                                min_count=min_count,
@@ -992,7 +992,7 @@ def db_select(sel_stmt: str,
                                                committable=committable if connection else True,
                                                errors=curr_errors)
             elif engine == DbEngine.SQLSERVER:
-                from . import sqlserver_pomes
+                from .native import sqlserver_pomes
                 result = sqlserver_pomes.select(sel_stmt=sel_stmt,
                                                 where_vals=where_vals,
                                                 min_count=min_count,
@@ -1003,7 +1003,7 @@ def db_select(sel_stmt: str,
                                                 committable=committable if connection else True,
                                                 errors=curr_errors)
             elif engine == DbEngine.SPANNER:
-                from . import spanner_pomes
+                from .native import spanner_pomes
                 result = spanner_pomes.select(sel_stmt=sel_stmt,
                                               where_vals=where_vals,
                                               min_count=min_count,
@@ -1281,7 +1281,7 @@ def db_bulk_insert(target_table: str,
         if engine == DbEngine.MYSQL:
             pass
         elif engine == DbEngine.POSTGRES:
-            from . import postgres_pomes
+            from .native import postgres_pomes
             insert_stmt: str = f"INSERT INTO {target_table} ({', '.join(insert_attrs)})"
             # pre-insert handling of identity columns
             if identity_column and insert_stmt.find("OVERRIDING SYSTEM VALUE") < 0:
@@ -1314,14 +1314,14 @@ def db_bulk_insert(target_table: str,
             insert_stmt: str = (f"INSERT INTO {target_table} "
                                 f"({', '.join(insert_attrs)}) VALUES({bind_marks})")
             if engine == DbEngine.ORACLE:
-                from . import oracle_pomes
+                from .native import oracle_pomes
                 result = oracle_pomes.bulk_execute(exc_stmt=insert_stmt,
                                                    exc_vals=insert_vals,
                                                    connection=curr_conn,
                                                    committable=committable if connection else True,
                                                    errors=curr_errors)
             elif engine == DbEngine.SQLSERVER:
-                from . import sqlserver_pomes
+                from .native import sqlserver_pomes
                 # pre-insert handling of identity columns
                 if identity_column:
                     sqlserver_pomes.identity_pre_insert(insert_stmt=insert_stmt,
@@ -1336,7 +1336,7 @@ def db_bulk_insert(target_table: str,
                                                           errors=curr_errors)
                     # post-insert handling of identity columns
                     if not curr_errors and identity_column:
-                        from . import sqlserver_pomes
+                        from .native import sqlserver_pomes
                         sqlserver_pomes.identity_post_insert(insert_stmt=insert_stmt,
                                                              connection=curr_conn,
                                                              committable=committable if connection else True,
@@ -1405,7 +1405,7 @@ def db_bulk_update(target_table: str,
         if engine == DbEngine.MYSQL:
             pass
         elif engine == DbEngine.POSTGRES:
-            from . import postgres_pomes
+            from .native import postgres_pomes
             set_items: str = ""
             for set_attr in set_attrs:
                 set_items += f"{set_attr} = data.{set_attr}, "
@@ -1439,14 +1439,14 @@ def db_bulk_update(target_table: str,
                                              start_index=len(set_attrs)+1)
             update_stmt: str = f"UPDATE {target_table} SET {set_items} WHERE {where_items}"
             if engine == DbEngine.ORACLE:
-                from . import oracle_pomes
+                from .native import oracle_pomes
                 result = oracle_pomes.bulk_execute(exc_stmt=update_stmt,
                                                    exc_vals=update_vals,
                                                    connection=curr_conn,
                                                    committable=committable if connection else True,
                                                    errors=curr_errors)
             else:
-                from . import sqlserver_pomes
+                from .native import sqlserver_pomes
                 result = sqlserver_pomes.bulk_execute(exc_stmt=update_stmt,
                                                       exc_vals=update_vals,
                                                       connection=curr_conn,
@@ -1511,7 +1511,7 @@ def db_bulk_delete(target_table: str,
         if engine == DbEngine.MYSQL:
             pass
         elif engine == DbEngine.POSTGRES:
-            from . import postgres_pomes
+            from .native import postgres_pomes
             delete_stmt: str = (f"DELETE FROM {target_table} "
                                 f"WHERE ({', '.join(where_attrs)}) IN (%s)")
             result = postgres_pomes.bulk_execute(exc_stmt=delete_stmt,
@@ -1527,14 +1527,14 @@ def db_bulk_delete(target_table: str,
                                              start_index=1)
             delete_stmt: str = f"DELETE FROM {target_table} WHERE {where_items}"
             if engine == DbEngine.ORACLE:
-                from . import oracle_pomes
+                from .native import oracle_pomes
                 result = oracle_pomes.bulk_execute(exc_stmt=delete_stmt,
                                                    exc_vals=where_vals,
                                                    connection=curr_conn,
                                                    committable=committable if connection else True,
                                                    errors=curr_errors)
             else:
-                from . import sqlserver_pomes
+                from .native import sqlserver_pomes
                 result = sqlserver_pomes.bulk_execute(exc_stmt=delete_stmt,
                                                       exc_vals=where_vals,
                                                       connection=curr_conn,
@@ -1602,7 +1602,7 @@ def db_update_lob(lob_table: str,
         if engine == DbEngine.MYSQL:
             pass
         elif engine == DbEngine.ORACLE:
-            from . import oracle_pomes
+            from .native import oracle_pomes
             oracle_pomes.update_lob(lob_table=lob_table,
                                     lob_column=lob_column,
                                     pk_columns=pk_columns,
@@ -1613,7 +1613,7 @@ def db_update_lob(lob_table: str,
                                     committable=committable if connection else True,
                                     errors=curr_errors)
         elif engine == DbEngine.POSTGRES:
-            from . import postgres_pomes
+            from .native import postgres_pomes
             postgres_pomes.update_lob(lob_table=lob_table,
                                       lob_column=lob_column,
                                       pk_columns=pk_columns,
@@ -1624,7 +1624,7 @@ def db_update_lob(lob_table: str,
                                       committable=committable if connection else True,
                                       errors=curr_errors)
         elif engine == DbEngine.SQLSERVER:
-            from . import sqlserver_pomes
+            from .native import sqlserver_pomes
             sqlserver_pomes.update_lob(lob_table=lob_table,
                                        lob_column=lob_column,
                                        pk_columns=pk_columns,
@@ -1704,7 +1704,7 @@ def db_execute(exc_stmt: str,
         if engine == DbEngine.MYSQL:
             pass
         elif engine == DbEngine.ORACLE:
-            from . import oracle_pomes
+            from .native import oracle_pomes
             result = oracle_pomes.execute(exc_stmt=exc_stmt,
                                           bind_vals=bind_vals,
                                           return_cols=return_cols,
@@ -1714,7 +1714,7 @@ def db_execute(exc_stmt: str,
                                           committable=committable if connection else True,
                                           errors=curr_errors)
         elif engine == DbEngine.POSTGRES:
-            from . import postgres_pomes
+            from .native import postgres_pomes
             result = postgres_pomes.execute(exc_stmt=exc_stmt,
                                             bind_vals=bind_vals,
                                             return_cols=return_cols,
@@ -1724,7 +1724,7 @@ def db_execute(exc_stmt: str,
                                             committable=committable if connection else True,
                                             errors=curr_errors)
         elif engine == DbEngine.SQLSERVER:
-            from . import sqlserver_pomes
+            from .native import sqlserver_pomes
             result = sqlserver_pomes.execute(exc_stmt=exc_stmt,
                                              bind_vals=bind_vals,
                                              return_cols=return_cols,
@@ -1734,7 +1734,7 @@ def db_execute(exc_stmt: str,
                                              committable=committable if connection else True,
                                              errors=curr_errors)
         elif engine == DbEngine.SPANNER:
-            from . import spanner_pomes
+            from .native import spanner_pomes
             result = spanner_pomes.execute(exc_stmt=exc_stmt,
                                            bind_vals=bind_vals,
                                            return_cols=return_cols,
@@ -1791,21 +1791,21 @@ def db_call_function(func_name: str,
         if engine == DbEngine.MYSQL:
             pass
         elif engine == DbEngine.ORACLE:
-            from . import oracle_pomes
+            from .native import oracle_pomes
             result = oracle_pomes.call_function(func_name=func_name,
                                                 func_vals=func_vals,
                                                 connection=curr_conn,
                                                 committable=committable if connection else True,
                                                 errors=curr_errors)
         elif engine == DbEngine.POSTGRES:
-            from . import postgres_pomes
+            from .native import postgres_pomes
             result = postgres_pomes.call_procedure(proc_name=func_name,
                                                    proc_vals=func_vals,
                                                    connection=curr_conn,
                                                    committable=committable if connection else True,
                                                    errors=curr_errors)
         elif engine == DbEngine.SQLSERVER:
-            from . import sqlserver_pomes
+            from .native import sqlserver_pomes
             result = sqlserver_pomes.call_procedure(proc_name=func_name,
                                                     proc_vals=func_vals,
                                                     connection=curr_conn,
@@ -1859,21 +1859,21 @@ def db_call_procedure(proc_name: str,
         if engine == DbEngine.MYSQL:
             pass
         elif engine == DbEngine.ORACLE:
-            from . import oracle_pomes
+            from .native import oracle_pomes
             result = oracle_pomes.call_procedure(proc_name=proc_name,
                                                  proc_vals=proc_vals,
                                                  connection=curr_conn,
                                                  committable=committable if connection else True,
                                                  errors=curr_errors)
         elif engine == DbEngine.POSTGRES:
-            from . import postgres_pomes
+            from .native import postgres_pomes
             result = postgres_pomes.call_procedure(proc_name=proc_name,
                                                    proc_vals=proc_vals,
                                                    connection=curr_conn,
                                                    committable=committable if connection else True,
                                                    errors=curr_errors)
         elif engine == DbEngine.SQLSERVER:
-            from . import sqlserver_pomes
+            from .native import sqlserver_pomes
             result = sqlserver_pomes.call_procedure(proc_name=proc_name,
                                                     proc_vals=proc_vals,
                                                     connection=curr_conn,

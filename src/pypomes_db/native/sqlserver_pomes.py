@@ -8,7 +8,7 @@ from pypomes_core import (
 )
 from typing import Any, BinaryIO, Final
 
-from .db_common import (
+from ..db_common import (
     _DB_LOGGERS, DbEngine, DbParam,
     _assert_query_quota, _build_query_msg, _get_params, _except_msg
 )

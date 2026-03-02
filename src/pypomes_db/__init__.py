@@ -11,7 +11,7 @@ from .db_pomes import (
     db_bulk_insert, db_bulk_update, db_bulk_delete,
     db_execute, db_update_lob, db_call_function, db_call_procedure
 )
-from .index_pomes import (
+from src.pypomes_db.ddl.index_pomes import (
     db_get_indexes, db_get_index_ddl
 )
 from .migration_pomes import (
@@ -27,12 +27,12 @@ from .streaming_pomes import (
 from .sync_pomes import (
     db_sync_data
 )
-from .table_pomes import (
+from src.pypomes_db.ddl.table_pomes import (
     db_create_session_table, db_get_session_table_prefix,
     db_get_tables, db_table_exists, db_drop_table,
     db_get_column_metadata, db_get_columns_metadata, db_get_table_ddl
 )
-from .view_pomes import (
+from src.pypomes_db.ddl.view_pomes import (
     db_get_views, db_view_exists, db_drop_view,
     db_get_view_ddl, db_get_view_dependencies
 )

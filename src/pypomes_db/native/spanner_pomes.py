@@ -8,10 +8,10 @@ from google.cloud.spanner_v1.param_types import (
 from pypomes_core import env_get_str, exc_format, str_splice
 from typing import Any
 
-from .db_common import (
+from src.pypomes_db.db_common import (
     _DB_CONN_DATA, _DB_LOGGERS, DbEngine, _assert_query_quota
 )
-from .db_pomes import db_add_query_limits
+from ..db_pomes import db_add_query_limits
 from .spanner_frame import SpannerConnection, SpannerParam
 
 

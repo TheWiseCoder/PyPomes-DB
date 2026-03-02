@@ -1,9 +1,9 @@
 from typing import Any
 
-from .db_common import (
+from src.pypomes_db.db_common import (
     _DB_CONN_DATA, DbEngine, DbParam, _assert_engine, _get_param
 )
-from .db_pomes import db_execute, db_select
+from ..db_pomes import db_execute, db_select
 
 
 def db_create_session_table(engine: DbEngine,
@@ -110,18 +110,13 @@ def db_get_session_table_prefix(engine: DbEngine) -> str:
 def db_get_tables(schema: str = None,
                   engine: DbEngine = None,
                   connection: Any = None,
-                  committable: bool = None,
                   errors: list[str] = None) -> list[str] | None:
     """
     Retrieve the list of schema-qualified tables in the database.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
     :param schema: optional name of the schema to restrict the search to
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit operation on errorless completion
     :param errors: incidental error messages (might be a non-empty list)
     :return: the schema-qualified table names found, or *None* if error
     """
@@ -148,7 +143,6 @@ def db_get_tables(schema: str = None,
         recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
                                            engine=engine,
                                            connection=connection,
-                                           committable=committable,
                                            errors=errors)
         # process the query result
         if isinstance(recs, list):
@@ -160,19 +154,15 @@ def db_get_tables(schema: str = None,
 def db_table_exists(table_name: str,
                     engine: DbEngine = None,
                     connection: Any = None,
-                    committable: bool = None,
                     errors: list[str] = None) -> bool | None:
     """
     Determine whether the table *table_name* exists in the database.
 
     If *table_name* is schema-qualified, then the search will be restricted to that schema.
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
 
     :param table_name: the, possibly schema-qualified, name of the table to look for
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit operation on errorless completion
     :param errors: incidental error messages (might be a non-empty list)
     :return: *True* if the table was found, *False* otherwise, or *None* if error
     """
@@ -205,7 +195,6 @@ def db_table_exists(table_name: str,
         recs: list[tuple[int]] = db_select(sel_stmt=sel_stmt,
                                            engine=engine,
                                            connection=connection,
-                                           committable=committable,
                                            errors=errors)
         # process the query result
         if isinstance(recs, list):
@@ -217,7 +206,6 @@ def db_table_exists(table_name: str,
 def db_drop_table(table_name: str,
                   engine: DbEngine = None,
                   connection: Any = None,
-                  committable: bool = None,
                   errors: list[str] = None) -> None:
     """
     Drop the table given by the, possibly schema-qualified, *table_name*.
@@ -226,13 +214,9 @@ def db_drop_table(table_name: str,
     and what their use would entail, depends on the response of the *engine* to the
     mixing of *DDL* and *DML* statements in a transaction.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
     :param table_name: the, possibly schema-qualified, name of the table to drop
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit operation on errorless completion
     :param errors: incidental error messages (might be a non-empty list)
     """
     # assert the database engine
@@ -270,14 +254,12 @@ def db_drop_table(table_name: str,
         db_execute(exc_stmt=drop_stmt,
                    engine=engine,
                    connection=connection,
-                   committable=committable,
                    errors=errors)
 
 
 def db_get_table_ddl(table_name: str,
                      engine: DbEngine = None,
                      connection: Any = None,
-                     committable: bool = None,
                      errors: list[str] = None) -> str | None:
     """
     Retrieve the DDL script used to create the table *table_name*.
@@ -286,13 +268,9 @@ def db_get_table_ddl(table_name: str,
     For *postgres* databases, make sure that the function *pg_get_tabledef* is installed and accessible.
     This function is freely available at https://github.com/MichaelDBA/pg_get_tabledef.
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
     :param table_name: the schema-qualified name of the table
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit operation on errorless completion
     :param errors: incidental error messages (might be a non-empty list)
     :return: the DDL script used to create the index, or *None* if error or the table does not exist
     """
@@ -328,7 +306,6 @@ def db_get_table_ddl(table_name: str,
             recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
                                                engine=engine,
                                                connection=connection,
-                                               committable=committable,
                                                errors=errors)
             # process the query result
             if isinstance(recs, list) and recs:
@@ -344,7 +321,6 @@ def db_get_column_metadata(table_name: str,
                            column_name: str,
                            engine: DbEngine = None,
                            connection: Any = None,
-                           committable: bool = None,
                            errors: list[str] = None) -> tuple[str, int, int, bool] | None:
     """
     Retrieve metadata on column *column_name* in *table_name*.
@@ -363,14 +339,10 @@ def db_get_column_metadata(table_name: str,
             - all other types: NULL
         - nullability: whether the column can hold NULL values
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
     :param table_name: the, possibly schema-qualified, name of the table
     :param column_name: the name of the column to retrieve
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit operation on errorless completion
     :param errors: incidental error messages (might be a non-empty list)
     :return: the metadata on column *column_name* in *table_name*, or *None* if error or metadata not found
     """
@@ -424,7 +396,6 @@ def db_get_column_metadata(table_name: str,
                                                                where_data=where_data,
                                                                engine=engine,
                                                                connection=connection,
-                                                               committable=committable,
                                                                errors=errors)
         # process the query result
         if isinstance(recs, list) and recs:
@@ -437,7 +408,6 @@ def db_get_column_metadata(table_name: str,
 def db_get_columns_metadata(table_name: str,
                             engine: DbEngine = None,
                             connection: Any = None,
-                            committable: bool = None,
                             errors: list[str] = None) -> list[tuple[str, str, int, int, bool]] | None:
     """
     Retrieve metadata on all columns in *table_name*.
@@ -457,13 +427,9 @@ def db_get_columns_metadata(table_name: str,
             - all other types: NULL
         - nullability: whether the column can hold NULL values
 
-    The parameter *committable* is relevant only if *connection* is provided, and is otherwise ignored.
-    A rollback is always attempted, if an error occurs.
-
     :param table_name: the, possibly schema-qualified, name of the table
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param committable: whether to commit operation on errorless completion
     :param errors: incidental error messages (might be a non-empty list)
     :return: a list of tuples with the metadata on all columns in *table_name*, or *None* if error
     """
@@ -514,7 +480,6 @@ def db_get_columns_metadata(table_name: str,
                                                                     where_data=where_data,
                                                                     engine=engine,
                                                                     connection=connection,
-                                                                    committable=committable,
                                                                     errors=errors)
         # process the query result
         if isinstance(recs, list) and recs:

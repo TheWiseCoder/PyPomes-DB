@@ -18,7 +18,7 @@ from pypomes_core import file_get_data, exc_format
 from threading import Thread
 from typing import Any
 
-from .db_common import (
+from ..db_common import (
     _DB_CONN_DATA, _DB_LOGGERS, DbEngine, DbParam
 )
 

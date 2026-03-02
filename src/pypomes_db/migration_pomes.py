@@ -191,14 +191,14 @@ def db_migrate_data(source_engine: DbEngine,
         # build the template to handle inserts of null values in PostgreSQL
         bulk_template: str | None = None
         if target_engine == DbEngine.POSTGRES:
-            from . import postgres_pomes
+            from .native import postgres_pomes
             bulk_template = postgres_pomes.build_typified_template(insert_stmt=insert_stmt,
                                                                    nullable_only=True,
                                                                    connection=curr_target_conn,
                                                                    errors=curr_errors)
         # pre-insert handling of identity columns on SQLServer
         if not curr_errors and identity_column and target_engine == DbEngine.SQLSERVER:
-            from . import sqlserver_pomes
+            from .native import sqlserver_pomes
             sqlserver_pomes.identity_pre_insert(insert_stmt=insert_stmt,
                                                 connection=curr_target_conn,
                                                 errors=curr_errors, )
@@ -296,14 +296,14 @@ def db_migrate_data(source_engine: DbEngine,
                 # post-insert handling of identity columns
                 if identity_column and row_count > 0:
                     if target_engine == DbEngine.POSTGRES:
-                        from . import postgres_pomes
+                        from .native import postgres_pomes
                         postgres_pomes.identity_post_insert(insert_stmt=insert_stmt,
                                                             connection=curr_target_conn,
                                                             committable=False,
                                                             identity_column=identity_column,
                                                             errors=curr_errors)
                     elif target_engine == DbEngine.SQLSERVER:
-                        from . import sqlserver_pomes
+                        from .native import sqlserver_pomes
                         sqlserver_pomes.identity_post_insert(insert_stmt=insert_stmt,
                                                              connection=curr_target_conn,
                                                              committable=False,
