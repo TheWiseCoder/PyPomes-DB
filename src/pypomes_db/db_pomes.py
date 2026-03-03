@@ -115,7 +115,7 @@ def db_assert_access(engine: DbEngine = None,
         if version:
             result = True
         elif engine == DbEngine.SPANNER:
-            from src.pypomes_db.native.spanner_frame import SpannerParam, GoogleSpanner
+            from .native.spanner_frame import SpannerParam, GoogleSpanner
             spanner: GoogleSpanner = _DB_CONN_DATA[engine][SpannerParam.ENGINE]
             result = spanner.initialize(errors=errors)
         else:

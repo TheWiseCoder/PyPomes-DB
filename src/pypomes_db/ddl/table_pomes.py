@@ -1,6 +1,6 @@
 from typing import Any
 
-from src.pypomes_db.db_common import (
+from ..db_common import (
     _DB_CONN_DATA, DbEngine, DbParam, _assert_engine, _get_param
 )
 from ..db_pomes import db_execute, db_select
