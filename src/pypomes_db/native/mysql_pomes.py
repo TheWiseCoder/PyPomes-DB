@@ -5,7 +5,7 @@ from pypomes_core import DateFormat, DatetimeFormat
 from typing import Any, Final
 
 from ..db_common import (
-    _DB_LOGGERS, DbEngine, DbParam, _get_params, _except_msg
+    _DB_LOGGERS, DbParam, _get_params, _except_msg
 )
 
 RESERVED_WORDS: Final[list[str]] = [
@@ -40,13 +40,15 @@ RESERVED_WORDS: Final[list[str]] = [
 ]
 
 
-def connect(autocommit: bool = None,
+def connect(engine_id: str,
+            autocommit: bool = None,
             errors: list[str] = None) -> MySQLConnectionAbstract | None:
     """
     Obtain and return a connection to the database.
 
     Return *None* if the connection could not be obtained.
 
+    :param engine_id: the reference database engine
     :param autocommit: whether the connection is to be in autocommit mode (defaults to *False*)
     :param errors: incidental error messages (must be *[]* or *None*)
     :return: the connection to the database, or *None* if error
@@ -55,7 +57,7 @@ def connect(autocommit: bool = None,
     result: MySQLConnectionAbstract | None = None
 
     # retrieve the connection parameters
-    db_params: dict[DbParam, Any] = _get_params(DbEngine.MYSQL)
+    db_params: dict[DbParam, Any] = _get_params(engine_id=engine_id)
 
     # obtain a connection to the database
     try:
@@ -68,17 +70,17 @@ def connect(autocommit: bool = None,
         result.autocommit = isinstance(autocommit, bool) and autocommit
     except Exception as e:
         msg: str = _except_msg(exception=e,
-                               connection=result,
-                               engine=DbEngine.ORACLE)
-        if _DB_LOGGERS[DbEngine.MYSQL]:
-            _DB_LOGGERS[DbEngine.MYSQL].error(msg=msg)
+                               engine_id=engine_id,
+                               connection=result)
+        if _DB_LOGGERS[engine_id]:
+            _DB_LOGGERS[engine_id].error(msg=msg)
         if isinstance(errors, list):
             errors.append(msg)
 
     # log errors
-    if _DB_LOGGERS[DbEngine.MYSQL] and errors:
-        _DB_LOGGERS[DbEngine.MYSQL].error(msg=f"Error connecting to '{db_params.get(DbParam.NAME)} '"
-                                              f"at '{db_params.get(DbParam.NAME)}'")
+    if _DB_LOGGERS[engine_id] and errors:
+        _DB_LOGGERS[engine_id].error(msg=f"Error connecting to '{db_params.get(DbParam.NAME)} '"
+                                         f"at '{db_params.get(DbParam.NAME)}'")
     return result
 
 

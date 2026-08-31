@@ -46,16 +46,16 @@ class _ConnStage(StrEnum):
 
 # available DbConnectionPool instances:
 # {
-#    <DbEngine>: <DbConnectionPool>,
+#    <engine_id>: <DbConnectionPool>,
 #    ...
 # }
-_POOL_INSTANCES: Final[dict[DbEngine, DbConnectionPool]] = {}
+_POOL_INSTANCES: Final[dict[str, DbConnectionPool]] = {}
 
 # pool instances access lock
 _instances_lock: Final[Lock] = Lock()
 
 
-def __get_pool_params() -> dict[DbEngine, dict[_PoolParam, Any]]:
+def __get_pool_params() -> dict[str, dict[_PoolParam, Any]]:
     """
     Establish the connection pool parameters for supported databases, from values in environment variables.
 
@@ -63,7 +63,7 @@ def __get_pool_params() -> dict[DbEngine, dict[_PoolParam, Any]]:
       - *<APP_PREFIX>_DB_POOL_SIZE*: maximum number of connections in the pool (defaults to 40 connections)
       - *<APP_PREFIX>_DB_POOL_TIMEOUT*: number of seconds to wait for a connection to become available,
         before failing the request (defaults to 60 seconds)
-      - *<APP_PREFIX>_DB_POOL_RECYCLE*: number of seconds after which connections in the pool are closed
+      - *<APP_PREFIX>_DB_POOL_RECYCLE*: number of seconds after which idle connections in the pool are closed
         (defaults to 3600 seconds)
       - *<APP_PREFIX>_DB_POOL_VERIFY*: ensures the connection is still active and healthy before it is
         checked out from the pool, by executing a lightweight query - if the verification fails,
@@ -76,7 +76,7 @@ def __get_pool_params() -> dict[DbEngine, dict[_PoolParam, Any]]:
     :return: the connection parameters for supported database engines
     """
     # initialize the return variable
-    result: dict[DbEngine, dict[_PoolParam, Any]] = {}
+    result: dict[str, dict[_PoolParam, Any]] = {}
 
     for engine in DbEngine:
         prefix: str = obj_positional(engine,
@@ -114,7 +114,7 @@ def __get_pool_params() -> dict[DbEngine, dict[_PoolParam, Any]]:
 
 # DbConnectionPool instance params:
 # {
-#    <DbEngine>: {
+#    <engine_id>: {
 #       <_PoolParam.RECYCLE>: <int>,
 #       <_PoolParam.SIZE>: <int>,
 #       <_PoolParam.TIMEOUT>: <int>,
@@ -122,7 +122,7 @@ def __get_pool_params() -> dict[DbEngine, dict[_PoolParam, Any]]:
 #    },
 #    ...
 # }
-_POOL_PARAMS: Final[dict[DbEngine, dict[_PoolParam, Any]]] = __get_pool_params()
+_POOL_PARAMS: Final[dict[str, dict[_PoolParam, Any]]] = __get_pool_params()
 
 
 class DbConnectionPool:
@@ -160,7 +160,7 @@ class DbConnectionPool:
     built-in connection pool is always handled under the hood, thus rendering this implementation as unnecessary.
     """
     def __init__(self,
-                 engine: DbEngine = None,
+                 engine: DbEngine | str = None,
                  /,
                  *,
                  pool_size: int = None,
@@ -192,7 +192,8 @@ class DbConnectionPool:
         :param errors: incidental error messages (might be a non-empty list)
         """
         # declare the instance variables
-        self.db_engine: DbEngine
+        self.engine_id: str
+        self.engine_type: DbEngine
         self.pool_size: int
         self.pool_timeout: int
         self.pool_recycle: int
@@ -203,25 +204,25 @@ class DbConnectionPool:
         self.conn_data: list[dict[_ConnStage, Any]]
 
         # make sure a configured database engine has been specified
-        engine: DbEngine = _assert_engine(engine=engine,
-                                          errors=errors)
+        engine_id, engine_type = _assert_engine(engine=engine,
+                                                errors=errors)
 
         # obtain the default values for the pool parameters
         pool_params: dict[_PoolParam, Any] | None = None
-        if engine:
+        if engine_id:
             msg: str | None = None
-            if engine == DbEngine.SPANNER:
-                msg = f"pool does not apply to {engine}"
+            if engine_type == DbEngine.SPANNER:
+                msg = f"pool does not apply to {engine_id}"
             else:
                 with _instances_lock:
-                    if engine in _POOL_INSTANCES:
+                    if engine_id in _POOL_INSTANCES:
                         msg += f"{engine} pool already exists"
                     else:
-                        pool_params = _POOL_PARAMS[engine]
+                        pool_params = _POOL_PARAMS[engine_id]
             if msg:
                 msg = "Attempt to create connection pool failed: " + msg
-                if _DB_LOGGERS[engine]:
-                    _DB_LOGGERS[engine].error(msg)
+                if _DB_LOGGERS[engine_id]:
+                    _DB_LOGGERS[engine_id].error(msg)
                 if isinstance(errors, list):
                     errors.append(msg)
 
@@ -229,7 +230,8 @@ class DbConnectionPool:
             if not isinstance(pool_size, int):
                 pool_size = pool_params[_PoolParam.SIZE]
             if pool_size > 0:
-                self.db_engine = engine
+                self.engine_id = engine_id
+                self.engine_type = engine_type
                 self.pool_size = pool_size
                 self.pool_timeout = pool_timeout \
                     if isinstance(pool_timeout, int) else pool_params[_PoolParam.TIMEOUT]
@@ -247,15 +249,15 @@ class DbConnectionPool:
                 self.conn_data = []
 
                 # register this instance
-                _POOL_INSTANCES[engine] = self
-                if _DB_LOGGERS[engine]:
-                    msg: str = (f"{self.db_engine} pool created: size {self.pool_size}, "
+                _POOL_INSTANCES[engine_id] = self
+                if _DB_LOGGERS[engine_id]:
+                    msg: str = (f"{self.engine_id} pool created: size {self.pool_size}, "
                                 f"timeout {self.pool_timeout}, recycle {self.pool_recycle}")
-                    _DB_LOGGERS[engine].info(msg=msg)
+                    _DB_LOGGERS[engine_id].info(msg=msg)
             else:
                 msg: str = f"{engine} pool not created: specified size was {pool_size}"
-                if _DB_LOGGERS[engine]:
-                    _DB_LOGGERS[engine].error(msg=msg)
+                if _DB_LOGGERS[engine_id]:
+                    _DB_LOGGERS[engine_id].error(msg=msg)
                 if isinstance(errors, list):
                     errors.append(msg)
 
@@ -298,16 +300,16 @@ class DbConnectionPool:
                                 conn.close()
                             # dispose of exhausted connection
                             self.conn_data.pop(i)
-                            if _DB_LOGGERS[self.db_engine]:
+                            if _DB_LOGGERS[self.engine_id]:
                                 msg: str = (f"The exhausted connection {id(conn)} was removed "
-                                            f"from the {self.db_engine} pool, count = {len(self.conn_data)}")
-                                _DB_LOGGERS[self.db_engine].debug(msg=msg)
+                                            f"from the {self.engine_id} pool, count = {len(self.conn_data)}")
+                                _DB_LOGGERS[self.engine_id].debug(msg=msg)
                         # assess the connection
                         else:
                             if self.pool_verify:
                                 # assert connection health
                                 stmt = "SELECT 1"
-                                if self.db_engine == DbEngine.ORACLE:
+                                if self.engine_id == DbEngine.ORACLE:
                                     stmt += " FROM DUAL"
                                 try:
                                     cursor: Any = conn.cursor()
@@ -323,13 +325,13 @@ class DbConnectionPool:
                                     # dispose of bad connection
                                     self.conn_data.pop(i)
                                     conn = None
-                                    if _DB_LOGGERS[self.db_engine]:
+                                    if _DB_LOGGERS[self.engine_id]:
                                         msg: str = (f"Connection {id(conn)} assessment "
                                                     f"failed: {str_sanitize(f'{e}')}")
-                                        _DB_LOGGERS[self.db_engine].warning(msg=msg)
+                                        _DB_LOGGERS[self.engine_id].warning(msg=msg)
                                         msg = (f"The bad connection {id(conn)} was removed from "
-                                               f"the {self.db_engine} pool, count = {len(self.conn_data)}")
-                                        _DB_LOGGERS[self.db_engine].debug(msg=msg)
+                                               f"the {self.engine_id} pool, count = {len(self.conn_data)}")
+                                        _DB_LOGGERS[self.engine_id].debug(msg=msg)
                             if conn:
                                 # retrieve the connection, and mark it as taken
                                 result = conn
@@ -340,10 +342,10 @@ class DbConnectionPool:
                     elif hasattr(conn, "closed") and conn.closed:
                         # dispose of closed connection
                         self.conn_data.pop(i)
-                        if _DB_LOGGERS[self.db_engine]:
+                        if _DB_LOGGERS[self.engine_id]:
                             msg: str = (f"The closed connection {id(conn)} was removed from "
-                                        f"the {self.db_engine} pool, count = {len(self.conn_data)}")
-                            _DB_LOGGERS[self.db_engine].debug(msg=msg)
+                                        f"the {self.engine_id} pool, count = {len(self.conn_data)}")
+                            _DB_LOGGERS[self.engine_id].debug(msg=msg)
 
                     # connection is no longer in use - these are the 3 remaining references:
                     #   - pool repository 'self.conn_data[i][_ConnStage.CONNECTION]'
@@ -356,30 +358,34 @@ class DbConnectionPool:
                         # mark the connection as available
                         self.conn_data[i][_ConnStage.AVAILABLE] = True
                         reclaimed = True
-                        if _DB_LOGGERS[self.db_engine]:
+                        if _DB_LOGGERS[self.engine_id]:
                             msg: str = (f"The stray connection {id(conn)} "
-                                        f"was reclaimed by the {self.db_engine} pool")
-                            _DB_LOGGERS[self.db_engine].debug(msg=msg)
+                                        f"was reclaimed by the {self.engine_id} pool")
+                            _DB_LOGGERS[self.engine_id].debug(msg=msg)
                 # end of conn data traversal
                 if not result and not reclaimed:
                     # no connection retrieved or reclaimed, obtain a new one
                     if len(self.conn_data) < self.pool_size:
-                        match self.db_engine:
+                        match self.engine_type:
                             case DbEngine.MYSQL:
                                 from .native import mysql_pomes
-                                conn = mysql_pomes.connect(autocommit=False,
+                                conn = mysql_pomes.connect(engine_id=self.engine_id,
+                                                           autocommit=False,
                                                            errors=curr_errors)
                             case DbEngine.ORACLE:
                                 from .native import oracle_pomes
-                                conn = oracle_pomes.connect(autocommit=False,
+                                conn = oracle_pomes.connect(engine_id=self.engine_id,
+                                                            autocommit=False,
                                                             errors=curr_errors)
                             case DbEngine.POSTGRES:
                                 from .native import postgres_pomes
-                                conn = postgres_pomes.connect(autocommit=False,
+                                conn = postgres_pomes.connect(engine_id=self.engine_id,
+                                                              autocommit=False,
                                                               errors=curr_errors)
                             case DbEngine.SQLSERVER:
                                 from .native import sqlserver_pomes
-                                conn = sqlserver_pomes.connect(autocommit=False,
+                                conn = sqlserver_pomes.connect(engine_id=self.engine_id,
+                                                               autocommit=False,
                                                                errors=curr_errors)
                         if not curr_errors:
                             self.__act_on_event(event=DbPoolEvent.CREATE,
@@ -391,9 +397,9 @@ class DbConnectionPool:
                                 _ConnStage.CONNECTION: result,
                                 _ConnStage.TIMESTAMP: datetime.now(tz=UTC).timestamp()
                             })
-                            if _DB_LOGGERS[self.db_engine]:
-                                _DB_LOGGERS[self.db_engine].debug(msg=f"Connection {id(result)} "
-                                                                      f"created by the {self.db_engine} pool, "
+                            if _DB_LOGGERS[self.engine_id]:
+                                _DB_LOGGERS[self.engine_id].debug(msg=f"Connection {id(result)} "
+                                                                      f"created by the {self.engine_id} pool, "
                                                                       f"count = {len(self.conn_data)}")
                     else:
                         # connection pool is at capacity
@@ -403,9 +409,9 @@ class DbConnectionPool:
                 # connection retrieved
                 self.__act_on_event(event=DbPoolEvent.CHECKOUT,
                                     conn=result)
-                if _DB_LOGGERS[self.db_engine]:
-                    _DB_LOGGERS[self.db_engine].debug(msg=f"Connection {id(result)} "
-                                                          f"delivered by the {self.db_engine} pool")
+                if _DB_LOGGERS[self.engine_id]:
+                    _DB_LOGGERS[self.engine_id].debug(msg=f"Connection {id(result)} "
+                                                          f"delivered by the {self.engine_id} pool")
             elif datetime.now(tz=UTC).timestamp() < start + self.pool_timeout:
                 # no connection retrieved, there is still time to retry
                 sleep(1.5)
@@ -473,9 +479,9 @@ class DbConnectionPool:
                     # mark the connection as available
                     data[_ConnStage.AVAILABLE] = True
                     result = True
-                    if _DB_LOGGERS[self.db_engine]:
-                        _DB_LOGGERS[self.db_engine].debug(msg=f"Connection {id(connection)} "
-                                                              f"returned to the {self.db_engine} pool")
+                    if _DB_LOGGERS[self.engine_id]:
+                        _DB_LOGGERS[self.engine_id].debug(msg=f"Connection {id(connection)} "
+                                                              f"returned to the {self.engine_id} pool")
                     break
 
         return result
@@ -489,7 +495,7 @@ class DbConnectionPool:
         as invocation of any of its functions is guaranteed to fail.
         """
         with _instances_lock:
-            _POOL_INSTANCES.pop(self.db_engine)
+            _POOL_INSTANCES.pop(self.engine_id)
 
         with self.stage_lock:
             self.conn_data.clear()
@@ -498,7 +504,7 @@ class DbConnectionPool:
             self.event_callbacks.clear()
 
         if logger:
-            logger.debug(msg=f"{self.db_engine} pool terminated")
+            logger.debug(msg=f"{self.engine_id} pool terminated")
 
     def __act_on_event(self,
                        event: DbPoolEvent,
@@ -530,27 +536,27 @@ class DbConnectionPool:
             if callable(event_callback):
                 # noinspection PyCallingNonCallable
                 event_callback(conn,
-                               _DB_LOGGERS[self.db_engine])
-                if _DB_LOGGERS[self.db_engine]:
-                    msg: str = (f"Event '{event}' on {self.db_engine}, "
+                               _DB_LOGGERS[self.engine_id])
+                if _DB_LOGGERS[self.engine_id]:
+                    msg: str = (f"Event '{event}' on {self.engine_id}, "
                                 f"connection {id(conn)}: '{event_callback.__name__}' invoked")
-                    _DB_LOGGERS[self.db_engine].debug(msg=msg)
+                    _DB_LOGGERS[self.engine_id].debug(msg=msg)
             # execute the statements
             stmts: list[str] = self.event_callbacks[event][1]
             from . import db_pomes
             for stmt in stmts:
                 errors: list[str] = []
                 db_pomes.db_execute(exc_stmt=stmt,
-                                    engine=self.db_engine,
+                                    engine=self.engine_id,
                                     connection=conn,
                                     errors=errors)
-                if _DB_LOGGERS[self.db_engine] and not errors:
-                    msg: str = (f"Event '{event}' on {self.db_engine}, "
+                if _DB_LOGGERS[self.engine_id] and not errors:
+                    msg: str = (f"Event '{event}' on {self.engine_id}, "
                                 f"connection {id(conn)}: '{stmt}' executed")
-                    _DB_LOGGERS[self.db_engine].debug(msg=msg)
+                    _DB_LOGGERS[self.engine_id].debug(msg=msg)
 
 
-def db_get_pool(engine: DbEngine = None) -> DbConnectionPool | None:
+def db_get_pool(engine: DbEngine | str = None) -> DbConnectionPool | None:
     """
     Retrieve the instance of the connection pool associated with *engine*.
 
@@ -561,15 +567,15 @@ def db_get_pool(engine: DbEngine = None) -> DbConnectionPool | None:
     result: DbConnectionPool | None = None
 
     # assert the database engine
-    engine = _assert_engine(engine=engine)
-    if engine:
+    engine_id, _engine_type = _assert_engine(engine=engine)
+    if engine_id:
         with _instances_lock:
-            result = _POOL_INSTANCES.get(engine)
+            result = _POOL_INSTANCES.get(engine_id)
 
     return result
 
 
-def db_pool_acquire(engine: DbEngine = None) -> Any | None:
+def db_pool_acquire(engine: DbEngine | str = None) -> Any | None:
     """
     Obtain a pooled connection for *engine*.
 
@@ -580,9 +586,9 @@ def db_pool_acquire(engine: DbEngine = None) -> Any | None:
     result: Any = None
 
     # assert the database engine
-    engine = _assert_engine(engine=engine)
-    if engine:
-        pool: DbConnectionPool = db_get_pool(engine=engine)
+    engine_id, _engine_type = _assert_engine(engine=engine)
+    if engine_id:
+        pool: DbConnectionPool = db_get_pool(engine=engine_id)
         # obtain the pooled connection
         if pool:
             result = pool.connect()
@@ -591,7 +597,7 @@ def db_pool_acquire(engine: DbEngine = None) -> Any | None:
 
 
 def db_pool_release(connection: Any,
-                    engine: DbEngine = None) -> bool:
+                    engine: DbEngine | str = None) -> bool:
     """
     Return *conn* to the pool, to allow it to be reused.
 
@@ -603,10 +609,10 @@ def db_pool_release(connection: Any,
     result: bool = False
 
     # assert the database engine
-    engine = _assert_engine(engine=engine)
-    if engine:
+    engine_id, _engine_type = _assert_engine(engine=engine)
+    if engine_id:
         # reclaim the connection
-        pool: DbConnectionPool = db_get_pool(engine=engine)
+        pool: DbConnectionPool = db_get_pool(engine=engine_id)
         if pool:
             result = pool.reclaim(connection=connection)
 

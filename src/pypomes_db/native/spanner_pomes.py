@@ -15,6 +15,20 @@ from ..db_pomes import db_add_query_limits
 from .spanner_frame import SpannerConnection, SpannerParam
 
 
+RESERVED_WORDS: list[str] = [
+    "ALL", "AND", "ANY", "ARRAY", "AS", "ASC", "ASSERT_ROWS_MODIFIED", "AT", "BETWEEN", "BY",
+    "CASE", "CAST", "COLLATE", "CONTAINS", "CREATE", "CROSS", "CUBE", "CURRENT",
+    "DEFAULT", "DEFINE", "DESC", "DISTINCT", "ELSE", "END", "ENUM", "ESCAPE", "EXCEPT",
+    "EXCLUDE", "EXISTS", "EXTRACT", "FALSE", "FETCH", "FOLLOWING", "FOR", "FROM", "FULL",
+    "GROUP", "GROUPING", "GROUPS", "HASH", "HAVING", "IF", "IN", "INNER", "INTERSECT",
+    "INTERVAL", "INTO", "IS", "JOIN", "LEFT", "LIKE", "LIMIT", "LOOKUP", "MERGE",
+    "NATURAL", "NEW", "NO", "NOT", "NULL", "NULLS", "OF", "ON", "OR", "ORDER", "OUTER", "OVER",
+    "PARTITION", "PRECEDING", "PROTO", "RANGE", "RECURSIVE", "RESPECT", "RIGHT", "ROLLUP", "ROWS",
+    "SELECT", "SET", "SOME", "STRUCT", "TABLESAMPLE", "THEN", "TO", "TREAT", "TRUE",
+    "UNBOUNDED", "UNION", "UNNEST", "USING", "WHEN", "WHERE", "WINDOW", "WITH"
+]
+
+
 def spanner_setup(instance_id: str,
                   database_id: str,
                   session_pool_size: int = 10,
@@ -151,7 +165,7 @@ def select(sel_stmt: str,
                                                          f"{DbEngine.SPANNER}.{from_table}, offset "
                                                          f"{offset_count}, connection {id(curr_conn)}")
             if _assert_query_quota(query=sel_stmt,
-                                   engine=DbEngine.SPANNER,
+                                   engine_type=DbEngine.SPANNER,
                                    where_vals=where_vals,
                                    count=count,
                                    min_count=min_count,
@@ -228,7 +242,7 @@ def execute(exc_stmt: str,
             if return_cols:
                 result = reply
             elif isinstance(reply, int) and _assert_query_quota(query=exc_stmt,
-                                                                engine=DbEngine.SPANNER,
+                                                                engine_type=DbEngine.SPANNER,
                                                                 where_vals=bind_vals,
                                                                 count=reply,
                                                                 min_count=min_count,

@@ -19,7 +19,7 @@ from threading import Thread
 from typing import Any
 
 from ..db_common import (
-    _DB_CONN_DATA, _DB_LOGGERS, DbEngine, DbParam
+    _DB_CONN_DATA, _DB_LOGGERS, DbEngine
 )
 
 
@@ -35,6 +35,7 @@ class SpannerParam(StrEnum):
     SESSION_DEFAULT_TIMEOUT: auto()
     SESSION_PING_INTERVAL: auto()
     SESSION_POOL_SIZE = auto()
+    VERSION = auto()
 
 
 class GoogleSpanner:
@@ -89,6 +90,8 @@ class GoogleSpanner:
         the data described above. The parameter *project_id* is required if *credentials* is not provided,
         otherwise it is ignored.
 
+        :param project_id: optional project identification
+        :param credentials: optional access credentials
         :param errors: incidental error messages (might be a non-empty list)
         """
         # instance objects
@@ -106,7 +109,6 @@ class GoogleSpanner:
             err_msg = "Instance of Google Cloud Spanner already exists"
         elif project_id or credentials:
             # initilize the Cloud Spanner objects
-
             if credentials:
                 if not isinstance(credentials, dict):
                     credentials_bytes: bytes = file_get_data(file_data=credentials)
@@ -114,7 +116,7 @@ class GoogleSpanner:
                 client_id = self._credentials.get("client_id")
                 project_id = self._credentials["project_id"]
         else:
-            err_msg = "Both 'credentials' and 'project_id' must be provided"
+            err_msg = "Either 'credentials' or 'project_id' must be provided"
 
         if err_msg:
             if _DB_LOGGERS[DbEngine.SPANNER]:
@@ -148,7 +150,7 @@ class GoogleSpanner:
            not conn_data.get(SpannerParam.DATABASE_ID) or \
            not conn_data.get(SpannerParam.INSTANCE_ID):
             err_msg = "Unable to obtain session configuratiom parameters"
-        elif not conn_data.get(DbParam.VERSION):
+        elif not conn_data.get(SpannerParam.VERSION):
             try:
                 # obtain a Cloud Spanner Client
                 if self._credentials:
@@ -177,7 +179,7 @@ class GoogleSpanner:
                     self._database = self._instance.database(database_id=conn_data[SpannerParam.DATABASE_ID])
 
                 from google.cloud.spanner_v1 import __version__
-                conn_data[DbParam.VERSION] = __version__
+                conn_data[SpannerParam.VERSION] = __version__
             except Exception as e:
                 err_msg = exc_format(exc=e,
                                      exc_info=sys.exc_info())

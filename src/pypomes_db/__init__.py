@@ -1,5 +1,5 @@
 from .db_common import (
-    DB_BIND_META_TAG, DbEngine, DbParam
+    DB_BIND_META_TAG, DbRange, DbEngine, DbParam
 )
 from .db_pomes import (
     db_setup, db_set_logger, db_get_engines, db_get_default_engine,
@@ -39,7 +39,7 @@ from .ddl.view_pomes import (
 
 __all__ = [
     # db_common
-    "DB_BIND_META_TAG", "DbEngine", "DbParam",
+    "DB_BIND_META_TAG", "DbRange", "DbEngine", "DbParam",
     # db_pomes
     "db_setup", "db_set_logger", "db_get_engines", "db_get_default_engine",
     "db_get_connection_string", "db_get_reserved_words", "db_is_reserved_word",

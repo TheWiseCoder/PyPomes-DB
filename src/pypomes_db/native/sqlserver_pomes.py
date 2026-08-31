@@ -37,14 +37,15 @@ RESERVED_WORDS: Final[list[str]] = [
 ]
 
 
-def get_connection_string() -> str:
+def get_connection_string(engine_id: str) -> str:
     """
     Build and return the connection string for connecting to the database.
 
+    :param engine_id: the reference database engine
     :return: the connection string
     """
     # retrieve the connection parameters
-    db_params: dict[DbParam, Any] = _get_params(DbEngine.SQLSERVER)
+    db_params: dict[DbParam, Any] = _get_params(engine_id=engine_id)
 
     # build and return the connection string
     return (
@@ -54,13 +55,15 @@ def get_connection_string() -> str:
     )
 
 
-def connect(autocommit: bool = None,
+def connect(engine_id: str,
+            autocommit: bool = None,
             errors: list[str] = None) -> Connection | None:
     """
     Obtain and return a connection to the database.
 
     Return *None* if the connection could not be obtained.
 
+    :param engine_id: the reference database engine
     :param autocommit: whether the connection is to be in autocommit mode (defaults to *False*)
     :param errors: incidental error messages (must be *[]* or *None*)
     :return: the connection to the database, or *None* if error
@@ -69,7 +72,7 @@ def connect(autocommit: bool = None,
     result: Connection | None = None
 
     # retrieve the connection parameters and build the connection string
-    db_params: dict[DbParam, Any] = _get_params(DbEngine.SQLSERVER)
+    db_params: dict[DbParam, Any] = _get_params(engine_id=engine_id)
     connection_kwargs: str = (
         f"DRIVER={{{db_params.get(DbParam.DRIVER)}}};"
         f"SERVER={db_params.get(DbParam.HOST)},{db_params.get(DbParam.PORT)};"
@@ -84,17 +87,17 @@ def connect(autocommit: bool = None,
         result.autocommit = isinstance(autocommit, bool) and autocommit
     except Exception as e:
         msg: str = _except_msg(exception=e,
-                               connection=None,
-                               engine=DbEngine.SQLSERVER)
-        if _DB_LOGGERS[DbEngine.SQLSERVER]:
-            _DB_LOGGERS[DbEngine.SQLSERVER].error(msg=msg)
+                               engine_id=engine_id,
+                               connection=None)
+        if _DB_LOGGERS[engine_id]:
+            _DB_LOGGERS[engine_id].error(msg=msg)
         if isinstance(errors, list):
             errors.append(msg)
 
     # log errors
-    if _DB_LOGGERS[DbEngine.SQLSERVER] and errors:
-        _DB_LOGGERS[DbEngine.SQLSERVER].error(msg=f"Error connecting to '{db_params.get(DbParam.NAME)}' "
-                                                  f"at '{db_params.get(DbParam.HOST)}'")
+    if _DB_LOGGERS[engine_id] and errors:
+        _DB_LOGGERS[engine_id].error(msg=f"Error connecting to '{db_params.get(DbParam.NAME)}' "
+                                         f"at '{db_params.get(DbParam.HOST)}'")
     return result
 
 
@@ -135,7 +138,8 @@ def bind_arguments(stmt: str,
     return result
 
 
-def select(sel_stmt: str,
+def select(engine_id: str,
+           sel_stmt: str,
            where_vals: tuple | None,
            min_count: int | None,
            max_count: int | None,
@@ -156,6 +160,7 @@ def select(sel_stmt: str,
 
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
+    :param engine_id: the reference database engine
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the selection criteria
     :param min_count: optionally defines the minimum number of tuples expected
@@ -175,7 +180,8 @@ def select(sel_stmt: str,
         errors = []
 
     # make sure to have a connection
-    curr_conn: Connection = connection or connect(autocommit=False,
+    curr_conn: Connection = connection or connect(engine_id=engine_id,
+                                                  autocommit=False,
                                                   errors=errors)
     if not errors:
         # establish offset and limit
@@ -196,15 +202,15 @@ def select(sel_stmt: str,
                 count: int = len(rows)
 
                 # log the retrieval operation
-                if _DB_LOGGERS[DbEngine.SQLSERVER]:
+                if _DB_LOGGERS[engine_id]:
                     from_table: str = str_splice(sel_stmt + " ",
                                                  seps=(" FROM ", " "))[1]
-                    _DB_LOGGERS[DbEngine.SQLSERVER].debug(msg=f"Read {count} tuples from "
-                                                              f"{DbEngine.SQLSERVER}.{from_table}, offset "
-                                                              f"{offset_count}, connection {id(curr_conn)}")
+                    _DB_LOGGERS[engine_id].debug(msg=f"Read {count} tuples from "
+                                                     f"{engine_id}.{from_table}, offset "
+                                                     f"{offset_count}, connection {id(curr_conn)}")
 
-                if _assert_query_quota(query=sel_stmt,
-                                       engine=DbEngine.SQLSERVER,
+                if _assert_query_quota(engine_type=DbEngine.SQLSERVER,
+                                       query=sel_stmt,
                                        where_vals=where_vals,
                                        count=count,
                                        min_count=min_count,
@@ -221,10 +227,10 @@ def select(sel_stmt: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
-                                   connection=curr_conn,
-                                   engine=DbEngine.SQLSERVER)
-            if _DB_LOGGERS[DbEngine.SQLSERVER]:
-                _DB_LOGGERS[DbEngine.SQLSERVER].error(msg=msg)
+                                   engine_id=engine_id,
+                                   connection=curr_conn)
+            if _DB_LOGGERS[engine_id]:
+                _DB_LOGGERS[engine_id].error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
@@ -232,14 +238,15 @@ def select(sel_stmt: str,
             if curr_conn and not connection:
                 curr_conn.close()
         # log errors
-        if _DB_LOGGERS[DbEngine.SQLSERVER] and errors:
-            _DB_LOGGERS[DbEngine.SQLSERVER].error(msg=_build_query_msg(query_stmt=sel_stmt,
-                                                  engine=DbEngine.SQLSERVER,
-                                                  bind_vals=where_vals))
+        if _DB_LOGGERS[engine_id] and errors:
+            _DB_LOGGERS[engine_id].error(msg=_build_query_msg(engine_type=DbEngine.SQLSERVER,
+                                                              query_stmt=sel_stmt,
+                                                              bind_vals=where_vals))
     return result
 
 
-def execute(exc_stmt: str,
+def execute(engine_id: str,
+            exc_stmt: str,
             bind_vals: tuple | None,
             return_cols: dict[str, type] | None,
             min_count: int | None,
@@ -265,6 +272,7 @@ def execute(exc_stmt: str,
 
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
+    :param engine_id: the reference database engine
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
     :param return_cols: optional columns and respective types, whose values are to be returned on *INSERT* or *UPDATE*
@@ -283,7 +291,8 @@ def execute(exc_stmt: str,
         errors = []
 
     # make sure to have a connection
-    curr_conn: Connection = connection or connect(autocommit=False,
+    curr_conn: Connection = connection or connect(engine_id=engine_id,
+                                                  autocommit=False,
                                                   errors=errors)
     if not errors:
         # handle return columns
@@ -309,8 +318,8 @@ def execute(exc_stmt: str,
 
                 # check whether the query quota has been satisfied
                 count: int = cursor.rowcount
-                if _assert_query_quota(query=exc_stmt,
-                                       engine=DbEngine.SQLSERVER,
+                if _assert_query_quota(engine_type=DbEngine.SQLSERVER,
+                                       query=exc_stmt,
                                        where_vals=None,
                                        count=count,
                                        min_count=min_count,
@@ -329,10 +338,10 @@ def execute(exc_stmt: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
-                                   connection=curr_conn,
-                                   engine=DbEngine.SQLSERVER)
-            if _DB_LOGGERS[DbEngine.SQLSERVER]:
-                _DB_LOGGERS[DbEngine.SQLSERVER].error(msg=msg)
+                                   engine_id=engine_id,
+                                   connection=curr_conn)
+            if _DB_LOGGERS[engine_id]:
+                _DB_LOGGERS[engine_id].error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
@@ -340,14 +349,15 @@ def execute(exc_stmt: str,
             if curr_conn and not connection:
                 curr_conn.close()
         # log errors
-        if _DB_LOGGERS[DbEngine.SQLSERVER] and errors:
-            _DB_LOGGERS[DbEngine.SQLSERVER].error(msg=_build_query_msg(query_stmt=exc_stmt,
-                                                                       engine=DbEngine.SQLSERVER,
-                                                                       bind_vals=bind_vals))
+        if _DB_LOGGERS[engine_id] and errors:
+            _DB_LOGGERS[engine_id].error(msg=_build_query_msg(engine_type=DbEngine.SQLSERVER,
+                                                              query_stmt=exc_stmt,
+                                                              bind_vals=bind_vals))
     return result
 
 
-def bulk_execute(exc_stmt: str,
+def bulk_execute(engine_id: str,
+                 exc_stmt: str,
                  exc_vals: list[tuple],
                  connection: Connection | None,
                  committable: bool | None,
@@ -362,6 +372,7 @@ def bulk_execute(exc_stmt: str,
 
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
+    :param engine_id: the reference database engine
     :param exc_stmt: the command to update the database with
     :param exc_vals: the list of values for tuple identification, and to update the database with
     :param connection: optional connection to use (obtains a new one, if not provided)
@@ -377,7 +388,8 @@ def bulk_execute(exc_stmt: str,
         errors = []
 
     # make sure to have a connection
-    curr_conn: Connection = connection or connect(autocommit=False,
+    curr_conn: Connection = connection or connect(engine_id=engine_id,
+                                                  autocommit=False,
                                                   errors=errors)
     if not errors:
         try:
@@ -395,24 +407,25 @@ def bulk_execute(exc_stmt: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
-                                   connection=curr_conn,
-                                   engine=DbEngine.SQLSERVER)
-            if _DB_LOGGERS[DbEngine.SQLSERVER]:
-                _DB_LOGGERS[DbEngine.SQLSERVER].error(msg=msg)
+                                   engine_id=engine_id,
+                                   connection=curr_conn)
+            if _DB_LOGGERS[engine_id]:
+                _DB_LOGGERS[engine_id].error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
             # close the connection, if locally acquired
             if curr_conn and not connection:
                 curr_conn.close()
-        if _DB_LOGGERS[DbEngine.SQLSERVER] and errors:
-            _DB_LOGGERS[DbEngine.SQLSERVER].error(msg=_build_query_msg(query_stmt=exc_stmt,
-                                                                       engine=DbEngine.SQLSERVER,
-                                                                       bind_vals=exc_vals[0]))
+        if _DB_LOGGERS[engine_id] and errors:
+            _DB_LOGGERS[engine_id].error(msg=_build_query_msg(engine_type=DbEngine.SQLSERVER,
+                                                              query_stmt=exc_stmt,
+                                                              bind_vals=exc_vals[0]))
     return result
 
 
-def update_lob(lob_table: str,
+def update_lob(engine_id: str,
+               lob_table: str,
                lob_column: str,
                pk_columns: list[str],
                pk_vals: tuple,
@@ -429,6 +442,7 @@ def update_lob(lob_table: str,
 
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
+    :param engine_id: the reference database engine
     :param lob_table: the table to be update with the new LOB
     :param lob_column: the column to be updated with the new LOB
     :param pk_columns: columns making up a primary key, or a unique identifier for the tuple
@@ -444,7 +458,8 @@ def update_lob(lob_table: str,
         errors = []
 
     # make sure to have a connection
-    curr_conn: Connection = connection or connect(autocommit=False,
+    curr_conn: Connection = connection or connect(engine_id=engine_id,
+                                                  autocommit=False,
                                                   errors=errors)
     if not errors:
         if isinstance(lob_data, str):
@@ -499,10 +514,10 @@ def update_lob(lob_table: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
-                                   connection=curr_conn,
-                                   engine=DbEngine.SQLSERVER)
-            if _DB_LOGGERS[DbEngine.SQLSERVER]:
-                _DB_LOGGERS[DbEngine.SQLSERVER].error(msg=msg)
+                                   engine_id=engine_id,
+                                   connection=curr_conn)
+            if _DB_LOGGERS[engine_id]:
+                _DB_LOGGERS[engine_id].error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
@@ -510,10 +525,10 @@ def update_lob(lob_table: str,
             if curr_conn and not connection:
                 curr_conn.close()
         # log errors
-        if _DB_LOGGERS[DbEngine.SQLSERVER] and errors:
-            _DB_LOGGERS[DbEngine.SQLSERVER].error(msg=_build_query_msg(query_stmt=update_stmt,
-                                                                       engine=DbEngine.SQLSERVER,
-                                                                       bind_vals=pk_vals))
+        if _DB_LOGGERS[engine_id] and errors:
+            _DB_LOGGERS[engine_id].error(msg=_build_query_msg(engine_type=DbEngine.SQLSERVER,
+                                                              query_stmt=update_stmt,
+                                                              bind_vals=pk_vals))
 
 
 def add_query_limits(sel_stmt: str,
@@ -562,7 +577,8 @@ def add_query_limits(sel_stmt: str,
     return result
 
 
-def call_procedure(proc_name: str,
+def call_procedure(engine_id: str,
+                   proc_name: str,
                    proc_vals: tuple | None,
                    connection: Connection | None,
                    committable: bool | None,
@@ -572,6 +588,7 @@ def call_procedure(proc_name: str,
 
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
+    :param engine_id: the reference database engine
     :param proc_name: name of the stored procedure
     :param proc_vals: parameters for the stored procedure
     :param connection: optional connection to use (obtains a new one, if not provided)
@@ -587,7 +604,8 @@ def call_procedure(proc_name: str,
         errors = []
 
     # make sure to have a connection
-    curr_conn: Connection = connection or connect(autocommit=False,
+    curr_conn: Connection = connection or connect(engine_id=engine_id,
+                                                  autocommit=False,
                                                   errors=errors)
     if not errors:
         # build the command
@@ -612,10 +630,10 @@ def call_procedure(proc_name: str,
                 with suppress(Exception):
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
-                                   connection=curr_conn,
-                                   engine=DbEngine.SQLSERVER)
-            if _DB_LOGGERS[DbEngine.SQLSERVER]:
-                _DB_LOGGERS[DbEngine.SQLSERVER].error(msg=msg)
+                                   engine_id=engine_id,
+                                   connection=curr_conn)
+            if _DB_LOGGERS[engine_id]:
+                _DB_LOGGERS[engine_id].error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
@@ -623,14 +641,15 @@ def call_procedure(proc_name: str,
             if curr_conn and not connection:
                 curr_conn.close()
         # log errors
-        if _DB_LOGGERS[DbEngine.SQLSERVER] and errors:
-            _DB_LOGGERS[DbEngine.SQLSERVER].error(msg=_build_query_msg(query_stmt=proc_stmt,
-                                                                       engine=DbEngine.SQLSERVER,
-                                                                       bind_vals=proc_vals))
+        if _DB_LOGGERS[engine_id] and errors:
+            _DB_LOGGERS[engine_id].error(msg=_build_query_msg(engine_type=DbEngine.SQLSERVER,
+                                                              query_stmt=proc_stmt,
+                                                              bind_vals=proc_vals))
     return result
 
 
-def identity_pre_insert(insert_stmt: str,
+def identity_pre_insert(engine_id: str,
+                        insert_stmt: str,
                         connection: Connection,
                         errors: list[str] = None) -> None:
     """
@@ -639,6 +658,7 @@ def identity_pre_insert(insert_stmt: str,
     Identity columns are columns whose values are generated directly by the database engine,
     and as such, require special handling before and after bulk inserts.
 
+    :param engine_id: the reference database engine
     :param insert_stmt: the INSERT command
     :param connection: the connection to use
     :param errors: incidental error messages (must be *[]* or *None*)
@@ -646,7 +666,8 @@ def identity_pre_insert(insert_stmt: str,
     table_name: str = str_between(insert_stmt.upper(),
                                   from_str=" INTO ",
                                   to_str=" ")
-    execute(exc_stmt=f"SET IDENTITY_INSERT {table_name.lower()} ON",
+    execute(engine_id=engine_id,
+            exc_stmt=f"SET IDENTITY_INSERT {table_name.lower()} ON",
             bind_vals=None,
             return_cols=None,
             min_count=None,
@@ -656,7 +677,8 @@ def identity_pre_insert(insert_stmt: str,
             errors=errors)
 
 
-def identity_post_insert(insert_stmt: str,
+def identity_post_insert(engine_id: str,
+                         insert_stmt: str,
                          connection: Connection,
                          committable: bool,
                          identity_column: str,
@@ -667,6 +689,7 @@ def identity_post_insert(insert_stmt: str,
     Identity columns are columns whose values are generated directly by the database engine,
     and as such, require special handling before and after bulk inserts.
 
+    :param engine_id: the reference database engine
     :param insert_stmt: the INSERT command
     :param connection: the connection to use
     :param committable: whether to commit or rollback the operation, upon completion
@@ -681,7 +704,8 @@ def identity_post_insert(insert_stmt: str,
     table_name: str = str_between(insert_stmt.upper(),
                                   from_str=" INTO ",
                                   to_str=" ")
-    recs: list[tuple[int]] = select(sel_stmt=(f"SELECT MAX({identity_column}) "
+    recs: list[tuple[int]] = select(engine_id=engine_id,
+                                    sel_stmt=(f"SELECT MAX({identity_column}) "
                                               f"FROM {table_name}"),
                                     where_vals=None,
                                     min_count=None,
@@ -692,7 +716,8 @@ def identity_post_insert(insert_stmt: str,
                                     committable=False,
                                     errors=errors)
     if not errors:
-        execute(exc_stmt=f"SET IDENTITY_INSERT {table_name} OFF",
+        execute(engine_id=engine_id,
+                exc_stmt=f"SET IDENTITY_INSERT {table_name} OFF",
                 bind_vals=None,
                 return_cols=None,
                 min_count=None,
@@ -701,7 +726,8 @@ def identity_post_insert(insert_stmt: str,
                 committable=False,
                 errors=errors)
         if not errors:
-            execute(exc_stmt=f"DBCC CHECKIDENT ('{table_name}', RESEED, {recs[0][0]})",
+            execute(engine_id=engine_id,
+                    exc_stmt=f"DBCC CHECKIDENT ('{table_name}', RESEED, {recs[0][0]})",
                     bind_vals=None,
                     return_cols=None,
                     min_count=None,

@@ -7,7 +7,7 @@ from ..db_pomes import db_execute, db_select
 def db_get_views(view_type: Literal["M", "P"] = "P",
                  schema: str = None,
                  tables: list[str] = None,
-                 engine: DbEngine = None,
+                 engine: DbEngine | str = None,
                  connection: Any = None,
                  errors: list[str] = None) -> list[str] | None:
     """
@@ -29,18 +29,18 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
     result: list[str] | None = None
 
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=errors)
+    if engine_id:
         # build the query
-        if engine == DbEngine.ORACLE:
+        if engine_type == DbEngine.ORACLE:
             vw_table: str = "all_mviews" if view_type == "M" else "all_views"
             vw_name: str = "mview_name" if view_type == "M" else "view_name"
             sel_stmt: str = f"SELECT owner || '.' || {vw_name} FROM {vw_table}"
             if schema:
                 sel_stmt += f" WHERE owner = '{schema.upper()}'"
         elif view_type == "M":  # materialized views (postgres, sqlserver)
-            if engine == DbEngine.POSTGRES:
+            if engine_type == DbEngine.POSTGRES:
                 sel_stmt = "SELECT schemaname || '.' || matviewname FROM pg_matviews "
                 if schema:
                     sel_stmt += f" WHERE LOWER(schemaname) = '{schema.lower()}'"
@@ -58,7 +58,7 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
 
         # execute the query
         recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
-                                           engine=engine,
+                                           engine=engine_id,
                                            connection=connection,
                                            errors=errors)
         # process the query result
@@ -69,7 +69,7 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
     if result and tables:
         for view_name in result:
             dependencies: list[str] = db_get_view_dependencies(view_name=view_name,
-                                                               engine=engine,
+                                                               engine=engine_id,
                                                                connection=connection,
                                                                errors=errors)
             if isinstance(dependencies, list):
@@ -87,7 +87,7 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
 
 def db_view_exists(view_name: str,
                    view_type: Literal["M", "P"] = "P",
-                   engine: DbEngine = None,
+                   engine: DbEngine | str = None,
                    connection: Any = None,
                    errors: list[str] = None) -> bool | None:
     """
@@ -106,9 +106,9 @@ def db_view_exists(view_name: str,
     result: bool | None = None
 
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=errors)
+    if engine_id:
         # extract the schema, if possible
         schema_name: str | None = None
         splits: list[str] = view_name.split(".")
@@ -159,7 +159,7 @@ def db_view_exists(view_name: str,
 
 def db_drop_view(view_name: str,
                  view_type: Literal["M", "P"] = "P",
-                 engine: DbEngine = None,
+                 engine: DbEngine | str = None,
                  connection: Any = None,
                  errors: list[str] = None) -> None:
     """
@@ -176,48 +176,47 @@ def db_drop_view(view_name: str,
     :param errors: incidental error messages (might be a non-empty list)
     """
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=errors)
+    if engine_id:
         # build the DROP statement
         tag: str = "MATERIALIZED VIEW" if view_type == "M" else "VIEW"
-        if engine == DbEngine.ORACLE:
-            # oracle has no 'IF EXISTS' clause
-            drop_stmt: str = \
-                (f"BEGIN"
-                 f" EXECUTE IMMEDIATE 'DROP {tag} {view_name}'; "
-                 "EXCEPTION"
-                 " WHEN OTHERS THEN NULL; "
-                 "END;")
-        elif engine == DbEngine.POSTGRES:
-            drop_stmt: str = \
-                ("DO $$"
-                 "BEGIN"
-                 f" EXECUTE 'DROP {tag} IF EXISTS {view_name}'; "
-                 "EXCEPTION"
-                 " WHEN OTHERS THEN NULL; "
-                 "END $$;")
-        elif engine == DbEngine.SQLSERVER:
-            # in SQLServer, materialized views are regular views with indexes
-            drop_stmt: str = \
-                ("BEGIN TRY"
-                 f" EXEC('DROP VIEW IF EXISTS {view_name};'); "
-                 "END TRY "
-                 "BEGIN CATCH "
-                 "END CATCH;")
-        else:  # DbEngine.MYSQL
-            drop_stmt: str = f"DROP {tag} IF EXISTS {view_name}"
+        drop_stmt: str | None = None
+        match engine_type:
+            case DbEngine.ORACLE:
+                # oracle has no 'IF EXISTS' clause
+                drop_stmt = (f"BEGIN"
+                             f" EXECUTE IMMEDIATE 'DROP {tag} {view_name}'; "
+                             "EXCEPTION"
+                             " WHEN OTHERS THEN NULL; "
+                             "END;")
+            case DbEngine.POSTGRES:
+                drop_stmt = ("DO $$"
+                             "BEGIN"
+                             f" EXECUTE 'DROP {tag} IF EXISTS {view_name}'; "
+                             "EXCEPTION"
+                             " WHEN OTHERS THEN NULL; "
+                             "END $$;")
+            case DbEngine.SQLSERVER:
+                # in SQLServer, materialized views are regular views with indexes
+                drop_stmt = ("BEGIN TRY"
+                             f" EXEC('DROP VIEW IF EXISTS {view_name};'); "
+                             "END TRY "
+                             "BEGIN CATCH "
+                             "END CATCH;")
+            case DbEngine.MYSQL:
+                drop_stmt = f"DROP {tag} IF EXISTS {view_name}"
 
         # drop the view
         db_execute(exc_stmt=drop_stmt,
-                   engine=engine,
+                   engine=engine_id,
                    connection=connection,
                    errors=errors)
 
 
 def db_get_view_ddl(view_name: str,
                     view_type: Literal["M", "P"] = "P",
-                    engine: DbEngine = None,
+                    engine: DbEngine | str = None,
                     connection: Any = None,
                     errors: list[str] = None) -> str | None:
     """
@@ -237,16 +236,16 @@ def db_get_view_ddl(view_name: str,
     result: str | None = None
 
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=errors)
+    if engine_id:
         # determine the view schema
         view_schema: str
         view_schema, view_name = view_name.split(sep=".") if "." in view_name else (None, view_name)
 
         # build the query
         sel_stmt: str | None = None
-        if engine == DbEngine.ORACLE:
+        if engine_type == DbEngine.ORACLE:
             vw_type: str = "MATERIALIZED_VIEW" if view_type == "M" else "VIEW"
             vw_table: str = "all_mviews" if view_type == "M" else "all_views"
             vw_column: str = "mview_name" if view_type == "M" else "view_name"
@@ -258,12 +257,12 @@ def db_get_view_ddl(view_name: str,
                         f"AND owner = '{view_schema.upper()}')")
 
         elif view_type == "M":  # materialized view (postgres, sqlserver)
-            if engine == DbEngine.POSTGRES:
+            if engine_type == DbEngine.POSTGRES:
                 sel_stmt = ("SELECT definition FROM pg_matviews "
                             f"WHERE matviewname = '{view_name.lower()}'")
                 if view_schema:
                     sel_stmt += f" AND schemaname = {view_schema.lower()}"
-            elif engine == DbEngine.SQLSERVER:
+            elif engine_type == DbEngine.SQLSERVER:
                 sel_stmt = ("SELECT view_definition "
                             "FROM information_schema.views AS v "
                             "INNER JOIN sys.indexes AS i ON OBJECT_NAME(i.object_id) = v.table_name "
@@ -271,7 +270,7 @@ def db_get_view_ddl(view_name: str,
                 if view_schema:
                     sel_stmt += f" AND v.table_schema = '{view_schema.lower()}'"
 
-        elif engine in [DbEngine.POSTGRES, DbEngine.SQLSERVER]:
+        elif engine_type in [DbEngine.POSTGRES, DbEngine.SQLSERVER]:
             sel_stmt = ("SELECT view_definition "
                         "FROM information_schema.views "
                         f"WHERE LOWER(table_name) = '{view_name.lower()}'")
@@ -280,7 +279,7 @@ def db_get_view_ddl(view_name: str,
 
         # execute the query
         recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
-                                           engine=engine,
+                                           engine=engine_id,
                                            connection=connection,
                                            errors=errors)
         # process the query result
@@ -292,7 +291,7 @@ def db_get_view_ddl(view_name: str,
 
 def db_get_view_dependencies(view_name: str,
                              view_type: Literal["M", "P"] = "P",
-                             engine: DbEngine = None,
+                             engine: DbEngine | str = None,
                              connection: Any = None,
                              errors: list[str] = None) -> list[str] | None:
     """
@@ -311,16 +310,16 @@ def db_get_view_dependencies(view_name: str,
     result: list[str] | None = None
 
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=errors)
+    if engine_id:
         # determine the view schema
         view_schema: str
         view_schema, view_name = view_name.split(sep=".") if "." in view_name else (None, view_name)
 
         # build the query
         sel_stmt: str | None = None
-        match engine:
+        match engine_type:
             case DbEngine.MYSQL:
                 pass
             case DbEngine.ORACLE:
@@ -357,7 +356,7 @@ def db_get_view_dependencies(view_name: str,
 
         # execute the query
         recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
-                                           engine=engine,
+                                           engine=engine_id,
                                            connection=connection,
                                            errors=errors)
         # process the query result

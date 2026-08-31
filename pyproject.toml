@@ -1,12 +1,12 @@
 [build-system]
 requires = [
-    "hatchling>=1.29.0"
+    "hatchling>=1.32.0"
 ]
 build-backend = "hatchling.build"
 
 [project]
 name = "pypomes_db"
-version = "2.9.8"
+version = "3.0.2"
 authors = [
   { name="GT Nunes", email="wisecoder01@gmail.com" }
 ]
@@ -19,11 +19,11 @@ classifiers = [
     "Operating System :: OS Independent"
 ]
 dependencies = [
-    "pypomes_core>=3.1.0",
-#   "google-cloud-spanner>=3.63.0",
-#   "mysql-connector-python>=9.6.0"
-#   "oracledb>=3.4.2"
-#   "psycopg2-binary>=2.9.11"
+    "pypomes_core>=3.1.8",
+#   "google-cloud-spanner>=3.70.0",
+#   "mysql-connector-python>=26.7.0",
+#   "oracledb>=4.0.2",
+#   "psycopg2-binary>=2.9.12",
 #   "pyodbc>=5.3.0"
 ]
 [project.urls]

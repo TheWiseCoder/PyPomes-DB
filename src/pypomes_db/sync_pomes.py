@@ -13,9 +13,9 @@ from .db_pomes import (
 
 
 # ruff: noqa: PLR0915 - too many statements
-def db_sync_data(source_engine: DbEngine,
+def db_sync_data(source_engine: DbEngine | str,
                  source_table: str,
-                 target_engine: DbEngine,
+                 target_engine: DbEngine | str,
                  target_table: str,
                  pk_columns: list[str],
                  sync_columns: list[str],
@@ -89,29 +89,28 @@ def db_sync_data(source_engine: DbEngine,
 
     # necessary, lest the state of 'errors' be tested
     curr_errors: list[str] = []
-
     # assert the database engines
-    source_engine = _assert_engine(engine=source_engine,
-                                   errors=curr_errors)
-    target_engine = _assert_engine(engine=target_engine,
-                                   errors=curr_errors)
+    source_engine_id, source_engine_type = _assert_engine(engine=source_engine,
+                                                          errors=curr_errors)
+    target_engine_id, target_engine_type = _assert_engine(engine=target_engine,
+                                                          errors=curr_errors)
     # obtain the logger
-    logger: Logger = _DB_LOGGERS[source_engine] or _DB_LOGGERS[target_engine]
+    logger: Logger = _DB_LOGGERS[source_engine_id] or _DB_LOGGERS[target_engine_id]
 
-    from_table: str = f"{source_engine}.{source_table}"
-    to_table: str = f"{target_engine}.{target_table}"
+    from_table: str = f"{source_engine_id}.{source_table}"
+    to_table: str = f"{target_engine_id}.{target_table}"
 
     curr_source_conn: Any = None
     curr_target_conn: Any = None
     if pk_columns:
         # make sure to have connections to the source and destination databases
-        curr_source_conn = source_conn or db_connect(engine=source_engine,
+        curr_source_conn = source_conn or db_connect(engine=source_engine_id,
                                                      errors=curr_errors)
-        curr_target_conn = target_conn or db_connect(engine=target_engine,
+        curr_target_conn = target_conn or db_connect(engine=target_engine_id,
                                                      errors=curr_errors)
     else:
-        err_msg: str = (f"Cannot synchronize tables {source_engine}.{from_table} "
-                        f"and {target_engine}{to_table}: "
+        err_msg: str = (f"Cannot synchronize tables {source_engine_id}.{from_table} "
+                        f"and {target_engine_id}.{to_table}: "
                         f"no columns to uniquely identify tuples specified")
         if logger:
             logger.error(msg=err_msg)
@@ -134,13 +133,13 @@ def db_sync_data(source_engine: DbEngine,
             source_sel_stmt += " OFFSET @offset ROWS"
             target_sel_stmt += " OFFSET @offset ROWS"
         if batch_size or limit_count:
-            if source_engine == DbEngine.POSTGRES:
+            if source_engine_type == DbEngine.POSTGRES:
                 source_sel_stmt += " LIMIT @limit"
-            elif source_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
+            elif source_engine_type in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                 source_sel_stmt += " FETCH NEXT @limit ROWS ONLY"
-            if target_engine == DbEngine.POSTGRES:
+            if target_engine_type == DbEngine.POSTGRES:
                 target_sel_stmt += " LIMIT @limit"
-            elif target_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
+            elif target_engine_type in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                 target_sel_stmt += " FETCH NEXT @limit ROWS ONLY"
 
         rows_for_delete: list[tuple] = []
@@ -151,8 +150,8 @@ def db_sync_data(source_engine: DbEngine,
         # log the synchronization start
         if logger:
             logger.debug(msg=f"Started synchronizing data, "
-                             f"from {source_engine}.{from_table}, connection {id(curr_source_conn)}, "
-                             f"to {target_engine}.{to_table}, connection {id(curr_target_conn)}")
+                             f"from {source_engine_id}.{from_table}, connection {id(curr_source_conn)}, "
+                             f"to {target_engine_id}.{to_table}, connection {id(curr_target_conn)}")
         # set migration vars
         sel_stmt: str
         log_count: int = 0
@@ -168,19 +167,19 @@ def db_sync_data(source_engine: DbEngine,
             source_vals: list[tuple] = db_select(sel_stmt=f"SELECT {pk_cols} FROM {source_table} ",
                                                  orderby_clause=pk_cols,
                                                  offset_count=offset_count - 1,
-                                                 engine=source_engine,
+                                                 engine=source_engine_id,
                                                  connection=source_conn,
                                                  committable=source_committable if source_conn else True,
                                                  errors=curr_errors)
             if source_vals:
                 source_offset = offset_count
                 # obtain the target offset for the source PK values
-                where_clause = __build_where_count(engine=target_engine,
+                where_clause = __build_where_count(engine_type=target_engine_type,
                                                    pk_columns=pk_columns)
                 target_offset = db_count(table=source_table,
                                          where_clause=where_clause,
                                          where_vals=tuple(source_vals[0]),
-                                         engine=target_engine,
+                                         engine=target_engine_id,
                                          connection=target_conn,
                                          committable=target_committable if target_conn else True,
                                          errors=curr_errors)
@@ -212,7 +211,7 @@ def db_sync_data(source_engine: DbEngine,
                 # log query result
                 if logger:
                     logger.debug(msg=f"Read {source_count} tuples "
-                                     f"from {source_engine}.{from_table}, "
+                                     f"from {source_engine_id}.{from_table}, "
                                      f"offset {source_offset}, limit {curr_limit}, "
                                      f"connection {id(curr_source_conn)}")
                 if has_nulls and target_engine == DbEngine.POSTGRES:
@@ -235,7 +234,7 @@ def db_sync_data(source_engine: DbEngine,
                 # log query result
                 if logger:
                     logger.debug(msg=f"Read {target_count} tuples "
-                                     f"from {target_engine}.{target_table}, "
+                                     f"from {target_engine_id}.{target_table}, "
                                      f"offset {target_offset}, limit {curr_limit}, "
                                      f"connection {id(curr_target_conn)}")
 
@@ -301,10 +300,10 @@ def db_sync_data(source_engine: DbEngine,
                                 # log query result
                                 if logger:
                                     logger.debug(msg=f"Read {source_count} tuples "
-                                                     f"from {source_engine}.{from_table}, "
+                                                     f"from {source_engine_id}.{from_table}, "
                                                      f"offset {source_offset}, limit {curr_limit}, "
                                                      f"connection {id(curr_source_conn)}")
-                                if has_nulls and target_engine == DbEngine.POSTGRES:
+                                if has_nulls and target_engine_type == DbEngine.POSTGRES:
                                     _remove_ctrlchars(rows=source_rows)
                             else:
                                 # no more tuples in source table
@@ -332,7 +331,7 @@ def db_sync_data(source_engine: DbEngine,
                                 # log query result
                                 if logger:
                                     logger.debug(msg=f"Read {target_count} tuples "
-                                                     f"from {target_engine}.{target_table}, "
+                                                     f"from {target_engine_id}.{target_table}, "
                                                      f"offset {target_offset}, limit {curr_limit},"
                                                      f" connection {id(curr_target_conn)}")
                             else:
@@ -342,8 +341,8 @@ def db_sync_data(source_engine: DbEngine,
                     # log partial result
                     if logger and log_step >= log_trigger:
                         logger.debug(msg=f"Synchronizing {log_step} tuples, "
-                                         f"from {source_engine}.{from_table}, connection {id(curr_source_conn)}, "
-                                         f"to {target_engine}.{to_table}, connection {id(curr_target_conn)}")
+                                         f"from {source_engine_id}.{from_table}, connection {id(curr_source_conn)}, "
+                                         f"to {target_engine_id}.{to_table}, connection {id(curr_target_conn)}")
                         log_step = 0
                 # close the cursors
                 source_cursor.close()
@@ -355,7 +354,7 @@ def db_sync_data(source_engine: DbEngine,
                     db_bulk_delete(target_table=target_table,
                                    where_attrs=pk_columns,
                                    where_vals=rows_for_delete,
-                                   engine=target_engine,
+                                   engine=target_engine_id,
                                    connection=curr_target_conn,
                                    committable=False,
                                    errors=curr_errors)
@@ -366,7 +365,7 @@ def db_sync_data(source_engine: DbEngine,
                     db_bulk_insert(target_table=target_table,
                                    insert_attrs=pk_columns + sync_columns,
                                    insert_vals=rows_for_insert,
-                                   engine=target_engine,
+                                   engine=target_engine_id,
                                    connection=curr_target_conn,
                                    committable=target_committable if target_conn else True,
                                    identity_column=identity_column,
@@ -379,7 +378,7 @@ def db_sync_data(source_engine: DbEngine,
                                    set_attrs=sync_columns,
                                    where_attrs=pk_columns,
                                    update_vals=rows_for_update,
-                                   engine=target_engine,
+                                   engine=target_engine_id,
                                    connection=curr_target_conn,
                                    committable=target_committable if target_conn else True,
                                    errors=curr_errors)
@@ -402,16 +401,16 @@ def db_sync_data(source_engine: DbEngine,
                         curr_target_conn.rollback()
                 log_count = 0
                 err_msg = _except_msg(exception=e,
-                                      connection=curr_source_conn,
-                                      engine=source_engine)
+                                      engine_id=source_engine_id,
+                                      connection=curr_source_conn)
             finally:
                 # close the connections, if locally acquired
                 if curr_source_conn and not source_conn:
                     db_close(connection=curr_source_conn,
-                             engine=source_engine)
+                             engine=source_engine_id)
                 if curr_target_conn and not target_conn:
                     db_close(connection=curr_target_conn,
-                             engine=target_engine)
+                             engine=target_engine_id)
 
         # log the synchronization finish
         if err_msg:
@@ -420,7 +419,7 @@ def db_sync_data(source_engine: DbEngine,
                 logger.error(msg=err_msg)
         elif not curr_errors and logger:
             logger.debug(msg=f"Synchronized {log_count} tuples from "
-                             f"{source_engine}.{from_table} to {target_engine}.{to_table}, "
+                             f"{source_engine_id}.{from_table} to {target_engine_id}.{to_table}, "
                              f"{result[0]} deleted, {result[1]} inserted, {result[2]} updated")
 
     if curr_errors and isinstance(errors, list):
@@ -445,7 +444,7 @@ def __normalize_value(value: int) -> int:
     return result
 
 
-def __build_where_count(engine: DbEngine,
+def __build_where_count(engine_type: DbEngine,
                         pk_columns: list[str]) -> str:
     """
     Build the *WHERE* clause for the SQL count statement.
@@ -463,14 +462,14 @@ def __build_where_count(engine: DbEngine,
     Note that, in due time, the placeholder *%?* will be replaced by the the one specific to *engine*
     (namely, *:n*, *?s*, and *?*, respectively for Oracle, PostgreSQL, and MySQL or SQLServer).
 
-    :param engine: the database engine
+    :param engine_type: the database engine
     :param pk_columns: primery key columns
     :return: the *WHERE* clause for the SQL count statement
     """
     # declare the return variable
     result: str
 
-    if engine == DbEngine.SQLSERVER:
+    if engine_type == DbEngine.SQLSERVER:
         # SQLServer does not support row comparisons
         result = f"{pk_columns[0]} < {DB_BIND_META_TAG}"
         if len(pk_columns) > 1:

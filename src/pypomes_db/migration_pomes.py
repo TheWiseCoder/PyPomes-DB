@@ -14,10 +14,10 @@ from .db_pomes import db_connect, db_close, db_count
 # ruff: noqa: C901 (function is too complex)
 # ruff: noqa: PLR0912 (checks for functions or methods with too many statements)
 # ruff: noqa: PLR0915 (too many statements)
-def db_migrate_data(source_engine: DbEngine,
+def db_migrate_data(source_engine: DbEngine | str,
                     source_table: str,
                     source_columns: list[str],
-                    target_engine: DbEngine,
+                    target_engine: DbEngine | str,
                     target_table: str,
                     target_columns: list[str] = None,
                     where_clause: str = None,
@@ -98,21 +98,23 @@ def db_migrate_data(source_engine: DbEngine,
     # necessary, lest the state of 'errors' be tested
     curr_errors: list[str] = []
 
+    # assert the database engines
+    source_engine_id, source_engine_type = _assert_engine(engine=source_engine,
+                                                          errors=curr_errors)
+    target_engine_id, target_engine_type = _assert_engine(engine=target_engine,
+                                                          errors=curr_errors)
+
     # make sure to have connections to the source and destination databases
-    source_engine = _assert_engine(engine=source_engine,
-                                   errors=errors)
-    target_engine = _assert_engine(engine=target_engine,
-                                   errors=errors)
-    curr_source_conn: Any = source_conn or db_connect(engine=source_engine,
+    curr_source_conn: Any = source_conn or db_connect(engine=source_engine_id,
                                                       errors=curr_errors)
-    curr_target_conn: Any = target_conn or db_connect(engine=target_engine,
+    curr_target_conn: Any = target_conn or db_connect(engine=target_engine_id,
                                                       errors=curr_errors)
     if not curr_errors:
         # define the number of rows to skip
         if offset_count == -1:
             offset_count = db_count(table=target_table,
                                     where_clause=where_clause,
-                                    engine=target_engine,
+                                    engine=target_engine_id,
                                     connection=curr_target_conn,
                                     committable=target_committable,
                                     errors=curr_errors)
@@ -121,7 +123,7 @@ def db_migrate_data(source_engine: DbEngine,
 
     if not curr_errors:
         # define the logger
-        logger: Logger = _DB_LOGGERS[source_engine] or _DB_LOGGERS[target_engine]
+        logger: Logger = _DB_LOGGERS[source_engine_id] or _DB_LOGGERS[target_engine_id]
 
         # normalize these parameters
         limit_count = __normalize_value(value=limit_count)
@@ -160,9 +162,9 @@ def db_migrate_data(source_engine: DbEngine,
         sel_stmt += " OFFSET @offset ROWS"
 
         if limit_count or batch_size_in:
-            if source_engine == DbEngine.POSTGRES:
+            if source_engine_type == DbEngine.POSTGRES:
                 sel_stmt += " LIMIT @limit"
-            elif source_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
+            elif source_engine_type in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                 sel_stmt += " FETCH @limit ROWS ONLY"
 
         # build the INSERT query
@@ -173,7 +175,7 @@ def db_migrate_data(source_engine: DbEngine,
                 values = " OVERRIDING SYSTEM VALUE " + values
         else:
             # noinspection PyTypeChecker
-            bind_marks: str = _bind_marks(engine=target_engine,
+            bind_marks: str = _bind_marks(engine_type=target_engine_type,
                                           start=1,
                                           finish=len(target_columns) + 1)
             values: str = f"VALUES({bind_marks})"
@@ -192,14 +194,16 @@ def db_migrate_data(source_engine: DbEngine,
         bulk_template: str | None = None
         if target_engine == DbEngine.POSTGRES:
             from .native import postgres_pomes
-            bulk_template = postgres_pomes.build_typified_template(insert_stmt=insert_stmt,
+            bulk_template = postgres_pomes.build_typified_template(engine_id=target_engine,
+                                                                   insert_stmt=insert_stmt,
                                                                    nullable_only=True,
                                                                    connection=curr_target_conn,
                                                                    errors=curr_errors)
         # pre-insert handling of identity columns on SQLServer
         if not curr_errors and identity_column and target_engine == DbEngine.SQLSERVER:
             from .native import sqlserver_pomes
-            sqlserver_pomes.identity_pre_insert(insert_stmt=insert_stmt,
+            sqlserver_pomes.identity_pre_insert(engine_id=target_engine,
+                                                insert_stmt=insert_stmt,
                                                 connection=curr_target_conn,
                                                 errors=curr_errors, )
         err_msg: str | None = None
@@ -297,14 +301,16 @@ def db_migrate_data(source_engine: DbEngine,
                 if identity_column and row_count > 0:
                     if target_engine == DbEngine.POSTGRES:
                         from .native import postgres_pomes
-                        postgres_pomes.identity_post_insert(insert_stmt=insert_stmt,
+                        postgres_pomes.identity_post_insert(engine_id=target_engine,
+                                                            insert_stmt=insert_stmt,
                                                             connection=curr_target_conn,
                                                             committable=False,
                                                             identity_column=identity_column,
                                                             errors=curr_errors)
                     elif target_engine == DbEngine.SQLSERVER:
                         from .native import sqlserver_pomes
-                        sqlserver_pomes.identity_post_insert(insert_stmt=insert_stmt,
+                        sqlserver_pomes.identity_post_insert(engine_id=target_engine,
+                                                             insert_stmt=insert_stmt,
                                                              connection=curr_target_conn,
                                                              committable=False,
                                                              identity_column=identity_column,
@@ -330,7 +336,7 @@ def db_migrate_data(source_engine: DbEngine,
                     curr_target_conn.rollback()
                 err_msg = _except_msg(exception=e,
                                       connection=curr_source_conn,
-                                      engine=source_engine)
+                                      engine_id=source_engine)
             finally:
                 # close the connections, if locally acquired
                 if curr_source_conn and not source_conn:
@@ -360,11 +366,11 @@ def db_migrate_data(source_engine: DbEngine,
 
 
 # ruff: noqa: PLR0912 (checks for functions or methods with too many branches)
-def db_migrate_lobs(source_engine: DbEngine,
+def db_migrate_lobs(source_engine: DbEngine | str,
                     source_table: str,
                     source_lob_column: str,
                     source_pk_columns: list[str],
-                    target_engine: DbEngine,
+                    target_engine: DbEngine | str,
                     target_table: str,
                     target_lob_column: str = None,
                     target_pk_columns: list[str] = None,
@@ -433,14 +439,20 @@ def db_migrate_lobs(source_engine: DbEngine,
     # necessary, lest the state of 'errors' be tested
     curr_errors: list[str] = []
 
+    # assert the database engines
+    source_engine_id, source_engine_type = _assert_engine(engine=source_engine,
+                                                          errors=curr_errors)
+    target_engine_id, target_engine_type = _assert_engine(engine=target_engine,
+                                                          errors=curr_errors)
+
     # make sure to have connections to the source and destination databases
-    curr_source_conn: Any = source_conn or db_connect(engine=source_engine,
+    curr_source_conn: Any = source_conn or db_connect(engine=source_engine_id,
                                                       errors=curr_errors)
-    curr_target_conn: Any = target_conn or db_connect(engine=target_engine,
+    curr_target_conn: Any = target_conn or db_connect(engine=target_engine_id,
                                                       errors=curr_errors)
     if not curr_errors:
         # define the logger
-        logger: Logger = _DB_LOGGERS[source_engine] or _DB_LOGGERS[target_engine]
+        logger: Logger = _DB_LOGGERS[source_engine_id] or _DB_LOGGERS[target_engine_id]
 
         # make sure to have a target column
         if not target_lob_column:
@@ -454,7 +466,7 @@ def db_migrate_lobs(source_engine: DbEngine,
         if offset_count == -1:
             offset_count = db_count(table=target_table,
                                     where_clause=where_clause,
-                                    engine=target_engine,
+                                    engine=target_engine_id,
                                     connection=curr_target_conn,
                                     committable=target_committable,
                                     errors=curr_errors)
@@ -483,14 +495,14 @@ def db_migrate_lobs(source_engine: DbEngine,
         sel_stmt += " OFFSET @offset ROWS"
 
         if limit_count or batch_size:
-            if source_engine == DbEngine.POSTGRES:
+            if source_engine_type == DbEngine.POSTGRES:
                 sel_stmt += " LIMIT @limit"
-            elif source_engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
+            elif source_engine_type in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                 sel_stmt += " FETCH @limit ROWS ONLY"
 
         # build the UPDATE query
         lob_index: int = len(source_pk_columns)
-        target_where_columns: str = _bind_columns(engine=target_engine,
+        target_where_columns: str = _bind_columns(engine_type=target_engine_type,
                                                   columns=target_pk_columns,
                                                   concat=" AND ",
                                                   start_index=2)
@@ -500,7 +512,7 @@ def db_migrate_lobs(source_engine: DbEngine,
                                 f"WHERE {target_where_columns} "
                                 f"RETURNING {target_lob_column} INTO :{len(target_where_columns) + 2}")
         else:
-            lob_bind: str = _bind_columns(engine=target_engine,
+            lob_bind: str = _bind_columns(engine_type=target_engine_type,
                                           columns=[target_lob_column],
                                           concat=", ",
                                           start_index=1)
@@ -512,9 +524,9 @@ def db_migrate_lobs(source_engine: DbEngine,
         # log the migration start
         if logger:
             logger.debug(msg=f"Started migrating LOBs, "
-                             f"from {source_engine}.{source_table}.{source_lob_column},"
+                             f"from {source_engine_id}.{source_table}.{source_lob_column},"
                              f" connection {id(curr_source_conn)}, "
-                             f"to {target_engine}.{target_table}.{target_lob_column}, "
+                             f"to {target_engine_id}.{target_table}.{target_lob_column}, "
                              f" connection {id(curr_target_conn)}, "
                              f"input batch size {batch_size}, offset {offset_count}, "
                              f"limit {limit_count}, chunk size {chunk_size}")
@@ -674,7 +686,7 @@ def db_migrate_lobs(source_engine: DbEngine,
                     curr_target_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   connection=curr_source_conn,
-                                  engine=source_engine)
+                                  engine_id=source_engine)
         finally:
             # close the connections, if locally acquired
             if curr_source_conn and not source_conn:

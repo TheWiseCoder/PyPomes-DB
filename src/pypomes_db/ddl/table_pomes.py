@@ -1,12 +1,12 @@
 from typing import Any
 
 from ..db_common import (
-    _DB_CONN_DATA, DbEngine, DbParam, _assert_engine, _get_param
+    DbEngine, DbParam, _assert_engine, _get_param
 )
 from ..db_pomes import db_execute, db_select
 
 
-def db_create_session_table(engine: DbEngine,
+def db_create_session_table(engine: DbEngine | str,
                             connection: Any,
                             table_name: str,
                             column_data: list[str],
@@ -36,11 +36,11 @@ def db_create_session_table(engine: DbEngine,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=curr_errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=curr_errors)
+    if engine_id:
         stmt: str | None = None
-        match engine:
+        match engine_type:
             case DbEngine.POSTGRES:
                 # - 'TEMP' or 'TEMPORARY' creates a session-scoped table
                 # - 'ON COMMIT PRESERVE ROWS' ensures rows are kept until session ends
@@ -53,14 +53,14 @@ def db_create_session_table(engine: DbEngine,
                 # private, session-scoped, temporary tables require:
                 #   - database version 18c or later
                 #   - name starting with 'ORA$PTT_'
-                version: str = _get_param(engine=engine,
+                version: str = _get_param(engine_id=engine_id,
                                           param=DbParam.VERSION)
                 if version and version > "18" and table_name.upper().startswith("ORA$PTT_"):
                     # 'ON COMMIT PRESERVE DEFINITION' ensures the table lasts for the session
                     stmt = (f"CREATE PRIVATE TEMPORARY TABLE {table_name.upper()} "
                             f"({', '.join(column_data)}) ON COMMIT PRESERVE DEFINITION")
                 elif not db_table_exists(table_name=table_name,
-                                         engine=DbEngine.ORACLE,
+                                         engine=engine,
                                          errors=curr_errors) and not curr_errors:
                     # - the table definition remains in the database permanently, but the data is session-specific
                     # - 'ON COMMIT PRESERVE ROWS' keeps data for the entire session
@@ -72,7 +72,7 @@ def db_create_session_table(engine: DbEngine,
 
         if stmt:
             db_execute(exc_stmt=stmt,
-                       engine=engine,
+                       engine=engine_id,
                        connection=connection,
                        errors=curr_errors)
 
@@ -80,7 +80,7 @@ def db_create_session_table(engine: DbEngine,
         errors.extend(curr_errors)
 
 
-def db_get_session_table_prefix(engine: DbEngine) -> str:
+def db_get_session_table_prefix(engine: DbEngine | str) -> str:
     """
     Return the prefix required in the table's name for it to be created as a session-scoped table.
 
@@ -94,10 +94,10 @@ def db_get_session_table_prefix(engine: DbEngine) -> str:
     result: str = ""
 
     # assert the database engine
-    engine = next(iter(_DB_CONN_DATA)) if not engine and _DB_CONN_DATA else engine
+    engine_id, engine_type = _assert_engine(engine=engine)
 
-    if engine == DbEngine.ORACLE:
-        version: str = _get_param(engine=engine,
+    if engine_type == DbEngine.ORACLE:
+        version: str = _get_param(engine_id=engine_id,
                                   param=DbParam.VERSION)
         if version and version > "18":
             result = "ORA$PTT_"
@@ -108,7 +108,7 @@ def db_get_session_table_prefix(engine: DbEngine) -> str:
 
 
 def db_get_tables(schema: str = None,
-                  engine: DbEngine = None,
+                  engine: DbEngine | str = None,
                   connection: Any = None,
                   errors: list[str] = None) -> list[str] | None:
     """
@@ -124,11 +124,11 @@ def db_get_tables(schema: str = None,
     result: list[str] | None = None
 
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=errors)
+    if engine_id:
         # build the query
-        if engine == DbEngine.ORACLE:
+        if engine_type == DbEngine.ORACLE:
             sel_stmt: str = "SELECT schema_name || '.' || table_name FROM all_tables"
             if schema:
                 sel_stmt += f" WHERE owner = '{schema.upper()}'"
@@ -141,7 +141,7 @@ def db_get_tables(schema: str = None,
 
         # execute the query
         recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
-                                           engine=engine,
+                                           engine=engine_id,
                                            connection=connection,
                                            errors=errors)
         # process the query result
@@ -152,7 +152,7 @@ def db_get_tables(schema: str = None,
 
 
 def db_table_exists(table_name: str,
-                    engine: DbEngine = None,
+                    engine: DbEngine | str = None,
                     connection: Any = None,
                     errors: list[str] = None) -> bool | None:
     """
@@ -170,15 +170,15 @@ def db_table_exists(table_name: str,
     result: bool | None = None
 
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=errors)
+    if engine_id:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
 
         # build the query
-        if engine == DbEngine.ORACLE:
+        if engine_type == DbEngine.ORACLE:
             sel_stmt: str = ("SELECT COUNT(*) FROM all_tables "
                              f"WHERE table_name = '{table_name.upper()}'")
             if table_schema:
@@ -193,7 +193,7 @@ def db_table_exists(table_name: str,
 
         # execute the query
         recs: list[tuple[int]] = db_select(sel_stmt=sel_stmt,
-                                           engine=engine,
+                                           engine=engine_id,
                                            connection=connection,
                                            errors=errors)
         # process the query result
@@ -204,7 +204,7 @@ def db_table_exists(table_name: str,
 
 
 def db_drop_table(table_name: str,
-                  engine: DbEngine = None,
+                  engine: DbEngine | str = None,
                   connection: Any = None,
                   errors: list[str] = None) -> None:
     """
@@ -220,11 +220,11 @@ def db_drop_table(table_name: str,
     :param errors: incidental error messages (might be a non-empty list)
     """
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=errors)
+    if engine_id:
         # build the DROP statement
-        if engine == DbEngine.ORACLE:
+        if engine_type == DbEngine.ORACLE:
             # oracle has no 'IF EXISTS' clause
             drop_stmt: str = \
                 (f"BEGIN"
@@ -232,7 +232,7 @@ def db_drop_table(table_name: str,
                  "EXCEPTION"
                  " WHEN OTHERS THEN NULL; "
                  "END;")
-        elif engine == DbEngine.POSTGRES:
+        elif engine_type == DbEngine.POSTGRES:
             drop_stmt: str = \
                 ("DO $$"
                  "BEGIN"
@@ -240,7 +240,7 @@ def db_drop_table(table_name: str,
                  "EXCEPTION"
                  " WHEN OTHERS THEN NULL; "
                  "END $$;")
-        elif engine == DbEngine.SQLSERVER:
+        elif engine_type == DbEngine.SQLSERVER:
             drop_stmt: str = \
                 ("BEGIN TRY"
                  f" EXEC('DROP TABLE IF EXISTS {table_name} CASCADE;'); "
@@ -252,13 +252,13 @@ def db_drop_table(table_name: str,
 
         # drop the table
         db_execute(exc_stmt=drop_stmt,
-                   engine=engine,
+                   engine=engine_id,
                    connection=connection,
                    errors=errors)
 
 
 def db_get_table_ddl(table_name: str,
-                     engine: DbEngine = None,
+                     engine: DbEngine | str = None,
                      connection: Any = None,
                      errors: list[str] = None) -> str | None:
     """
@@ -278,9 +278,9 @@ def db_get_table_ddl(table_name: str,
     result: str | None = None
 
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=errors)
+    if engine_id:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
@@ -288,23 +288,24 @@ def db_get_table_ddl(table_name: str,
         if table_schema:
             # build the query
             sel_stmt: str | None = None
-            if engine == DbEngine.MYSQL:
-                pass
-            if engine == DbEngine.ORACLE:
-                sel_stmt = ("SELECT DBMS_METADATA.GET_DDL('TABLE', "
-                            f"'{table_name.upper()}', '{table_schema.upper()}') "
-                            "FROM DUAL")
-            elif engine == DbEngine.POSTGRES:
-                sel_stmt = ("SELECT * FROM public.pg_get_table_def("
-                            f"'{table_schema.lower()}', '{table_name.lower()}', false)")
-            elif engine == DbEngine.SQLSERVER:
-                # sel_stmt = f"EXEC sp_help '{schema_name}.{table_name}'"
-                sel_stmt = ("SELECT OBJECT_DEFINITION (OBJECT_ID("
-                            f"'{table_schema.lower()}.{table_name.upper()}'))")
+            match engine_type:
+                case DbEngine.MYSQL:
+                    pass
+                case DbEngine.ORACLE:
+                    sel_stmt = ("SELECT DBMS_METADATA.GET_DDL('TABLE', "
+                                f"'{table_name.upper()}', '{table_schema.upper()}') "
+                                "FROM DUAL")
+                case DbEngine.POSTGRES:
+                    sel_stmt = ("SELECT * FROM public.pg_get_table_def("
+                                f"'{table_schema.lower()}', '{table_name.lower()}', false)")
+                case DbEngine.SQLSERVER:
+                    # sel_stmt = f"EXEC sp_help '{schema_name}.{table_name}'"
+                    sel_stmt = ("SELECT OBJECT_DEFINITION (OBJECT_ID("
+                                f"'{table_schema.lower()}.{table_name.upper()}'))")
 
             # execute the query
             recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
-                                               engine=engine,
+                                               engine=engine_id,
                                                connection=connection,
                                                errors=errors)
             # process the query result
@@ -319,7 +320,7 @@ def db_get_table_ddl(table_name: str,
 
 def db_get_column_metadata(table_name: str,
                            column_name: str,
-                           engine: DbEngine = None,
+                           engine: DbEngine | str = None,
                            connection: Any = None,
                            errors: list[str] = None) -> tuple[str, int, int, bool] | None:
     """
@@ -350,9 +351,9 @@ def db_get_column_metadata(table_name: str,
     result: tuple[str, int, int, bool] | None = None
 
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=errors)
+    if engine_id:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
@@ -360,41 +361,42 @@ def db_get_column_metadata(table_name: str,
         # build the query
         sel_stmt: str | None = None
         where_data: dict[str, str] | None = None
-        if engine == DbEngine.MYSQL:
-            pass
-        if engine == DbEngine.ORACLE:
-            sel_stmt = ("SELECT DATA_TYPE, DATA_LENGTH, "
-                        "DATA_PRECISION, DATA_SCALE, NULLABLE FROM ALL_TAB_COLUMNS")
-            where_data = {
-                "TABLE_NAME": table_name.upper(),
-                "COLUMN_NAME": column_name.upper()
-            }
-            if table_schema:
-                where_data["OWNER"] = table_schema.upper()
-        elif engine == DbEngine.POSTGRES:
-            sel_stmt = ("SELECT udt_name, character_maximum_length, "
-                        "numeric_precision, numeric_scale, is_nullable FROM information_schema.columns")
-            where_data = {
-                "table_name": table_name.lower(),
-                "column_name": column_name.lower()
-            }
-            if table_schema:
-                where_data["table_schema"] = table_schema.lower()
-        elif engine == DbEngine.SQLSERVER:
-            sel_stmt = ("SELECT UDT_NAME, CHARACTER_MAXIMUM_LENGTH, "
-                        "NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE FROM information_schema.columns")
-            where_data = {
-                "TABLE_NAME": table_name.upper(),
-                "COLUMN_NAME": column_name.upper()
-            }
-            if table_schema:
-                where_data["TABLE_SCHEMA"] = table_schema.upper()
+        match engine_type:
+            case DbEngine.MYSQL:
+                pass
+            case DbEngine.ORACLE:
+                sel_stmt = ("SELECT DATA_TYPE, DATA_LENGTH, "
+                            "DATA_PRECISION, DATA_SCALE, NULLABLE FROM ALL_TAB_COLUMNS")
+                where_data = {
+                    "TABLE_NAME": table_name.upper(),
+                    "COLUMN_NAME": column_name.upper()
+                }
+                if table_schema:
+                    where_data["OWNER"] = table_schema.upper()
+            case DbEngine.POSTGRES:
+                sel_stmt = ("SELECT udt_name, character_maximum_length, "
+                            "numeric_precision, numeric_scale, is_nullable FROM information_schema.columns")
+                where_data = {
+                    "table_name": table_name.lower(),
+                    "column_name": column_name.lower()
+                }
+                if table_schema:
+                    where_data["table_schema"] = table_schema.lower()
+            case DbEngine.SQLSERVER:
+                sel_stmt = ("SELECT UDT_NAME, CHARACTER_MAXIMUM_LENGTH, "
+                            "NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE FROM information_schema.columns")
+                where_data = {
+                    "TABLE_NAME": table_name.upper(),
+                    "COLUMN_NAME": column_name.upper()
+                }
+                if table_schema:
+                    where_data["TABLE_SCHEMA"] = table_schema.upper()
 
         # execute the query
         # noinspection PyTypeChecker
         recs: list[tuple[str, int, int, int, str]] = db_select(sel_stmt=sel_stmt,
                                                                where_data=where_data,
-                                                               engine=engine,
+                                                               engine=engine_id,
                                                                connection=connection,
                                                                errors=errors)
         # process the query result
@@ -406,7 +408,7 @@ def db_get_column_metadata(table_name: str,
 
 
 def db_get_columns_metadata(table_name: str,
-                            engine: DbEngine = None,
+                            engine: DbEngine | str = None,
                             connection: Any = None,
                             errors: list[str] = None) -> list[tuple[str, str, int, int, bool]] | None:
     """
@@ -437,9 +439,9 @@ def db_get_columns_metadata(table_name: str,
     result: list[tuple[str, str, int, int, bool]] | None = None
 
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=errors)
+    if engine_id:
         # determine the table schema
         table_schema: str
         table_schema, table_name = table_name.split(sep=".") if "." in table_name else (None, table_name)
@@ -447,38 +449,39 @@ def db_get_columns_metadata(table_name: str,
         # build the query
         sel_stmt: str | None = None
         where_data: dict[str, str] | None = None
-        if engine == DbEngine.MYSQL:
-            pass
-        if engine == DbEngine.ORACLE:
-            sel_stmt = ("SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, "
-                        "DATA_PRECISION, DATA_SCALE, NULLABLE FROM ALL_TAB_COLUMNS")
-            where_data = {
-                "TABLE_NAME": table_name.upper()
-            }
-            if table_schema:
-                where_data["OWNER"] = table_schema.upper()
-        elif engine == DbEngine.POSTGRES:
-            sel_stmt = ("SELECT column_name, udt_name, character_maximum_length, "
-                        "numeric_precision, numeric_scale, is_nullable FROM information_schema.columns")
-            where_data = {
-                "table_name": table_name.lower()
-            }
-            if table_schema:
-                where_data["table_schema"] = table_schema.lower()
-        elif engine == DbEngine.SQLSERVER:
-            sel_stmt = ("SELECT COLUMN_NAME, UDT_NAME, CHARACTER_MAXIMUM_LENGTH, "
-                        "NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE FROM information_schema.columns")
-            where_data = {
-                "TABLE_NAME": table_name.upper()
-            }
-            if table_schema:
-                where_data["TABLE_SCHEMA"] = table_schema.upper()
+        match engine_type:
+            case DbEngine.MYSQL:
+                pass
+            case DbEngine.ORACLE:
+                sel_stmt = ("SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, "
+                            "DATA_PRECISION, DATA_SCALE, NULLABLE FROM ALL_TAB_COLUMNS")
+                where_data = {
+                    "TABLE_NAME": table_name.upper()
+                }
+                if table_schema:
+                    where_data["OWNER"] = table_schema.upper()
+            case DbEngine.POSTGRES:
+                sel_stmt = ("SELECT column_name, udt_name, character_maximum_length, "
+                            "numeric_precision, numeric_scale, is_nullable FROM information_schema.columns")
+                where_data = {
+                    "table_name": table_name.lower()
+                }
+                if table_schema:
+                    where_data["table_schema"] = table_schema.lower()
+            case DbEngine.SQLSERVER:
+                sel_stmt = ("SELECT COLUMN_NAME, UDT_NAME, CHARACTER_MAXIMUM_LENGTH, "
+                            "NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE FROM information_schema.columns")
+                where_data = {
+                    "TABLE_NAME": table_name.upper()
+                }
+                if table_schema:
+                    where_data["TABLE_SCHEMA"] = table_schema.upper()
 
         # execute the query
         # noinspection PyTypeChecker
         recs: list[tuple[str, str, int, int, int, str]] = db_select(sel_stmt=sel_stmt,
                                                                     where_data=where_data,
-                                                                    engine=engine,
+                                                                    engine=engine_id,
                                                                     connection=connection,
                                                                     errors=errors)
         # process the query result

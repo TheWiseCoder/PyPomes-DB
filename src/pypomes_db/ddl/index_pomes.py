@@ -8,7 +8,7 @@ from ..db_pomes import db_select
 def db_get_indexes(schema: str = None,
                    omit_pks: bool = True,
                    tables: list[str] = None,
-                   engine: DbEngine = None,
+                   engine: DbEngine | str = None,
                    connection: Any = None,
                    errors: list[str] = None) -> list[str]:
     """
@@ -31,17 +31,17 @@ def db_get_indexes(schema: str = None,
     result: list[str] | None = None
 
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=errors)
-    if engine:
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=errors)
+    if engine_id:
         # process table names
-        tbl_name = obj_positional(engine,
-                                  keys=tuple(DbEngine),
-                                  values=("", "table_name", "LOWER(t.relname)", "LOWER(t.name)"))
-        sch_name = obj_positional(engine,
-                                  keys=tuple(DbEngine),
-                                  values=("", "aic.table_name",
-                                          "LOWER(ns.nspname)", "SCHEMA_NAME(t.schema_id)"))
+        tbl_name: str = obj_positional(engine_type,
+                                       keys=tuple(DbEngine),
+                                       values=("", "table_name", "LOWER(t.relname)", "LOWER(t.name)"))
+        sch_name: str = obj_positional(engine_type,
+                                       keys=tuple(DbEngine),
+                                       values=("", "aic.table_name",
+                                               "LOWER(ns.nspname)", "SCHEMA_NAME(t.schema_id)"))
         in_tables: str = ""
         where_tables: str = ""
         for table in tables:
@@ -54,8 +54,8 @@ def db_get_indexes(schema: str = None,
                 in_tables += f"'{tbl_value}',"
             else:
                 # yes
-                tbl_value: str = splits[1].upper() if engine == DbEngine.ORACLE else splits[1].lower()
-                sch_value: str = splits[0].upper() if engine == DbEngine.ORACLE else splits[0].lower()
+                tbl_value: str = splits[1].upper() if engine_type == DbEngine.ORACLE else splits[1].lower()
+                sch_value: str = splits[0].upper() if engine_type == DbEngine.ORACLE else splits[0].lower()
                 where_tables += (f"({tbl_name} = '{tbl_value}' "
                                  f"AND {sch_name} = '{sch_value}') OR ")
         if in_tables:
@@ -65,7 +65,7 @@ def db_get_indexes(schema: str = None,
 
         # build the query
         sel_stmt: str | None = None
-        match engine:
+        match engine_type:
             case DbEngine.MYSQL:
                 pass
             case DbEngine.ORACLE:
@@ -111,7 +111,7 @@ def db_get_indexes(schema: str = None,
 
         # execute the query
         recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
-                                           engine=engine,
+                                           engine=engine_id,
                                            connection=connection,
                                            errors=errors)
         # process the query result
@@ -122,7 +122,7 @@ def db_get_indexes(schema: str = None,
 
 
 def db_get_index_ddl(index_name: str,
-                     engine: DbEngine = None,
+                     engine: DbEngine | str = None,
                      connection: Any = None,
                      errors: list[str] = None) -> str | None:
     """
@@ -143,8 +143,8 @@ def db_get_index_ddl(index_name: str,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine = _assert_engine(engine=engine,
-                            errors=curr_errors)
+    engine_id, engine_type = _assert_engine(engine=engine,
+                                            errors=curr_errors)
 
     # is 'index_name' schema-qualified ?
     splits: list[str] = index_name.split(".")
@@ -160,23 +160,24 @@ def db_get_index_ddl(index_name: str,
 
         # build the query
         sel_stmt: str | None = None
-        if engine == DbEngine.MYSQL:
-            pass
-        if engine == DbEngine.ORACLE:
-            sel_stmt = ("SELECT DBMS_METADATA.GET_DDL('INDEX', "
-                        f"'{index_name.upper()}', '{schema_name.upper()}') "
-                        "FROM DUAL")
-        elif engine == DbEngine.POSTGRES:
-            sel_stmt = ("SELECT pg_get_indexdef("
-                        f"(quote_ident('{schema_name.lower()}') || '.' || "
-                        f"quote_ident('{index_name.lower()}'))::regclass))")
-        elif engine == DbEngine.SQLSERVER:
-            sel_stmt = ("SELECT OBJECT_DEFINITION (OBJECT_ID("
-                        f"'{schema_name.lower()}.{index_name.lower()}'))")
+        match engine_type:
+            case DbEngine.MYSQL:
+                pass
+            case DbEngine.ORACLE:
+                sel_stmt = ("SELECT DBMS_METADATA.GET_DDL('INDEX', "
+                            f"'{index_name.upper()}', '{schema_name.upper()}') "
+                            "FROM DUAL")
+            case DbEngine.POSTGRES:
+                sel_stmt = ("SELECT pg_get_indexdef("
+                            f"(quote_ident('{schema_name.lower()}') || '.' || "
+                            f"quote_ident('{index_name.lower()}'))::regclass))")
+            case DbEngine.SQLSERVER:
+                sel_stmt = ("SELECT OBJECT_DEFINITION (OBJECT_ID("
+                            f"'{schema_name.lower()}.{index_name.lower()}'))")
 
         # execute the query
         recs: list[tuple[str]] = db_select(sel_stmt=sel_stmt,
-                                           engine=engine,
+                                           engine=engine_id,
                                            connection=connection,
                                            errors=curr_errors)
         # process the query result
