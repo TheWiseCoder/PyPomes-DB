@@ -168,7 +168,7 @@ def db_migrate_data(source_engine: DbEngine | str,
                 sel_stmt += " FETCH @limit ROWS ONLY"
 
         # build the INSERT query
-        if target_engine == DbEngine.POSTGRES:
+        if target_engine_type == DbEngine.POSTGRES:
             values: str = "VALUES %s"
             # pre-insert handling of identity columns on PostgreSQL
             if identity_column:
@@ -192,7 +192,7 @@ def db_migrate_data(source_engine: DbEngine | str,
 
         # build the template to handle inserts of null values in PostgreSQL
         bulk_template: str | None = None
-        if target_engine == DbEngine.POSTGRES:
+        if target_engine_type == DbEngine.POSTGRES:
             from .native import postgres_pomes
             bulk_template = postgres_pomes.build_typified_template(engine_id=target_engine,
                                                                    insert_stmt=insert_stmt,
@@ -200,7 +200,7 @@ def db_migrate_data(source_engine: DbEngine | str,
                                                                    connection=curr_target_conn,
                                                                    errors=curr_errors)
         # pre-insert handling of identity columns on SQLServer
-        if not curr_errors and identity_column and target_engine == DbEngine.SQLSERVER:
+        if not curr_errors and identity_column and target_engine_type == DbEngine.SQLSERVER:
             from .native import sqlserver_pomes
             sqlserver_pomes.identity_pre_insert(engine_id=target_engine,
                                                 insert_stmt=insert_stmt,
@@ -213,7 +213,7 @@ def db_migrate_data(source_engine: DbEngine | str,
             try:
                 source_cursor: Any = curr_source_conn.cursor()
                 target_cursor: Any = curr_target_conn.cursor()
-                if target_engine == DbEngine.SQLSERVER:
+                if target_engine_type == DbEngine.SQLSERVER:
                     target_cursor.fast_executemany = True
 
                 # adjust the offset and limit
@@ -299,7 +299,7 @@ def db_migrate_data(source_engine: DbEngine | str,
 
                 # post-insert handling of identity columns
                 if identity_column and row_count > 0:
-                    if target_engine == DbEngine.POSTGRES:
+                    if target_engine_type == DbEngine.POSTGRES:
                         from .native import postgres_pomes
                         postgres_pomes.identity_post_insert(engine_id=target_engine,
                                                             insert_stmt=insert_stmt,
@@ -307,7 +307,7 @@ def db_migrate_data(source_engine: DbEngine | str,
                                                             committable=False,
                                                             identity_column=identity_column,
                                                             errors=curr_errors)
-                    elif target_engine == DbEngine.SQLSERVER:
+                    elif target_engine_type == DbEngine.SQLSERVER:
                         from .native import sqlserver_pomes
                         sqlserver_pomes.identity_post_insert(engine_id=target_engine,
                                                              insert_stmt=insert_stmt,
@@ -506,7 +506,7 @@ def db_migrate_lobs(source_engine: DbEngine | str,
                                                   columns=target_pk_columns,
                                                   concat=" AND ",
                                                   start_index=2)
-        if target_engine == DbEngine.ORACLE:
+        if target_engine_type == DbEngine.ORACLE:
             update_stmt: str = (f"UPDATE {target_table} "
                                 f"SET {target_lob_column} = empty_blob() "
                                 f"WHERE {target_where_columns} "
@@ -575,7 +575,7 @@ def db_migrate_lobs(source_engine: DbEngine | str,
                     pk_vals: tuple = tuple([row[inx] for inx in range(lob_index)])
 
                     ora_lob: Any = None
-                    if target_engine == DbEngine.ORACLE:
+                    if target_engine_type == DbEngine.ORACLE:
                         # initialize the LOB column with an empty LOB
                         import oracledb
                         lob_var = target_cursor.var(oracledb.DB_TYPE_BLOB)

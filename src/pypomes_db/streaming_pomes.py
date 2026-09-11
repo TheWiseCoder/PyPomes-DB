@@ -84,9 +84,9 @@ def db_stream_data(table: str,
         sel_stmt += " OFFSET @offset ROWS"
 
         if limit_count or batch_size_in:
-            if engine == DbEngine.POSTGRES:
+            if engine_type == DbEngine.POSTGRES:
                 sel_stmt += " LIMIT @limit"
-            elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
+            elif engine_type in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                 sel_stmt += " FETCH @limit ROWS ONLY"
 
         # log the streaming start
@@ -282,9 +282,9 @@ def db_stream_lobs(table: str,
         sel_stmt += " OFFSET @offset ROWS"
 
         if limit_count or batch_size:
-            if engine == DbEngine.POSTGRES:
+            if engine_type == DbEngine.POSTGRES:
                 sel_stmt += " LIMIT @limit"
-            elif engine in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
+            elif engine_type in [DbEngine.ORACLE, DbEngine.SQLSERVER]:
                 sel_stmt += " FETCH @limit ROWS ONLY"
 
         # log the migration start

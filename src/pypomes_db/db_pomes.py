@@ -25,8 +25,6 @@ def db_setup(engine: DbEngine | str,
     """
     Establish the parameters for access to *engine*.
 
-
-
     The meaning of some parameters may vary between different database engines.
     All parameters, are required, with these exceptions:
         - *db_type* defaults to *engine*, if engine is an instance of *DbEngine*
@@ -47,8 +45,10 @@ def db_setup(engine: DbEngine | str,
     # initialize the return variable
     result: bool = False
 
-    if not db_type and isinstance(engine, DbEngine):
-        db_type = engine
+    if isinstance(engine, DbEngine):
+        if not db_type:
+            db_type = engine
+        engine = engine.value
 
     if isinstance(db_type, DbEngine) and db_type != DbEngine.SPANNER and \
        db_name and db_user and db_pwd and db_host and \
@@ -304,11 +304,11 @@ def db_is_reserved_word(word: str,
     result: bool | None = None
 
     # assert the database engine
-    engine = next(iter(_DB_CONN_DATA)) if not engine and _DB_CONN_DATA else engine
+    engine_id, engine_type = _assert_engine(engine=engine)
 
     if isinstance(word, str):
         word = word.upper()
-    match engine:
+    match engine_type:
         case DbEngine.MYSQL:
             from .native import mysql_pomes
             result = word in mysql_pomes.RESERVED_WORDS
@@ -445,8 +445,9 @@ def db_convert_default(value: str,
         # 'value' is a literal (numeric or string)
         result = value
     else:
+        _source_engine_id, source_engine_type = _assert_engine(engine=source_engine)
         pos_source: int | None = None
-        match source_engine:
+        match source_engine_type:
             case DbEngine.MYSQL:
                 pos_source = 0
             case DbEngine.ORACLE:
@@ -457,7 +458,8 @@ def db_convert_default(value: str,
                 pos_source = 3
 
         pos_target: int | None = None
-        match target_engine:
+        _target__engine_id, target_engine_type = _assert_engine(engine=target_engine)
+        match target_engine_type:
             case DbEngine.MYSQL:
                 pos_target = 0
             case DbEngine.ORACLE:
@@ -990,9 +992,9 @@ def db_select(sel_stmt: str,
                                                   autocommit=engine_type == DbEngine.SPANNER,
                                                   errors=curr_errors)
         if not curr_errors:
-            if engine == DbEngine.MYSQL:
+            if engine_type == DbEngine.MYSQL:
                 pass
-            elif engine == DbEngine.ORACLE:
+            elif engine_type == DbEngine.ORACLE:
                 from .native import oracle_pomes
                 result = oracle_pomes.select(engine_id=engine_id,
                                              sel_stmt=sel_stmt,
@@ -1004,7 +1006,7 @@ def db_select(sel_stmt: str,
                                              connection=curr_conn,
                                              committable=committable if connection else True,
                                              errors=curr_errors)
-            elif engine == DbEngine.POSTGRES:
+            elif engine_type == DbEngine.POSTGRES:
                 from .native import postgres_pomes
                 result = postgres_pomes.select(engine_id=engine_id,
                                                sel_stmt=sel_stmt,
@@ -1016,7 +1018,7 @@ def db_select(sel_stmt: str,
                                                connection=curr_conn,
                                                committable=committable if connection else True,
                                                errors=curr_errors)
-            elif engine == DbEngine.SQLSERVER:
+            elif engine_type == DbEngine.SQLSERVER:
                 from .native import sqlserver_pomes
                 result = sqlserver_pomes.select(engine_id=engine_id,
                                                 sel_stmt=sel_stmt,
@@ -1028,7 +1030,7 @@ def db_select(sel_stmt: str,
                                                 connection=curr_conn,
                                                 committable=committable if connection else True,
                                                 errors=curr_errors)
-            elif engine == DbEngine.SPANNER:
+            elif engine_type == DbEngine.SPANNER:
                 from .native import spanner_pomes
                 result = spanner_pomes.select(sel_stmt=sel_stmt,
                                               where_vals=where_vals,
@@ -1243,7 +1245,7 @@ def db_delete(delete_stmt: str,
     # process search data provided as key-value pairs
     if where_clause or where_data:
         engine_id, engine_type = _assert_engine(engine=engine)
-        if engine:
+        if engine_id:
             delete_stmt, where_vals = _combine_search_data(engine_type=engine_type,
                                                            query_stmt=delete_stmt,
                                                            where_clause=where_clause,
@@ -1304,7 +1306,7 @@ def db_bulk_insert(target_table: str,
     curr_conn: Any = connection or db_connect(engine=engine_id,
                                               errors=curr_errors)
     if not curr_errors:
-        if engine == DbEngine.MYSQL:
+        if engine_type == DbEngine.MYSQL:
             pass
         elif engine_type == DbEngine.POSTGRES:
             from .native import postgres_pomes
@@ -1471,7 +1473,7 @@ def db_bulk_update(target_table: str,
                                              concat=" AND ",
                                              start_index=len(set_attrs)+1)
             update_stmt: str = f"UPDATE {target_table} SET {set_items} WHERE {where_items}"
-            if engine == DbEngine.ORACLE:
+            if engine_type == DbEngine.ORACLE:
                 from .native import oracle_pomes
                 result = oracle_pomes.bulk_execute(engine_id=engine_id,
                                                    exc_stmt=update_stmt,
@@ -1659,7 +1661,7 @@ def db_update_lob(lob_table: str,
                                       connection=curr_conn,
                                       committable=committable if connection else True,
                                       errors=curr_errors)
-        elif engine == DbEngine.SQLSERVER:
+        elif engine_type == DbEngine.SQLSERVER:
             from .native import sqlserver_pomes
             sqlserver_pomes.update_lob(engine_id=engine_id,
                                        lob_table=lob_table,
@@ -1917,7 +1919,7 @@ def db_call_procedure(proc_name: str,
                                                    connection=curr_conn,
                                                    committable=committable if connection else True,
                                                    errors=curr_errors)
-        elif engine == DbEngine.SQLSERVER:
+        elif engine_type == DbEngine.SQLSERVER:
             from .native import sqlserver_pomes
             result = sqlserver_pomes.call_procedure(engine_id=engine_id,
                                                     proc_name=proc_name,

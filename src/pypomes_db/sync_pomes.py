@@ -214,7 +214,7 @@ def db_sync_data(source_engine: DbEngine | str,
                                      f"from {source_engine_id}.{from_table}, "
                                      f"offset {source_offset}, limit {curr_limit}, "
                                      f"connection {id(curr_source_conn)}")
-                if has_nulls and target_engine == DbEngine.POSTGRES:
+                if has_nulls and target_engine_type == DbEngine.POSTGRES:
                     _remove_ctrlchars(rows=source_rows)
 
                 if target_offset:

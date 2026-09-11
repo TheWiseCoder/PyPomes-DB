@@ -50,7 +50,7 @@ def db_get_indexes(schema: str = None,
             # is 'table' schema-qualified ?
             if len(splits) == 1:
                 # no
-                tbl_value: str = table.upper() if engine == DbEngine.ORACLE else table.lower()
+                tbl_value: str = table.upper() if engine_type == DbEngine.ORACLE else table.lower()
                 in_tables += f"'{tbl_value}',"
             else:
                 # yes

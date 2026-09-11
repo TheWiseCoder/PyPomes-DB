@@ -118,7 +118,7 @@ def db_view_exists(view_name: str,
 
         # build the query
         sel_stmt: str
-        if engine == DbEngine.ORACLE:
+        if engine_type == DbEngine.ORACLE:
             vw_table: str = "all_mviews" if view_type == "M" else "all_views"
             sel_stmt = (f"SELECT COUNT(*) FROM {vw_table} "
                         f"WHERE view_name = '{view_name.upper()}'")
@@ -126,7 +126,7 @@ def db_view_exists(view_name: str,
                 sel_stmt += f" AND owner = '{schema_name.upper()}'"
 
         elif view_type == "M":  # materialized views (postgres, sqlserver)
-            if engine == DbEngine.POSTGRES:
+            if engine_type == DbEngine.POSTGRES:
                 sel_stmt = ("SELECT COUNT(*) FROM pg_matview "
                             f"WHERE LOWER(matviewname) = '{view_name.lower()}'")
                 if schema_name:

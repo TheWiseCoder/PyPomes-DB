@@ -3,7 +3,7 @@ from logging import Logger
 from pypomes_core import (
     APP_PREFIX,
     str_sanitize, obj_positional,
-    env_get_int, env_get_str, env_get_strs, env_get_path
+    env_get_int, env_get_str, env_get_strs, env_get_enum, env_get_path
 )
 from typing import Any, Final, Literal
 
@@ -78,6 +78,9 @@ _BUILTIN_FUNCTIONS: Final[list[tuple[str, str, str, str]]] = [
      "USER_NAME()")                 # SQLServer
 ]
 
+# database engine loggers
+_DB_LOGGERS: dict[str, Logger | None] = {}
+
 
 def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
     """
@@ -130,7 +133,8 @@ def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
             default_setup = False
         else:
             prefix: str = engine
-        db_type: str = env_get_str(key=f"{APP_PREFIX}_{prefix}_TYPE")
+        db_type: DbEngine = env_get_enum(key=f"{APP_PREFIX}_{prefix}_TYPE",
+                                         enum_class=DbEngine)
         if not db_type:
             db_type = obj_positional(engine,
                                      keys=("MSQL", "ORCL", "PG", "SQLS"),
@@ -158,9 +162,6 @@ def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
 
 # connection data for the configured database engines
 _DB_CONN_DATA: Final[dict[str, dict[DbParam, Any]]] = __get_conn_data()
-
-# database engine loggers
-_DB_LOGGERS: dict[str, Logger | None] = {}
 
 
 def _assert_engine(engine: DbEngine | str,
@@ -485,7 +486,12 @@ def _combine_search_data(engine_type: DbEngine,
                 op = "="
 
             # process the selection criteria
-            if op == "BETWEEN":
+            if value is None:
+                query_stmt += f"{key} IS"
+                if op == "<>":
+                    query_stmt += " NOT"
+                query_stmt += f" NULL {con} "
+            elif op == "BETWEEN":
                 query_stmt += f"({key} BETWEEN {DB_BIND_META_TAG} AND {DB_BIND_META_TAG}) {con} "
                 where_vals.append(value[0])
                 where_vals.append(value[1])

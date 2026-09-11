@@ -101,7 +101,7 @@ def db_get_session_table_prefix(engine: DbEngine | str) -> str:
                                   param=DbParam.VERSION)
         if version and version > "18":
             result = "ORA$PTT_"
-    elif engine == DbEngine.SQLSERVER:
+    elif engine_type == DbEngine.SQLSERVER:
         result = "#"
 
     return result
