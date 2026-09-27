@@ -92,13 +92,13 @@ def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
     For the other database engines, it can be done in two ways:
 
     1. for a single database engine, specify the data set
-          - *<APP_PREFIX>_DB_ENGINE* (one of *mysql*, *oracle*, *postgres*, *sqlserver*)
+          - *<APP_PREFIX>_DB_ENGINE*
+          - *<APP_PREFIX>_DB_TYPE* (one of *mysql*, *oracle*, *postgres*, *sqlserver*)
           - *<APP_PREFIX>_DB_NAME*
           - *<APP_PREFIX>_DB_USER*
           - *<APP_PREFIX>_DB_PWD*
           - *<APP_PREFIX>_DB_HOST*
           - *<APP_PREFIX>_DB_PORT*
-          - *<APP_PREFIX>_DB_TYPE*
           - *<APP_PREFIX>_DB_CLIENT*  (for Oracle)
           - *<APP_PREFIX>_DB_DRIVER*  (for SQLServer)
 
@@ -150,9 +150,9 @@ def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
             DbParam.TYPE: db_type,
             DbParam.VERSION: ""
         }
-        if engine == DbEngine.ORACLE:
+        if db_type == DbEngine.ORACLE:
             result[engine][DbParam.CLIENT] = env_get_path(key=f"{APP_PREFIX}_{prefix}_CLIENT")
-        elif engine == DbEngine.SQLSERVER:
+        elif db_type == DbEngine.SQLSERVER:
             result[engine][DbParam.DRIVER] = env_get_str(key=f"{APP_PREFIX}_{prefix}_DRIVER")
         if engine not in _DB_LOGGERS:
             _DB_LOGGERS[engine] = None
@@ -177,7 +177,7 @@ def _assert_engine(engine: DbEngine | str,
     :return: the validated or the default engine, or *None* if error
     """
     # initialize the return valiable
-    result: tuple[str, DbEngine] | None = None
+    result: tuple[str | None, DbEngine | None] | None = None
 
     for key, value in _DB_CONN_DATA.items():
         if not engine or engine == key:
@@ -189,10 +189,34 @@ def _assert_engine(engine: DbEngine | str,
                 result = (key, value[DbParam.TYPE])
                 break
 
-    if not result and isinstance(errors, list):
-        errors.append(f"Database engine '{engine}' unknown or not configured")
+    if not result:
+        if isinstance(errors, list):
+            errors.append(f"Database engine '{engine}' unknown or not configured")
+        result = (None, None)
 
     return result
+
+
+def _get_param(engine_id: str,
+               param: DbParam) -> Any:
+    """
+    Return the current value of *param* being used by *engine*.
+
+    :param engine_id: the reference database engine
+    :param param: the reference parameter
+    :return: the parameter's current value
+    """
+    return (_DB_CONN_DATA.get(engine_id) or {}).get(param)
+
+
+def _get_params(engine_id: str) -> dict[DbParam, Any]:
+    """
+    Return the current connection parameters being used for *engine*.
+
+    :param engine_id: the reference database engine
+    :return: the current connection parameters for the engine
+    """
+    return _DB_CONN_DATA.get(engine_id)
 
 
 def _assert_query_quota(engine_type: DbEngine,
@@ -246,28 +270,6 @@ def _assert_query_quota(engine_type: DbEngine,
         result: bool = True
 
     return result
-
-
-def _get_param(engine_id: str,
-               param: DbParam) -> Any:
-    """
-    Return the current value of *param* being used by *engine*.
-
-    :param engine_id: the reference database engine
-    :param param: the reference parameter
-    :return: the parameter's current value
-    """
-    return (_DB_CONN_DATA.get(engine_id) or {}).get(param)
-
-
-def _get_params(engine_id: str) -> dict[DbParam, Any]:
-    """
-    Return the current connection parameters being used for *engine*.
-
-    :param engine_id: the reference database engine
-    :return: the current connection parameters for the engine
-    """
-    return _DB_CONN_DATA.get(engine_id)
 
 
 # HAZARD: due to buggy PyCharm type checking, optional 'None' is added to type of parameter 'engine',

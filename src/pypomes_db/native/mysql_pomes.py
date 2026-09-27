@@ -72,13 +72,13 @@ def connect(engine_id: str,
         msg: str = _except_msg(exception=e,
                                engine_id=engine_id,
                                connection=result)
-        if _DB_LOGGERS[engine_id]:
+        if _DB_LOGGERS.get(engine_id):
             _DB_LOGGERS[engine_id].error(msg=msg)
         if isinstance(errors, list):
             errors.append(msg)
 
     # log errors
-    if _DB_LOGGERS[engine_id] and errors:
+    if _DB_LOGGERS.get(engine_id) and errors:
         _DB_LOGGERS[engine_id].error(msg=f"Error connecting to '{db_params.get(DbParam.NAME)} '"
                                          f"at '{db_params.get(DbParam.NAME)}'")
     return result

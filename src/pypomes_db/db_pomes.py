@@ -13,7 +13,8 @@ from .db_common import (
 from .pool_pomes import db_pool_acquire, db_pool_release
 
 
-def db_setup(engine: DbEngine | str,
+def db_setup(*,
+             engine: DbEngine | str,
              db_name: str,
              db_user: str,
              db_pwd: str,
@@ -69,9 +70,24 @@ def db_setup(engine: DbEngine | str,
             _DB_CONN_DATA[engine][DbParam.CLIENT] = Path(db_client)
         elif db_type == DbEngine.SQLSERVER:
             _DB_CONN_DATA[engine][DbParam.DRIVER] = db_driver
+        _DB_LOGGERS[engine] = None
         result = True
 
     return result
+
+
+def db_remove(*,
+              engine: DbEngine | str) -> None:
+    """
+    Unconditionally remove *engine* from the list of configured database engines.
+
+    :param engine: the database engine identification
+    """
+    # assert and remove the database engine
+    engine_id, _engine_type = _assert_engine(engine=engine)
+    if engine_id:
+        _DB_CONN_DATA.pop(engine_id)
+        _DB_LOGGERS.pop(engine_id, None)
 
 
 def db_set_logger(engine: DbEngine | str = None,
@@ -91,19 +107,19 @@ def db_set_logger(engine: DbEngine | str = None,
 
     # assert the database engine
     engine_id, _engine_type = _assert_engine(engine=engine)
-    if id:
+    if engine_id:
         _DB_LOGGERS[engine_id] = logger
         result = True
 
     return result
 
 
-def db_assert_access(engine: DbEngine | str = None,
-                     errors: list[str] = None) -> bool:
+def db_startup(engine: DbEngine | str = None,
+               errors: list[str] = None) -> bool:
     """
     Determine whether the *engine*'s current configuration allows for connections.
 
-    This function should be invoked once, at application's initialization time. This is necessary
+    This function should be invoked at database initialization time. This is necessary
     to make sure connections are obtainable with the provided parameters, to establish the version
     of the database engine in use, and, if applicable in the case of *Oracle*, to initialize access
     to its client library.
@@ -166,7 +182,7 @@ def db_get_engines() -> list[str]:
     *mysql*, *oracle*, *postgres*, *sqlserver*, *spanner*.
     Note that the values in the returned *list* are instances of *DbEngine*, not strings.
 
-    :return: the *list* of configured engines
+    :return: the *list* of configured database engines
     """
     return list(_DB_CONN_DATA)
 
@@ -221,6 +237,16 @@ def db_get_params(engine: DbEngine | str = None) -> dict[DbParam, Any] | None:
         result = _DB_CONN_DATA[engine_id].copy()
 
     return result
+
+
+def db_get_type(engine: DbEngine | str = None) -> DbEngine:
+    """
+    Return the current value for the type of the database engine for the instance identified by *engine*.
+
+    :param engine: the reference database engine (the default engine, if not provided)
+    :return: the engine type for instance *engine*, or *None* if not found
+    """
+    return _assert_engine(engine=engine)[1]
 
 
 def db_get_connection_string(engine: DbEngine | str = None) -> str:
@@ -1383,7 +1409,7 @@ def db_bulk_insert(target_table: str,
                  engine=engine)
 
     # log the operation
-    if _DB_LOGGERS[engine_id] and isinstance(result, int):
+    if _DB_LOGGERS.get(engine_id) and isinstance(result, int):
         _DB_LOGGERS[engine_id].debug(f"INSERTed {result} rows into table {engine}.{target_table}")
 
     if curr_errors and isinstance(errors, list):
@@ -1495,7 +1521,7 @@ def db_bulk_update(target_table: str,
                  engine=engine)
 
     # log the operation
-    if _DB_LOGGERS[engine_id] and isinstance(result, int):
+    if _DB_LOGGERS.get(engine_id) and isinstance(result, int):
         _DB_LOGGERS[engine_id].debug(f"UPDATEd {result} rows on {engine}.{target_table}")
 
     if curr_errors and isinstance(errors, list):
@@ -1584,7 +1610,7 @@ def db_bulk_delete(target_table: str,
                  engine=engine)
 
     # log the operation
-    if _DB_LOGGERS[engine_id] and isinstance(result, int):
+    if _DB_LOGGERS.get(engine_id) and isinstance(result, int):
         _DB_LOGGERS[engine_id].debug(f"DELETEd {result} rows from table {engine}.{target_table}")
 
     if curr_errors and isinstance(errors, list):

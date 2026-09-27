@@ -221,7 +221,7 @@ class DbConnectionPool:
                         pool_params = _POOL_PARAMS[engine_id]
             if msg:
                 msg = "Attempt to create connection pool failed: " + msg
-                if _DB_LOGGERS[engine_id]:
+                if _DB_LOGGERS.get(engine_id):
                     _DB_LOGGERS[engine_id].error(msg)
                 if isinstance(errors, list):
                     errors.append(msg)
@@ -250,13 +250,13 @@ class DbConnectionPool:
 
                 # register this instance
                 _POOL_INSTANCES[engine_id] = self
-                if _DB_LOGGERS[engine_id]:
+                if _DB_LOGGERS.get(engine_id):
                     msg: str = (f"{self.engine_id} pool created: size {self.pool_size}, "
                                 f"timeout {self.pool_timeout}, recycle {self.pool_recycle}")
                     _DB_LOGGERS[engine_id].info(msg=msg)
             else:
                 msg: str = f"{engine} pool not created: specified size was {pool_size}"
-                if _DB_LOGGERS[engine_id]:
+                if _DB_LOGGERS.get(engine_id):
                     _DB_LOGGERS[engine_id].error(msg=msg)
                 if isinstance(errors, list):
                     errors.append(msg)
