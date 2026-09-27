@@ -22,7 +22,8 @@ def db_setup(*,
              db_port: int,
              db_type: DbEngine = None,
              db_client: str | Path = None,
-             db_driver: str = None) -> bool:
+             db_driver: str = None,
+             logger: Logger = None) -> bool:
     """
     Establish the parameters for access to *engine*.
 
@@ -41,6 +42,7 @@ def db_setup(*,
     :param db_type: the database engine type (one of [*mysql*, *oracle*, *postgres*, *sqlserver*])
     :param db_driver: the database driver (SQLServer only)
     :param db_client: the path to the client software (Oracle only)
+    :param logger: the logger for the database engine
     :return: *True* if the data was accepted, *False* otherwise
     """
     # initialize the return variable
@@ -70,7 +72,7 @@ def db_setup(*,
             _DB_CONN_DATA[engine][DbParam.CLIENT] = Path(db_client)
         elif db_type == DbEngine.SQLSERVER:
             _DB_CONN_DATA[engine][DbParam.DRIVER] = db_driver
-        _DB_LOGGERS[engine] = None
+        _DB_LOGGERS[engine] = logger
         result = True
 
     return result
