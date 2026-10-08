@@ -1,8 +1,7 @@
 from enum import IntEnum, StrEnum, auto
 from logging import Logger
 from pypomes_core import (
-    APP_PREFIX,
-    str_sanitize, obj_positional,
+    APP_PREFIX, str_sanitize,
     env_get_int, env_get_str, env_get_strs, env_get_enum, env_get_path
 )
 from typing import Any, Final, Literal
@@ -104,8 +103,7 @@ def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
 
     2. for multiple database engines, specify a comma-separated list of engines in
        *<APP_PREFIX>_DB_ENGINES*, and for each engine, specify the data set above,
-       respectively replacing *_DB_* with a unique identification,
-       possibly *_MSQL_*, *_ORCL_*, *_PG_*, or *_SQLS_*, for the engines listed above
+       respectively replacing *_DB_* with a unique identification
 
     All required parameters must be provided for the selected database engines, except for
     *<APP_PREFIX>_DB_TYPE*, which may be inferred.
@@ -136,11 +134,7 @@ def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
         db_type: DbEngine = env_get_enum(key=f"{APP_PREFIX}_{prefix}_TYPE",
                                          enum_class=DbEngine)
         if not db_type:
-            db_type = obj_positional(engine,
-                                     keys=("MSQL", "ORCL", "PG", "SQLS"),
-                                     values=(DbEngine.MYSQL, DbEngine.ORACLE, DbEngine.POSTGRES, DbEngine.SQLSERVER))
-            if not db_type:
-                raise ValueError(f"Unable to establish type for database engine '{engine}'")
+            raise ValueError(f"Unable to establish type for database engine '{engine}'")
         result[engine] = {
             DbParam.NAME: env_get_str(key=f"{APP_PREFIX}_{prefix}_NAME"),
             DbParam.USER: env_get_str(key=f"{APP_PREFIX}_{prefix}_USER"),

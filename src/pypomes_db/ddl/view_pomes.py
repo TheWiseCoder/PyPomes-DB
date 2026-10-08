@@ -300,7 +300,7 @@ def db_get_view_dependencies(view_name: str,
     If *view_name* is schema-qualified, then the search will be pointed to the view in that schema.
 
     :param view_name: the, possibly schema-qualified, name of the view
-    :param view_type: the type of the view ("M": materialized, 'P': plain, defaults to 'P')
+    :param view_type: the type of the view ('M': materialized, 'P': plain, defaults to 'P')
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param errors: incidental error messages (might be a non-empty list)

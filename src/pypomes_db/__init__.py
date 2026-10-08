@@ -29,9 +29,10 @@ from .sync_pomes import (
     db_sync_data
 )
 from .ddl.table_pomes import (
-    db_create_session_table, db_get_session_table_prefix,
-    db_get_tables, db_table_exists, db_drop_table,
-    db_get_column_metadata, db_get_columns_metadata, db_get_table_ddl
+    db_create_table, db_create_session_table, db_get_session_table_prefix,
+    db_get_tables, db_table_exists, db_drop_table, db_build_column_clause,
+    db_get_table_constraints, db_get_table_ddl, db_get_table_pk,
+    db_get_column_metadata, db_get_columns_metadata,
 )
 from .ddl.view_pomes import (
     db_get_views, db_view_exists, db_drop_view,
@@ -63,9 +64,10 @@ __all__ = [
     # sync_pomes
     "db_sync_data",
     # table_pomes
-    "db_create_session_table", "db_get_session_table_prefix",
-    "db_get_tables", "db_table_exists", "db_drop_table",
-    "db_get_column_metadata", "db_get_columns_metadata", "db_get_table_ddl",
+    "db_create_table", "db_create_session_table", "db_get_session_table_prefix",
+    "db_get_tables", "db_table_exists", "db_drop_table", "db_build_column_clause",
+    "db_get_table_constraints", "db_get_table_ddl", "db_get_table_pk",
+    "db_get_column_metadata", "db_get_columns_metadata",
     # view_pomes
     "db_get_views", "db_view_exists", "db_drop_view",
     "db_get_view_ddl", "db_get_view_dependencies"

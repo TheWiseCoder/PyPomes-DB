@@ -253,7 +253,7 @@ def db_migrate_data(source_engine: DbEngine | str,
                                       if batch_size_out else len(rows_in)
                         rows_out: list[tuple] = rows_in[pos_from:pos_to]
                         pos_from = pos_to
-                        match target_engine:
+                        match target_engine_type:
                             case DbEngine.MYSQL:
                                 pass
                             case DbEngine.ORACLE:
@@ -594,7 +594,7 @@ def db_migrate_lobs(source_engine: DbEngine | str,
                     while lob_data is not None and (first or len(lob_data) > 0):
                         first = False
                         is_migrated = True
-                        match target_engine:
+                        match target_engine_type:
                             case DbEngine.MYSQL:
                                 pass
                             case DbEngine.ORACLE:

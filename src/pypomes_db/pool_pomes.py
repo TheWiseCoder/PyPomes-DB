@@ -5,14 +5,14 @@ from datetime import datetime, UTC
 from enum import StrEnum, auto
 from logging import Logger
 from pypomes_core import (
-    APP_PREFIX, env_get_int, env_get_bool, obj_positional, str_sanitize
+    APP_PREFIX, env_get_int, env_get_bool, str_sanitize
 )
 from sys import getrefcount
 from time import sleep
 from threading import Lock
 from typing import Any, Final
 
-from .db_common import _DB_LOGGERS, DbEngine, _assert_engine
+from .db_common import _DB_CONN_DATA, _DB_LOGGERS, DbEngine, _assert_engine
 
 
 class DbPoolEvent(StrEnum):
@@ -60,7 +60,7 @@ def __get_pool_params() -> dict[str, dict[_PoolParam, Any]]:
     Establish the connection pool parameters for supported databases, from values in environment variables.
 
     To specify database connection parameters with environment variables, use the set:
-      - *<APP_PREFIX>_DB_POOL_SIZE*: maximum number of connections in the pool (defaults to 40 connections)
+      - *<APP_PREFIX>_DB_POOL_SIZE*: maximum number of connections in the pool (no pool, if not greater than 0)
       - *<APP_PREFIX>_DB_POOL_TIMEOUT*: number of seconds to wait for a connection to become available,
         before failing the request (defaults to 60 seconds)
       - *<APP_PREFIX>_DB_POOL_RECYCLE*: number of seconds after which idle connections in the pool are closed
@@ -70,44 +70,37 @@ def __get_pool_params() -> dict[str, dict[_PoolParam, Any]]:
         the connection is discarded (defaults to *True*)
 
     These variables apply to any of the supported database engines. To specify values for a specific engine,
-    replace *_DB_* with *_MSQL_*, *_ORCL_*, *_PG_*, or *_SQLS_*, respectively for *mysql*, *oracle*,
-    *postgres*, and *sqlserver*.
+    replace *DB* with values from *_DB_CONN_DATA*'s keys.
 
     :return: the connection parameters for supported database engines
     """
     # initialize the return variable
     result: dict[str, dict[_PoolParam, Any]] = {}
 
-    for engine in DbEngine:
-        prefix: str = obj_positional(engine,
-                                     keys=tuple(DbEngine),
-                                     values=("MSQL", "ORCL", "PG", "SQLS"))
+    engines: list[str] = list(_DB_CONN_DATA.keys())
+    for engine in engines:
         # establish pool size
-        size: int = env_get_int(key=f"{APP_PREFIX}_{prefix}_POOL_SIZE")
-        if not isinstance(size, int) or size < 0:
-            size = env_get_int(key=f"{APP_PREFIX}_DB_POOL_SIZE",
-                               def_value=40)
-        # establish pool timeout
-        timeout: int = env_get_int(key=f"{APP_PREFIX}_{prefix}_POOL_TIMEOUT")
-        if not timeout:
-            timeout = env_get_int(key=f"{APP_PREFIX}_DB_POOL_TIMEOUT",
-                                  def_value=60)
-        # establish pool recycle
-        recycle: int = env_get_int(key=f"{APP_PREFIX}_{prefix}_POOL_RECYCLE")
-        if not recycle:
-            recycle = env_get_int(key=f"{APP_PREFIX}_DB_POOL_RECYCLE",
-                                  def_value=3600)
-        # establish connection verification
-        verify: bool = env_get_bool(key=f"{APP_PREFIX}_{prefix}_POOL_VERIFY")
-        if verify is None:
-            verify = env_get_bool(key=f"{APP_PREFIX}_DB_POOL_VERIFY",
-                                  def_value=True)
-        result[engine] = {
-            _PoolParam.SIZE: size,
-            _PoolParam.TIMEOUT: timeout,
-            _PoolParam.RECYCLE: recycle,
-            _PoolParam.VERIFY: verify
-        }
+        size: int = (env_get_int(key=f"{APP_PREFIX}_{engine.upper()}_POOL_SIZE") or
+                     env_get_int(key=f"{APP_PREFIX}_DB_POOL_SIZE"))
+        if isinstance(size, int) and size > 0:
+            # establish pool timeout
+            timeout: int = (env_get_int(key=f"{APP_PREFIX}_{engine.upper()}_POOL_TIMEOUT") or
+                            env_get_int(key=f"{APP_PREFIX}_DB_POOL_TIMEOUT",
+                                        def_value=60))
+            # establish pool recycle
+            recycle: int = (env_get_int(key=f"{APP_PREFIX}_{engine.upper()}_POOL_RECYCLE") or
+                            env_get_int(key=f"{APP_PREFIX}_DB_POOL_RECYCLE",
+                                        def_value=3600))
+            # establish connection verification
+            verify: bool = (env_get_bool(key=f"{APP_PREFIX}_{engine.upper()}_POOL_VERIFY") or
+                            env_get_bool(key=f"{APP_PREFIX}_DB_POOL_VERIFY",
+                                         def_value=True))
+            result[engine] = {
+                _PoolParam.SIZE: size,
+                _PoolParam.TIMEOUT: timeout,
+                _PoolParam.RECYCLE: recycle,
+                _PoolParam.VERIFY: verify
+            }
 
     return result
 
@@ -208,9 +201,9 @@ class DbConnectionPool:
                                                 errors=errors)
 
         # obtain the default values for the pool parameters
+        msg: str | None = None
         pool_params: dict[_PoolParam, Any] | None = None
         if engine_id:
-            msg: str | None = None
             if engine_type == DbEngine.SPANNER:
                 msg = f"pool does not apply to {engine_id}"
             else:
@@ -218,7 +211,7 @@ class DbConnectionPool:
                     if engine_id in _POOL_INSTANCES:
                         msg += f"{engine} pool already exists"
                     else:
-                        pool_params = _POOL_PARAMS[engine_id]
+                        pool_params = _POOL_PARAMS.get(engine_id) or {}
             if msg:
                 msg = "Attempt to create connection pool failed: " + msg
                 if _DB_LOGGERS.get(engine_id):
@@ -226,19 +219,25 @@ class DbConnectionPool:
                 if isinstance(errors, list):
                     errors.append(msg)
 
-        if pool_params:
+        if pool_params is not None:
             if not isinstance(pool_size, int):
-                pool_size = pool_params[_PoolParam.SIZE]
+                pool_size = pool_params.get(_PoolParam.SIZE)
             if pool_size > 0:
                 self.engine_id = engine_id
                 self.engine_type = engine_type
                 self.pool_size = pool_size
                 self.pool_timeout = pool_timeout \
-                    if isinstance(pool_timeout, int) else pool_params[_PoolParam.TIMEOUT]
+                    if isinstance(pool_timeout, int) else (pool_params.get(_PoolParam.TIMEOUT) or 60)
                 self.pool_recycle = pool_recycle \
-                    if isinstance(pool_recycle, int) else pool_params[_PoolParam.RECYCLE]
+                    if isinstance(pool_recycle, int) else (pool_params.get(_PoolParam.RECYCLE) or 3600)
                 self.pool_verify = pool_verify \
-                    if isinstance(pool_verify, bool) else pool_params[_PoolParam.VERIFY]
+                    if isinstance(pool_verify, bool) else (pool_params.get(_PoolParam.VERIFY) or True)
+                _POOL_PARAMS[engine_id] = {
+                    _PoolParam.SIZE: self.pool_size,
+                    _PoolParam.TIMEOUT: self.pool_timeout,
+                    _PoolParam.RECYCLE: self.pool_recycle,
+                    _PoolParam.VERIFY: self.pool_verify
+                }
                 self.stage_lock = Lock()
                 self.event_lock = Lock()
 
@@ -309,7 +308,7 @@ class DbConnectionPool:
                             if self.pool_verify:
                                 # assert connection health
                                 stmt = "SELECT 1"
-                                if self.engine_id == DbEngine.ORACLE:
+                                if self.engine_type == DbEngine.ORACLE:
                                     stmt += " FROM DUAL"
                                 try:
                                     cursor: Any = conn.cursor()

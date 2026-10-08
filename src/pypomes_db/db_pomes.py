@@ -454,7 +454,7 @@ def db_bind_arguments(stmt: str,
     return result
 
 
-def db_convert_default(value: str,
+def db_convert_default(value: str | None,
                        source_engine: DbEngine | str,
                        target_engine: DbEngine | str) -> str | None:
     """
@@ -463,45 +463,45 @@ def db_convert_default(value: str,
     :param value: the value to be converted
     :param source_engine: the source database engine
     :param target_engine: the target database engine
-    :return: the converted value, or *None* if no convertion was possible.
+    :return: the converted value, or *None* if no conversion was possible
     """
     # initialize the return variable
     result: str | None = None
 
-    # note that 'str_is_int()' is not necessary here
-    if str_is_float(value) or (value.startswith("'") and value.endswith("'")):
-        # 'value' is a literal (numeric or string)
-        result = value
-    else:
-        _source_engine_id, source_engine_type = _assert_engine(engine=source_engine)
-        pos_source: int | None = None
-        match source_engine_type:
-            case DbEngine.MYSQL:
-                pos_source = 0
-            case DbEngine.ORACLE:
-                pos_source = 1
-            case DbEngine.POSTGRES:
-                pos_source = 2
-            case DbEngine.SQLSERVER:
-                pos_source = 3
+    if value is not None:
+        # note that 'str_is_int()' is not necessary here
+        if str_is_float(value) or (value.startswith("'") and value.endswith("'")):
+            # 'value' is a literal (numeric or string)
+            result = value
+        else:
+            _source_engine_id, source_engine_type = _assert_engine(engine=source_engine)
+            pos_source: int | None = None
+            match source_engine_type:
+                case DbEngine.MYSQL:
+                    pos_source = 0
+                case DbEngine.ORACLE:
+                    pos_source = 1
+                case DbEngine.POSTGRES:
+                    pos_source = 2
+                case DbEngine.SQLSERVER:
+                    pos_source = 3
 
-        pos_target: int | None = None
-        _target__engine_id, target_engine_type = _assert_engine(engine=target_engine)
-        match target_engine_type:
-            case DbEngine.MYSQL:
-                pos_target = 0
-            case DbEngine.ORACLE:
-                pos_target = 1
-            case DbEngine.POSTGRES:
-                pos_target = 2
-            case DbEngine.SQLSERVER:
-                pos_target = 3
+            pos_target: int | None = None
+            _target_engine_id, target_engine_type = _assert_engine(engine=target_engine)
+            match target_engine_type:
+                case DbEngine.MYSQL:
+                    pos_target = 0
+                case DbEngine.ORACLE:
+                    pos_target = 1
+                case DbEngine.POSTGRES:
+                    pos_target = 2
+                case DbEngine.SQLSERVER:
+                    pos_target = 3
 
-        for func in _BUILTIN_FUNCTIONS:
-            if func[pos_source] == value.upper():
-                result = func[pos_target]
-                break
-
+            for func in _BUILTIN_FUNCTIONS:
+                if func[pos_source] == value.upper():
+                    result = func[pos_target]
+                    break
     return result
 
 

@@ -16,11 +16,11 @@ def db_get_indexes(schema: str = None,
 
     If the list of possibly schema-qualified table names *tables* is provided,
     only the indexes created on any of these tables' columns are returned.
-    If *omit_pks* is set to 'True' (its default value),
+    If *omit_pks* is set to *True* (its default value),
     indexes created on primary key columns will not be included.
 
     :param schema: optional name of the schema to restrict the search to
-    :param omit_pks: omit indexes on primary key columns (defaults to 'True')
+    :param omit_pks: omit indexes on primary key columns (defaults to *True*')
     :param tables: optional list of possibly schema-qualified tables whose columns the indexes were created on
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)

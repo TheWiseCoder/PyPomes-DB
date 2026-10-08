@@ -197,7 +197,7 @@ def select(engine_id: str,
                     from_table: str = str_splice(sel_stmt + " ",
                                                  seps=(" FROM ", " "))[1]
                     _DB_LOGGERS[engine_id].debug(msg=f"Read {count} tuples from "
-                                                     f"postgres.{from_table}, offset "
+                                                     f"{engine_id}.{from_table}, offset "
                                                      f"{offset_count}, connection {id(curr_conn)}")
 
                 if _assert_query_quota(engine_type=DbEngine.POSTGRES,
