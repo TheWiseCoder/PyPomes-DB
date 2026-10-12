@@ -118,9 +118,9 @@ def db_sync_data(source_engine: DbEngine | str,
 
     if curr_source_conn and curr_target_conn:
         # normalize these parameters
-        offset_count = __normalize_value(value=offset_count)
-        limit_count = __normalize_value(value=limit_count)
-        batch_size = __normalize_value(value=batch_size)
+        offset_count = __normalize_value(offset_count)
+        limit_count = __normalize_value(limit_count)
+        batch_size = __normalize_value(batch_size)
 
         # buid the SELECT query
         source_cols: str = ", ".join(pk_columns + sync_columns)
@@ -428,16 +428,17 @@ def db_sync_data(source_engine: DbEngine | str,
     return result
 
 
-def __normalize_value(value: int) -> int:
+def __normalize_value(_v: int,
+                      /) -> int:
     """
     Normalize *value* to a consistent value.
 
-    :param value: the value to normalized
+    :param _v: the value to normalized
     :return: the normalized value
     """
-    if isinstance(value, int) and \
-            not isinstance(value, bool) and value > 0:
-        result: int = value
+    if isinstance(_v, int) and \
+            not isinstance(_v, bool) and _v > 0:
+        result: int = _v
     else:
         result: int = 0
 

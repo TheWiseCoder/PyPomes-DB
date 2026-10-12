@@ -59,18 +59,18 @@ def db_stream_data(table: str,
                                               errors=curr_errors)
     if not curr_errors:
         # normalize these parameters
-        offset_count = __normalize_value(value=offset_count)
-        limit_count = __normalize_value(value=limit_count)
-        batch_size_in = __normalize_value(value=batch_size_in)
-        batch_size_out = __normalize_value(value=batch_size_out)
+        offset_count = __normalize_value(offset_count)
+        limit_count = __normalize_value(limit_count)
+        batch_size_in = __normalize_value(batch_size_in)
+        batch_size_out = __normalize_value(batch_size_out)
         if 0 < limit_count < batch_size_in:
             batch_size_in = limit_count
             if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].debug(msg=f"Value of input batch size changed to {batch_size_in}")
+                _DB_LOGGERS[engine_id].debug(msg=f"Value of input batch size set to {batch_size_in}")
         if 0 < batch_size_in < batch_size_out:
             batch_size_out = batch_size_in
             if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].debug(msg=f"Value of output batch size changed to {batch_size_out}")
+                _DB_LOGGERS[engine_id].debug(msg=f"Value of output batch size set to {batch_size_out}")
 
         # buid the SELECT query
         sel_stmt: str = f"SELECT {', '.join(columns)} FROM {table}"
@@ -251,15 +251,15 @@ def db_stream_lobs(table: str,
                                               errors=curr_errors)
     if not curr_errors:
         # normalize these parameters
-        offset_count = __normalize_value(value=offset_count)
-        limit_count = __normalize_value(value=limit_count)
-        batch_size = __normalize_value(value=batch_size)
-        chunk_size = __normalize_value(value=chunk_size) or -1
-        log_trigger = __normalize_value(value=log_trigger)
+        offset_count = __normalize_value(offset_count)
+        limit_count = __normalize_value(limit_count)
+        batch_size = __normalize_value(batch_size)
+        chunk_size = __normalize_value(chunk_size)
+        log_trigger = __normalize_value(log_trigger)
         if 0 < limit_count < batch_size:
             batch_size = limit_count
             if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].debug(msg=f"Value of batch size changed to {batch_size}")
+                _DB_LOGGERS[engine_id].debug(msg=f"Value of batch size set to {batch_size}")
 
         # buid the SELECT query
         ref_columns: list[str] = pk_columns.copy() if pk_columns else []
@@ -347,9 +347,11 @@ def db_stream_lobs(table: str,
                     offset: int = 1
                     is_migrated: bool = False
                     lob: Any = row[lob_index]
-                    lob_data: bytes | str = lob.read(offset=offset,
-                                                     amount=chunk_size) if lob is not None else None
-                    # make sure to skip null LOBs, and to migrate empty ones
+                    lob_data: bytes | str = __lob_get_chunk(lob,
+                                                            offset=offset,
+                                                            size=chunk_size,
+                                                            engine_type=engine_type)
+                    # skip null LOBs, migrate empty ones
                     while lob_data is not None and (first or len(lob_data) > 0):
                         first = False
                         is_migrated = True
@@ -359,8 +361,10 @@ def db_stream_lobs(table: str,
                         # read the next chunk
                         if len(lob_data) > 0:
                             offset += len(lob_data)
-                            lob_data = lob.read(offset=offset,
-                                                amount=chunk_size)
+                            lob_data = __lob_get_chunk(lob,
+                                                       offset=offset,
+                                                       size=chunk_size,
+                                                       engine_type=engine_type)
                     if is_migrated:
                         # increment the LOB migration counter, if applicable
                         byte_count += offset - 1
@@ -440,17 +444,68 @@ def db_stream_lobs(table: str,
         errors.extend(curr_errors)
 
 
-def __normalize_value(value: int) -> int:
+def __normalize_value(_v: int,
+                      /) -> int:
     """
-    Normalize *value* to a consistent value.
+    Normalize the input value to a consistent value.
 
-    :param value: the value to normalized
+    :param _v: the value to normalized
     :return: the normalized value
     """
-    if isinstance(value, int) and \
-            not isinstance(value, bool) and value > 0:
-        result: int = value
+    if isinstance(_v, int) and \
+            not isinstance(_v, bool) and _v > 0:
+        result: int = _v
     else:
         result: int = 0
 
     return result
+
+
+def __lob_get_chunk(_lob: Any,
+                    /,
+                    offset: int,
+                    size: int,
+                    engine_type: DbEngine) -> Any:
+
+    result: bytes | str | None = None
+
+    if offset and size:
+        match engine_type:
+            case DbEngine.ORACLE:
+                # HAZARD: offset in Oracle is 1-based
+                result = _lob.read(amount=size,
+                                   offset=offset + 1)
+            case DbEngine.POSTGRES:
+                _lob.seek(offset)
+                result = _lob.read(size=size)
+            case DbEngine.SQLSERVER:
+                result = _lob[offset:offset + size]
+    elif offset:
+        match engine_type:
+            case DbEngine.ORACLE:
+                # HAZARD: offset in Oracle is 1-based
+                result = _lob.read(offset=offset + 1)
+            case DbEngine.POSTGRES:
+                _lob.seek(offset)
+                result = _lob.read()
+            case DbEngine.SQLSERVER:
+                result = _lob[offset:]
+    elif size:
+        match engine_type:
+            case DbEngine.ORACLE:
+                result = _lob.read(amount=size)
+            case DbEngine.POSTGRES:
+                result = _lob.read(size=size)
+            case DbEngine.SQLSERVER:
+                result = _lob[:size]
+    else:
+        match engine_type:
+            case DbEngine.ORACLE:
+                result = _lob.read()
+            case DbEngine.POSTGRES:
+                result = _lob.read()
+            case DbEngine.SQLSERVER:
+                result = _lob
+
+    return result
+

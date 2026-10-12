@@ -119,24 +119,24 @@ def db_migrate_data(source_engine: DbEngine | str,
                                     committable=target_committable,
                                     errors=curr_errors)
         else:
-            offset_count = __normalize_value(value=offset_count)
+            offset_count = __normalize_value(offset_count)
 
     if not curr_errors:
         # define the logger
         logger: Logger = _DB_LOGGERS[source_engine_id] or _DB_LOGGERS[target_engine_id]
 
         # normalize these parameters
-        limit_count = __normalize_value(value=limit_count)
-        batch_size_in = __normalize_value(value=batch_size_in)
-        batch_size_out = __normalize_value(value=batch_size_out)
+        limit_count = __normalize_value(limit_count)
+        batch_size_in = __normalize_value(batch_size_in)
+        batch_size_out = __normalize_value(batch_size_out)
         if 0 < limit_count < batch_size_in:
             batch_size_in = limit_count
             if logger:
-                logger.debug(msg=f"Value of input batch size changed to {batch_size_in}")
+                logger.debug(msg=f"Value of input batch size set to {batch_size_in}")
         if 0 < batch_size_in < batch_size_out:
             batch_size_out = batch_size_in
             if logger:
-                logger.debug(msg=f"Value of output batch size changed to {batch_size_out}")
+                logger.debug(msg=f"Value of output batch size set to {batch_size_out}")
 
         # make sure to have target columns
         if not target_columns:
@@ -471,17 +471,17 @@ def db_migrate_lobs(source_engine: DbEngine | str,
                                     committable=target_committable,
                                     errors=curr_errors)
         else:
-            offset_count = __normalize_value(value=offset_count)
+            offset_count = __normalize_value(offset_count)
 
         # normalize these parameters
-        limit_count = __normalize_value(value=limit_count)
-        batch_size = __normalize_value(value=batch_size)
-        chunk_size = __normalize_value(value=chunk_size) or -1
-        log_trigger = __normalize_value(value=log_trigger)
+        limit_count = __normalize_value(limit_count)
+        batch_size = __normalize_value(batch_size)
+        chunk_size = __normalize_value(chunk_size) or -1
+        log_trigger = __normalize_value(log_trigger)
         if 0 < limit_count < batch_size:
             batch_size = limit_count
             if logger:
-                logger.debug(msg=f"Value of input batch size changed to {batch_size}")
+                logger.debug(msg=f"Value of input batch size set to {batch_size}")
 
         # buid the SELECT query
         source_pks: str = ", ".join(source_pk_columns)
@@ -719,16 +719,17 @@ def db_migrate_lobs(source_engine: DbEngine | str,
     return result
 
 
-def __normalize_value(value: int) -> int:
+def __normalize_value(_v: int,
+                      /) -> int:
     """
     Normalize *value* to a consistent value.
 
-    :param value: the value to normalized
+    :param _v: the value to normalized
     :return: the normalized value
     """
-    if isinstance(value, int) and \
-            not isinstance(value, bool) and value > 0:
-        result: int = value
+    if isinstance(_v, int) and \
+            not isinstance(_v, bool) and _v > 0:
+        result: int = _v
     else:
         result: int = 0
 
