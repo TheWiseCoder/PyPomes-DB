@@ -111,7 +111,7 @@ class GoogleSpanner:
             # initilize the Cloud Spanner objects
             if credentials:
                 if not isinstance(credentials, dict):
-                    credentials_bytes: bytes = file_get_data(file_data=credentials)
+                    credentials_bytes: bytes = file_get_data(credentials)
                     self._credentials = json.loads(s=credentials_bytes)
                 client_id = self._credentials.get("client_id")
                 project_id = self._credentials["project_id"]
