@@ -380,12 +380,12 @@ def db_migrate_lobs(source_engine: DbEngine | str,
                     limit_count: int = None,
                     batch_size: int = None,
                     chunk_size: int = None,
-                    errors: list[str] = None,
                     source_conn: Any = None,
                     source_committable: bool = None,
                     target_conn: Any = None,
                     target_committable: bool = None,
-                    log_trigger: int = 10000) -> tuple[int, int] | None:
+                    log_trigger: int = 10000,
+                    errors: list[str] = None) -> tuple[int, int] | None:
     """
     Migrate large binary objects (LOBs) between databases.
 
@@ -429,8 +429,8 @@ def db_migrate_lobs(source_engine: DbEngine | str,
     :param source_committable: whether to commit or rollback on *source_conn*, upon completion
     :param target_conn: the connection to the destination database (obtains a new one, if not provided)
     :param target_committable: whether to commit or rollback on *target_conn*, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
     :param log_trigger: number of LOBs to trigger logging info on migration (defaults to 10000 LOBs)
+    :param errors: incidental error messages (might be a non-empty list)
     :return: the number of LOBs effectively migrated and their total size, or *None* if error
     """
     # initialize the return variable

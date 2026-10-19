@@ -13,21 +13,20 @@ from google.cloud.spanner_v1.session import Session
 from google.cloud.spanner_v1.transaction import Transaction
 from google.oauth2.service_account import Credentials
 from io import BytesIO
+from logging import Logger
 from pathlib import Path
 from pypomes_core import file_get_data, exc_format
 from threading import Thread
 from typing import Any
 
-from ..db_common import (
-    _DB_CONN_DATA, _DB_LOGGERS, DbEngine
-)
+from ..db_common import _DB_CONN_DATA, _DB_LOGGERS
 
 
 class SpannerParam(StrEnum):
     """
     Parameters for *GoogleSpanner*, an encapsulation of the Google Cloud Spanner access lifecycle.
     """
-    ENGINE: auto()
+    ENGINE: auto()                      # holds an instance of GoogleSpanner
     CLIENT_ID: auto()
     DATABASE_ID: auto()
     INSTANCE_ID: auto()
@@ -61,6 +60,7 @@ class GoogleSpanner:
 
     def __init__(self,
                  *,
+                 engine_id: str,
                  project_id: str = None,
                  credentials: dict[str, str] | BytesIO | Path | str | bytes = None,
                  errors: list[str] = None) -> None:
@@ -90,52 +90,55 @@ class GoogleSpanner:
         the data described above. The parameter *project_id* is required if *credentials* is not provided,
         otherwise it is ignored.
 
+        :param engine_id: the reference database engine
         :param project_id: optional project identification
         :param credentials: optional access credentials
         :param errors: incidental error messages (might be a non-empty list)
         """
         # instance objects
-        self._client: Client | None = None
-        self._instance: Instance | None = None
-        self._database: Database | None = None
-        self._credentials: dict[str, str] | None = None  # access credentials
-        self._pinger: Thread | None = None               # thread for background pinging
+        self.engine_id: str | None = None
+        self.client: Client | None = None
+        self.instance: Instance | None = None
+        self.database: Database | None = None
+        self.credentials: dict[str, str] | None = None  # access credentials
+        self.pinger: Thread | None = None               # thread for background pinging
 
         err_msg: str | None = None
         client_id: str | None = None
-        if DbEngine.SPANNER not in _DB_CONN_DATA:
+        if engine_id not in _DB_CONN_DATA:
             err_msg = "Google Cloud Spanner not yet configured"
-        elif _DB_CONN_DATA[DbEngine.SPANNER].get(SpannerParam.ENGINE):
+        elif _DB_CONN_DATA[engine_id].get(SpannerParam.ENGINE):
             err_msg = "Instance of Google Cloud Spanner already exists"
         elif project_id or credentials:
             # initilize the Cloud Spanner objects
             if credentials:
                 if not isinstance(credentials, dict):
                     credentials_bytes: bytes = file_get_data(credentials)
-                    self._credentials = json.loads(s=credentials_bytes)
-                client_id = self._credentials.get("client_id")
-                project_id = self._credentials["project_id"]
+                    self.credentials = json.loads(s=credentials_bytes)
+                client_id = self.credentials.get("client_id")
+                project_id = self.credentials["project_id"]
         else:
             err_msg = "Either 'credentials' or 'project_id' must be provided"
 
         if err_msg:
-            if _DB_LOGGERS[DbEngine.SPANNER]:
-                _DB_LOGGERS[DbEngine.SPANNER].error(msg=err_msg)
+            if _DB_LOGGERS.get(engine_id):
+                _DB_LOGGERS[engine_id].error(msg=err_msg)
             if isinstance(errors, list):
                 errors.append(err_msg)
         else:
-            _DB_CONN_DATA[DbEngine.SPANNER].update({
+            self.engine_id = engine_id
+            _DB_CONN_DATA[self.engine_id].update({
                 SpannerParam.ENGINE: self,
                 SpannerParam.CLIENT_ID: client_id,
                 SpannerParam.PROJECT_ID: project_id
             })
 
-    def initialize(self,
-                   errors: list[str] = None) -> bool:
+    def startup(self,
+                errors: list[str] = None) -> bool:
         """
         Initialize access to the Google Cloud Spanner database engine.
 
-        This method should be invoked once, immediately after object instantiation time.
+        This method should be invoked immediately after object instantiation time.
 
         :param errors: incidental error messages (might be a non-empty list)
         """
@@ -143,52 +146,53 @@ class GoogleSpanner:
         result: bool = True
 
         # obtain the Cloud Spanner configuration data
-        conn_data: dict[str, Any] = _DB_CONN_DATA.get(DbEngine.SPANNER)
+        conn_data: dict[str, Any] = _DB_CONN_DATA.get(self.engine_id)
 
-        err_msg: str | None = None
-        if not conn_data or \
-           not conn_data.get(SpannerParam.DATABASE_ID) or \
-           not conn_data.get(SpannerParam.INSTANCE_ID):
-            err_msg = "Unable to obtain session configuratiom parameters"
-        elif not conn_data.get(SpannerParam.VERSION):
-            try:
-                # obtain a Cloud Spanner Client
-                if self._credentials:
-                    # use specific service account data
-                    credentials: Any = Credentials.from_service_account_info(info=self._credentials)
-                    self._client = spanner.Client(project=conn_data[SpannerParam.PROJECT_ID],
-                                                  credentials=credentials)
-                else:
-                    # fallback to Application Default Credentials (ADC)
-                    self._client = spanner.Client(project=conn_data[SpannerParam.PROJECT_ID])
+        if not conn_data.get(SpannerParam.VERSION):
+            err_msg: str | None = None
+            if not conn_data or \
+               not conn_data.get(SpannerParam.DATABASE_ID) or \
+               not conn_data.get(SpannerParam.INSTANCE_ID):
+                err_msg = "Unable to obtain session configuratiom parameters"
+            elif not conn_data.get(SpannerParam.VERSION):
+                try:
+                    # obtain a Cloud Spanner Client
+                    if self.credentials:
+                        # use specific service account data
+                        credentials: Any = Credentials.from_service_account_info(info=self.credentials)
+                        self.client = spanner.Client(project=conn_data[SpannerParam.PROJECT_ID],
+                                                     credentials=credentials)
+                    else:
+                        # fallback to Application Default Credentials (ADC)
+                        self.client = spanner.Client(project=conn_data[SpannerParam.PROJECT_ID])
 
-                # establish the instance
-                self._instance = self._client.instance(instance_id=conn_data[SpannerParam.INSTANCE_ID])
+                    # establish the instance
+                    self.instance = self.client.instance(instance_id=conn_data[SpannerParam.INSTANCE_ID])
 
-                if conn_data[SpannerParam.SESSION_POOL_SIZE] > 0:
-                    # use PingingPool for mixed read/write workloads
-                    session_pool: PingingPool = PingingPool(
-                        size=conn_data[SpannerParam.SESSION_POOL_SIZE],
-                        default_timeout=conn_data[SpannerParam.SESSION_DEFAULT_TIMEOUT],
-                        ping_interval=conn_data[SpannerParam.SESSION_PING_INTERVAL],
-                    )
-                    self._database = self._instance.database(database_id=conn_data[SpannerParam.DATABASE_ID],
-                                                             pool=session_pool)
-                else:
-                    # no pools available (local emulation is being used)
-                    self._database = self._instance.database(database_id=conn_data[SpannerParam.DATABASE_ID])
+                    if conn_data[SpannerParam.SESSION_POOL_SIZE] > 0:
+                        # use PingingPool for mixed read/write workloads
+                        session_pool: PingingPool = PingingPool(
+                            size=conn_data[SpannerParam.SESSION_POOL_SIZE],
+                            default_timeout=conn_data[SpannerParam.SESSION_DEFAULT_TIMEOUT],
+                            ping_interval=conn_data[SpannerParam.SESSION_PING_INTERVAL],
+                        )
+                        self.database = self.instance.database(database_id=conn_data[SpannerParam.DATABASE_ID],
+                                                               pool=session_pool)
+                    else:
+                        # no pools available (local emulation is being used)
+                        self.database = self.instance.database(database_id=conn_data[SpannerParam.DATABASE_ID])
 
-                from google.cloud.spanner_v1 import __version__
-                conn_data[SpannerParam.VERSION] = __version__
-            except Exception as e:
-                err_msg = exc_format(exc=e,
-                                     exc_info=sys.exc_info())
-        if err_msg:
-            result = False
-            if _DB_LOGGERS[DbEngine.SPANNER]:
-                _DB_LOGGERS[DbEngine.SPANNER].error(msg=err_msg)
-            if isinstance(errors, list):
-                errors.append(err_msg)
+                    from google.cloud.spanner_v1 import __version__
+                    conn_data[SpannerParam.VERSION] = __version__
+                except Exception as e:
+                    err_msg = exc_format(exc=e,
+                                         exc_info=sys.exc_info())
+            if err_msg:
+                result = False
+                if _DB_LOGGERS.get(self.engine_id):
+                    _DB_LOGGERS[self.engine_id].error(msg=err_msg)
+                if isinstance(errors, list):
+                    errors.append(err_msg)
 
         return result
 
@@ -198,16 +202,16 @@ class GoogleSpanner:
         """
         # make sure database pool is the proper type
         # noinspection PyProtectedMember
-        if isinstance(self._database._pool, PingingPool):  # noqa: SLF001 - private member accessed
+        if isinstance(self.database._pool, PingingPool):  # noqa: SLF001 - private member accessed
             # noinspection PyTypeChecker
-            params: dict[SpannerParam, Any] = _DB_CONN_DATA[DbEngine.SPANNER]
+            params: dict[SpannerParam, Any] = _DB_CONN_DATA.get(self.engine_id)
             name: str = f"spanner-ping-{params[SpannerParam.INSTANCE_ID]}/{params[SpannerParam.DATABASE_ID]}"
 
             # build and launch the pinging daemon
-            self._pinger = Thread(target=self._background_ping_and_prime,
-                                  name=name,
-                                  daemon=True)
-            self._pinger.start()
+            self.pinger = Thread(target=self._background_ping_and_prime,
+                                 name=name,
+                                 daemon=True)
+            self.pinger.start()
 
     def _background_ping_and_prime(self) -> None:
         """
@@ -215,12 +219,12 @@ class GoogleSpanner:
         """
         # retrieve the pinging interval
         # noinspection PyTypeChecker
-        params: dict[SpannerParam, Any] = _DB_CONN_DATA[DbEngine.SPANNER]
+        params: dict[SpannerParam, Any] = _DB_CONN_DATA.get(self.engine_id)
         interval: int = params[SpannerParam.SESSION_PING_INTERVAL]
 
         # retrieve the database pool
         # noinspection PyProtectedMember
-        db_pool: PingingPool = self._database._pool  # noqa: SLF001 - private member accessed
+        db_pool: PingingPool = self.database._pool
 
         # background-ping the sessions
         while True:
@@ -242,6 +246,7 @@ class SpannerConnection:
     """
 
     def __init__(self,
+                 engine_id: str,
                  autocommit: bool = None,
                  errors: list[str] = None) -> None:
         """
@@ -251,39 +256,39 @@ class SpannerConnection:
         Regardless of its setting, the connection automatically falls back to autocommit mode if no
         session pools are available.
 
+        :param engine_id: the reference database engine
         :param autocommit: whether the connection is to operate in autocommit mode (defaults to *False*)
         :param errors: incidental error messages (might be a non-empty list)
         """
         # instance variables
-        self._database: Database | None = None
-        self._db_pool: AbstractSessionPool | None = None
-        self._pool_session: Session | None = None
-        self._session_txn: Transaction | None = None
-        self._autocommit: bool | None = None
+        self.google_spanner: GoogleSpanner | None = None
+        self.db_pool: AbstractSessionPool | None = None
+        self.pool_session: Session | None = None
+        self.session_txn: Transaction | None = None
+        self.autocommit: bool | None = None
 
-        spanner_data: dict[str, Any] = _DB_CONN_DATA.get(DbEngine.SPANNER) or {}
+        spanner_data: dict[str, Any] = _DB_CONN_DATA.get(engine_id) or {}
         google_spanner: GoogleSpanner = spanner_data.get(SpannerParam.ENGINE)
         if google_spanner:
-            # noinspection PyProtectedMember
-            self._database = google_spanner._database  # noqa: SLF001 - private member accessed
+            self.google_spanner = google_spanner
 
-            self._autocommit = autocommit
-            if not self._autocommit:
+            self.autocommit = autocommit
+            if not self.autocommit:
                 try:
                     # retrieve the database pool
                     # noinspection PyProtectedMember
-                    self._db_pool = self._database._pool  # noqa: SLF001 - private member accessed
-                    if self._db_pool is None:
+                    self.db_pool = self.google_spanner.database._pool
+                    if self.db_pool is None:
                         # autocommit mode is required when pools are not available
-                        self._autocommit = True
+                        self.autocommit = True
                     else:
                         # acquire a session from the pool
-                        self._pool_session = self._db_pool.get()
+                        self.pool_session = self.db_pool.get()
                 except Exception as e:
                     exc_err: str = exc_format(exc=e,
                                               exc_info=sys.exc_info())
-                    if _DB_LOGGERS[DbEngine.SPANNER]:
-                        _DB_LOGGERS[DbEngine.SPANNER].error(msg=exc_err)
+                    if _DB_LOGGERS.get(engine_id):
+                        _DB_LOGGERS[engine_id].error(msg=exc_err)
                     if isinstance(errors, list):
                         errors.append(exc_err)
 
@@ -312,9 +317,9 @@ class SpannerConnection:
         # initialize the return variable
         result: list[tuple] | None = None
 
-        if self._autocommit:
+        if self.autocommit:
             try:
-                with self._database.snapshot() as snapshot:
+                with self.google_spanner.database.snapshot() as snapshot:
                     rows: StreamedResultSet = snapshot.execute_sql(sql=sel_stmt,
                                                                    params=param_values,
                                                                    param_types=param_types)
@@ -326,28 +331,29 @@ class SpannerConnection:
                 if isinstance(errors, list):
                     errors.append(exc_err)
         else:
-            if self._session_txn is None:
-                self._session_txn = Transaction(session=self._pool_session)
-                self._session_txn.begin()
+            if self.session_txn is None:
+                self.session_txn = Transaction(session=self.pool_session)
+                self.session_txn.begin()
             try:
-                rows: StreamedResultSet = self._session_txn.execute_sql(sql=sel_stmt,
-                                                                        params=param_values,
-                                                                        param_types=param_types)
+                rows: StreamedResultSet = self.session_txn.execute_sql(sql=sel_stmt,
+                                                                       params=param_values,
+                                                                       param_types=param_types)
                 if rows is not None:
                     result = list(rows)
                 if committable:
-                    self._session_txn.commit()
-                    self._session_txn = None
+                    self.session_txn.commit()
+                    self.session_txn = None
             except Exception as e:
                 exc_err: str = exc_format(exc=e,
                                           exc_info=sys.exc_info())
-                if _DB_LOGGERS[DbEngine.SPANNER]:
-                    _DB_LOGGERS[DbEngine.SPANNER].error(msg=exc_err)
+                logger: Logger = _DB_LOGGERS.get(self.google_spanner.engine_id)
+                if logger:
+                    logger.error(msg=exc_err)
                 if isinstance(errors, list):
                     errors.append(exc_err)
                 if committable:
-                    self._session_txn.rollback()
-                    self._session_txn = None
+                    self.session_txn.rollback()
+                    self.session_txn = None
 
         return result
 
@@ -394,45 +400,47 @@ class SpannerConnection:
         # initialize the return variable
         result: tuple | int | None = None
 
-        if self._autocommit:
+        if self.autocommit:
             try:
                 # noinspection PyTypeChecker
-                result = self._database.run_in_transaction(func=execute_in_transaction,
-                                                           curr_stmt=exc_stmt,
-                                                           curr_params=param_values,
-                                                           curr_types=param_types)
+                result = self.google_spanner.database.run_in_transaction(func=execute_in_transaction,
+                                                                         curr_stmt=exc_stmt,
+                                                                         curr_params=param_values,
+                                                                         curr_types=param_types)
             except Exception as e:
                 exc_err: str = exc_format(exc=e,
                                           exc_info=sys.exc_info())
-                if _DB_LOGGERS[DbEngine.SPANNER]:
-                    _DB_LOGGERS[DbEngine.SPANNER].error(msg=exc_err)
+                logger: Logger = _DB_LOGGERS.get(self.google_spanner.engine_id)
+                if logger:
+                    logger.error(msg=exc_err)
                 if isinstance(errors, list):
                     errors.append(exc_err)
         else:
-            if self._session_txn is None:
-                self._session_txn = Transaction(session=self._pool_session)
-                self._session_txn.begin()
+            if self.session_txn is None:
+                self.session_txn = Transaction(session=self.pool_session)
+                self.session_txn.begin()
             try:
-                rs: StreamedResultSet = self._session_txn.execute_sql(sql=exc_stmt,
-                                                                      params=param_values,
-                                                                      param_types=param_types)
+                rs: StreamedResultSet = self.session_txn.execute_sql(sql=exc_stmt,
+                                                                     params=param_values,
+                                                                     param_types=param_types)
                 if rs is not None:
                     rows: list = list(rs)
                     if len(rows) > 0:
                         result = rows[0]
                 if committable:
-                    self._session_txn.commit()
-                    self._session_txn = None
+                    self.session_txn.commit()
+                    self.session_txn = None
             except Exception as e:
                 exc_err: str = exc_format(exc=e,
                                           exc_info=sys.exc_info())
-                if _DB_LOGGERS[DbEngine.SPANNER]:
-                    _DB_LOGGERS[DbEngine.SPANNER].error(msg=exc_err)
+                logger: Logger = _DB_LOGGERS.get(self.google_spanner.engine_id)
+                if logger:
+                    logger.error(msg=exc_err)
                 if isinstance(errors, list):
                     errors.append(exc_err)
                 if committable:
-                    self._session_txn.rollback()
-                    self._session_txn = None
+                    self.session_txn.rollback()
+                    self.session_txn = None
 
         return result
 
@@ -440,29 +448,29 @@ class SpannerConnection:
         """
         Commit the ongoing transaction.
         """
-        if self._session_txn:
-            self._session_txn.commit()
+        if self.session_txn:
+            self.session_txn.commit()
 
     def rollback(self) -> None:
         """
         Rollback the ongoing transaction.
         """
-        if self._session_txn:
-            self._session_txn.rollback()
+        if self.session_txn:
+            self.session_txn.rollback()
 
     def close(self) -> None:
         """
         Close the connection, releasing its resources.
         """
         # return session to the pool
-        if self._pool_session and self._db_pool:
-            self._db_pool.put(session=self._pool_session)
+        if self.pool_session and self.db_pool:
+            self.db_pool.put(session=self.pool_session)
 
         # release all resources
-        self._database = None
-        self._db_pool = None
-        self._pool_session = None
-        self._session_txn = None
+        self.google_spanner = None
+        self.db_pool = None
+        self.pool_session = None
+        self.session_txn = None
 
     def __del__(self) -> None:
         """
@@ -470,5 +478,7 @@ class SpannerConnection:
 
         Release all resources if 'close()' is not invoked prior to the loss of all references to the object.
         """
-        if self._database:
-            self.close()
+        self.google_spanner = None
+        self.db_pool = None
+        self.pool_session = None
+        self.session_txn = None

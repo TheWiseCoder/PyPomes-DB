@@ -86,8 +86,8 @@ def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
     Establish the connection data for select database engines, from environment variables.
 
     The preferred way to specify database connection parameters is dynamically with *db_setup()*.
-    Specifying database connection parameters with environment variables cannot be done for Google Cloud Spanner
-    (instead, *spanner_setup()* in module *spanner_pomes* must be used).
+    Specifying database connection parameters with environment variables cannot be done for
+    Google Cloud Spanner (*spanner_setup()* in module *spanner_pomes* must be used, instead).
     For the other database engines, it can be done in two ways:
 
     1. for a single database engine, specify the data set
@@ -155,6 +155,7 @@ def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
 
 
 # connection data for the configured database engines
+# (key for Google Spanner is 'DbEngine.SPANNER' - only one instance may exist)
 _DB_CONN_DATA: Final[dict[str, dict[DbParam, Any]]] = __get_conn_data()
 
 

@@ -5,7 +5,7 @@ from decimal import Decimal
 from google.cloud.spanner_v1.param_types import (
     Type, BOOL, BYTES, DATE, FLOAT32, FLOAT64, INT64, STRING, TIMESTAMP
 )
-from pypomes_core import env_get_str, exc_format, str_splice
+from pypomes_core import APP_PREFIX, env_get_str, exc_format, str_splice
 from typing import Any
 
 from ..db_common import (
@@ -29,7 +29,8 @@ RESERVED_WORDS: list[str] = [
 ]
 
 
-def spanner_setup(instance_id: str,
+def spanner_setup(engine_id: str,
+                  instance_id: str,
                   database_id: str,
                   session_pool_size: int = 10,
                   session_ping_interval: int = 3000,
@@ -41,6 +42,7 @@ def spanner_setup(instance_id: str,
     no session pools are available. The standard way to enable local emulation is to set the environment
     variable *SPANNER_EMULATOR_HOST* to its local IP address (e.g., *http://localhost:9010*).
 
+    :param engine_id: the engine identification
     :param instance_id: the instance identification
     :param database_id: the databae identification
     :param session_pool_size: size of the session pool (defaults to 10 for cloud operation)
@@ -51,29 +53,35 @@ def spanner_setup(instance_id: str,
     # initialize the return variable
     result: bool = False
 
-    emulated: bool = bool(env_get_str(key="SPANNER_EMULATOR_HOST"))
+    if env_get_str(key=f"{APP_PREFIX}_SPANNER_EMULATOR_HOST"):
+        session_pool_size = 0
+        session_ping_interval = 0
+        session_default_timeout = 0
 
     # accept data only if GoogleSpanner has not been instantiated
-    if not (_DB_CONN_DATA.get(DbEngine.SPANNER) or {}).get(SpannerParam.ENGINE):
-        _DB_CONN_DATA[DbEngine.SPANNER] = {
+    if not _DB_CONN_DATA.get(engine_id):
+        _DB_CONN_DATA[engine_id] = {
+            SpannerParam.ENGINE: None,                  # instance of GoogleSpanner
             SpannerParam.DATABASE_ID: database_id,
             SpannerParam.INSTANCE_ID: instance_id,
-            SpannerParam.SESSION_POOL_SIZE: 0 if emulated else session_pool_size,
-            SpannerParam.SESSION_PING_INTERVAL: 0 if emulated else session_ping_interval,
-            SpannerParam.SESSION_DEFAULT_TIMEOUT: 0 if emulated else session_default_timeout
+            SpannerParam.SESSION_POOL_SIZE: session_pool_size,
+            SpannerParam.SESSION_PING_INTERVAL: session_ping_interval,
+            SpannerParam.SESSION_DEFAULT_TIMEOUT: session_default_timeout
         }
         result = True
 
     return result
 
 
-def connect(autocommit: bool = None,
+def connect(engine_id: str,
+            autocommit: bool = None,
             errors: list[str] = None) -> SpannerConnection | None:
     """
     Obtain and return a connection to the database.
 
     Return *None* if the connection could not be obtained.
 
+    :param engine_id: the reference database engine
     :param autocommit: whether the connection is to be in autocommit mode (defaults to *False*)
     :param errors: incidental error messages (must be *[]* or *None*)
     :return: the connection to the database, or *None* if error
@@ -82,12 +90,13 @@ def connect(autocommit: bool = None,
     result: SpannerConnection | None = None
 
     try:
-        result = SpannerConnection(errors=errors,
-                                   autocommit=autocommit)
+        result = SpannerConnection(engine_id=engine_id,
+                                   autocommit=autocommit,
+                                   errors=errors)
     except Exception as e:
         exc_err: str = exc_format(exc=e,
                                   exc_info=sys.exc_info())
-        if _DB_LOGGERS[DbEngine.SPANNER]:
+        if _DB_LOGGERS.get(DbEngine.SPANNER):
             _DB_LOGGERS[DbEngine.SPANNER].error(msg=exc_err)
         if isinstance(errors, list):
             errors.append(exc_err)
@@ -95,7 +104,8 @@ def connect(autocommit: bool = None,
     return result
 
 
-def select(sel_stmt: str,
+def select(engine_id: str,
+           sel_stmt: str,
            where_vals: tuple | None,
            min_count: int | None,
            max_count: int | None,
@@ -116,6 +126,7 @@ def select(sel_stmt: str,
 
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
+    :param engine_id: the reference database engine
     :param sel_stmt: SELECT command for the search
     :param where_vals: the values to be associated with the selection criteria
     :param min_count: optionally defines the minimum number of tuples expected
@@ -135,7 +146,8 @@ def select(sel_stmt: str,
         errors = []
 
     # make sure to have a connection
-    curr_conn: SpannerConnection = connection or connect(autocommit=True,
+    curr_conn: SpannerConnection = connection or connect(engine_id=engine_id,
+                                                         autocommit=True,
                                                          errors=errors)
     # build the parameter maps
     param_values: dict[str, Any] | None = None
@@ -177,7 +189,8 @@ def select(sel_stmt: str,
     return result
 
 
-def execute(exc_stmt: str,
+def execute(engine_id: str,
+            exc_stmt: str,
             bind_vals: tuple | None,
             return_cols: dict[str, type] | None,
             min_count: int | None,
@@ -202,9 +215,10 @@ def execute(exc_stmt: str,
 
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
+    :param engine_id: the reference database engine
     :param exc_stmt: the command to execute
     :param bind_vals: optional bind values
-    :param return_cols: optional columns and respective types, whose values are to be returned on *INSERT* or *UPDATE*
+    :param return_cols: optional columns and respective types, whose values are returned on *INSERT* or *UPDATE*
     :param min_count: optionally defines the minimum number of tuples to be affected
     :param max_count: optionally defines the maximum number of tuples to be affected
     :param connection: optional connection to use (obtains a new one, if not provided)
@@ -220,7 +234,8 @@ def execute(exc_stmt: str,
         errors = []
 
     # make sure to have a connection
-    curr_conn: SpannerConnection = connection or connect(autocommit=True,
+    curr_conn: SpannerConnection = connection or connect(engine_id=engine_id,
+                                                         autocommit=True,
                                                          errors=errors)
     # build the parameter maps
     param_values: dict[str, Any] | None = None
@@ -294,7 +309,7 @@ def __build_param_maps(values: tuple,
 
         else:
             msg: str = f"Unable to handle type '{val.__class__}"
-            if _DB_LOGGERS[DbEngine.SPANNER]:
+            if _DB_LOGGERS.get(DbEngine.SPANNER):
                 _DB_LOGGERS[DbEngine.SPANNER].error(msg=msg)
             errors.append(msg)
 
