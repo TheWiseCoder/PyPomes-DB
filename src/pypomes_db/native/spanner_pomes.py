@@ -96,8 +96,8 @@ def connect(engine_id: str,
     except Exception as e:
         exc_err: str = exc_format(exc=e,
                                   exc_info=sys.exc_info())
-        if _DB_LOGGERS.get(DbEngine.SPANNER):
-            _DB_LOGGERS[DbEngine.SPANNER].error(msg=exc_err)
+        if _DB_LOGGERS.get(engine_id):
+            _DB_LOGGERS[engine_id].error(msg=exc_err)
         if isinstance(errors, list):
             errors.append(exc_err)
 
@@ -153,7 +153,8 @@ def select(engine_id: str,
     param_values: dict[str, Any] | None = None
     param_types: dict[str, Type] | None = None
     if not errors and where_vals:
-        param_values, param_types = __build_param_maps(values=where_vals,
+        param_values, param_types = __build_param_maps(engine_id=engine_id,
+                                                       values=where_vals,
                                                        errors=errors)
     if not errors:
         # establish offset and limit
@@ -170,12 +171,12 @@ def select(engine_id: str,
         if not errors:
             # log the retrieval operation
             count: int = len(rows)
-            if _DB_LOGGERS[DbEngine.POSTGRES]:
+            if _DB_LOGGERS.get(engine_id):
                 from_table: str = str_splice(sel_stmt + " ",
                                              seps=(" FROM ", " "))[1]
-                _DB_LOGGERS[DbEngine.POSTGRES].debug(msg=f"Read {count} tuples from "
-                                                         f"{DbEngine.SPANNER}.{from_table}, offset "
-                                                         f"{offset_count}, connection {id(curr_conn)}")
+                _DB_LOGGERS[engine_id].debug(msg=f"Read {count} tuples from "
+                                                 f"{DbEngine.SPANNER}.{from_table}, offset "
+                                                 f"{offset_count}, connection {id(curr_conn)}")
             if _assert_query_quota(query=sel_stmt,
                                    engine_type=DbEngine.SPANNER,
                                    where_vals=where_vals,
@@ -241,7 +242,8 @@ def execute(engine_id: str,
     param_values: dict[str, Any] | None = None
     param_types: dict[str, Type] | None = None
     if not errors and bind_vals:
-        param_values, param_types = __build_param_maps(values=bind_vals,
+        param_values, param_types = __build_param_maps(engine_id=engine_id,
+                                                       values=bind_vals,
                                                        errors=errors)
     if not errors:
         if return_cols:
@@ -269,7 +271,8 @@ def execute(engine_id: str,
     return result
 
 
-def __build_param_maps(values: tuple,
+def __build_param_maps(engine_id: str,
+                       values: tuple,
                        errors: list[str]) -> tuple[dict[str, Any], dict[str, Type]]:
     """
     Build the mappings of parameters to values and types, as per the Cloud Spanner standard.
@@ -309,8 +312,8 @@ def __build_param_maps(values: tuple,
 
         else:
             msg: str = f"Unable to handle type '{val.__class__}"
-            if _DB_LOGGERS.get(DbEngine.SPANNER):
-                _DB_LOGGERS[DbEngine.SPANNER].error(msg=msg)
+            if _DB_LOGGERS.get(engine_id):
+                _DB_LOGGERS[engine_id].error(msg=msg)
             errors.append(msg)
 
     return param_values, param_types
