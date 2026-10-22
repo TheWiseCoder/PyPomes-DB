@@ -3,7 +3,7 @@ from logging import Logger
 from typing import Any
 
 from .db_common import (
-    _DB_LOGGERS, DB_BIND_META_TAG, DbEngine,
+    DB_CONN_DATA, DB_BIND_META_TAG, DbEngine, DbParam,
     _assert_engine, _except_msg, _remove_ctrlchars
 )
 from .db_pomes import (
@@ -95,7 +95,8 @@ def db_sync_data(source_engine: DbEngine | str,
     target_engine_id, target_engine_type = _assert_engine(engine=target_engine,
                                                           errors=curr_errors)
     # obtain the logger
-    logger: Logger = _DB_LOGGERS[source_engine_id] or _DB_LOGGERS[target_engine_id]
+    logger: Logger = DB_CONN_DATA[source_engine_id].get(DbParam.LOGGER) or \
+                     DB_CONN_DATA[target_engine_id].get(DbParam.LOGGER)         # noqa
 
     from_table: str = f"{source_engine_id}.{source_table}"
     to_table: str = f"{target_engine_id}.{target_table}"

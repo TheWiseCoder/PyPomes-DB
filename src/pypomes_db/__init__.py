@@ -38,6 +38,7 @@ from .ddl.view_pomes import (
     db_get_views, db_view_exists, db_drop_view,
     db_get_view_ddl, db_get_view_dependencies
 )
+from .native.spanner_pomes import spanner_setup
 
 __all__ = [
     # db_common
@@ -59,18 +60,20 @@ __all__ = [
     # pool_pomes
     "DbConnectionPool", "DbPoolEvent",
     "db_get_pool", "db_pool_acquire", "db_pool_release",
-    # streaming pomes
+    # streaming_pomes
     "db_stream_data", "db_stream_lobs",
     # sync_pomes
     "db_sync_data",
-    # table_pomes
+    # ddl.table_pomes
     "db_create_table", "db_create_session_table", "db_get_session_table_prefix",
     "db_get_tables", "db_table_exists", "db_drop_table", "db_build_column_clause",
     "db_get_table_constraints", "db_get_table_ddl", "db_get_table_pk",
     "db_get_column_metadata", "db_get_columns_metadata",
-    # view_pomes
+    # ddl.view_pomes
     "db_get_views", "db_view_exists", "db_drop_view",
-    "db_get_view_ddl", "db_get_view_dependencies"
+    "db_get_view_ddl", "db_get_view_dependencies",
+    # native.spanner_pomes
+    "spanner_setup"
 ]
 
 from importlib.metadata import version

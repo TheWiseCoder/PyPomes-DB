@@ -5,8 +5,8 @@ from pypomes_core import exc_format, str_is_float
 from typing import Any, BinaryIO, Literal
 
 from .db_common import (
-    _DB_CONN_DATA, _DB_LOGGERS,
-    _BUILTIN_FUNCTIONS, DB_BIND_META_TAG, DbEngine, DbParam,
+    DB_CONN_DATA, BUILTIN_FUNCTIONS, DB_BIND_META_TAG,
+    DbEngine, DbParam, SpannerParam,
     _assert_engine, _get_param, _bind_columns, _bind_marks,
     _combine_insert_data, _combine_update_data, _combine_search_data
 )
@@ -59,20 +59,20 @@ def db_setup(*,
        not (db_driver and db_type != DbEngine.SQLSERVER) and \
        not (not db_driver and db_type == DbEngine.SQLSERVER) and \
        isinstance(db_port, int) and db_port > 0:
-        _DB_CONN_DATA[engine] = {
+        DB_CONN_DATA[engine] = {
             DbParam.NAME: db_name,
             DbParam.USER: db_user,
             DbParam.PWD: db_pwd,
             DbParam.HOST: db_host,
             DbParam.PORT: db_port,
             DbParam.TYPE: db_type,
-            DbParam.VERSION: ""
+            DbParam.VERSION: "",
+            DbParam.LOGGER: logger
         }
         if db_type == DbEngine.ORACLE:
-            _DB_CONN_DATA[engine][DbParam.CLIENT] = Path(db_client)
+            DB_CONN_DATA[engine][DbParam.CLIENT] = Path(db_client)
         elif db_type == DbEngine.SQLSERVER:
-            _DB_CONN_DATA[engine][DbParam.DRIVER] = db_driver
-        _DB_LOGGERS[engine] = logger
+            DB_CONN_DATA[engine][DbParam.DRIVER] = db_driver
         result = True
 
     return result
@@ -88,8 +88,7 @@ def db_remove(*,
     # assert and remove the database engine
     engine_id, _engine_type = _assert_engine(engine=engine)
     if engine_id:
-        _DB_CONN_DATA.pop(engine_id)
-        _DB_LOGGERS.pop(engine_id, None)
+        DB_CONN_DATA.pop(engine_id)
 
 
 def db_set_logger(*,
@@ -111,7 +110,7 @@ def db_set_logger(*,
     # assert the database engine
     engine_id, _engine_type = _assert_engine(engine=engine)
     if engine_id:
-        _DB_LOGGERS[engine_id] = logger
+        DB_CONN_DATA[engine_id][DbParam.LOGGER] = logger
         result = True
 
     return result
@@ -140,12 +139,12 @@ def db_startup(*,
                                             errors=errors)
     if engine_id:
         # determine if access to 'engine' has been asserted
-        version: str = _DB_CONN_DATA[engine_id][DbParam.VERSION]
+        version: str = DB_CONN_DATA[engine_id][DbParam.VERSION]
         if version:
             result = True
         elif engine_type == DbEngine.SPANNER:
             from .native.spanner_frame import SpannerParam, GoogleSpanner
-            spanner: GoogleSpanner = _DB_CONN_DATA[engine][SpannerParam.ENGINE]
+            spanner: GoogleSpanner = DB_CONN_DATA[engine][SpannerParam.ENGINE]
             result = spanner.startup(errors=errors)
         else:
             # assert access to 'engine'
@@ -157,8 +156,8 @@ def db_startup(*,
                                    errors=errors)
             if conn:
                 # noinspection PyTypeChecker
-                _DB_CONN_DATA[engine_id][DbParam.VERSION] = __get_version(engine=engine_id,
-                                                                          connection=conn)
+                DB_CONN_DATA[engine_id][DbParam.VERSION] = __get_version(engine=engine_id,
+                                                                         connection=conn)
                 db_close(connection=conn,
                          engine=engine_id)
                 result = True
@@ -175,7 +174,7 @@ def db_get_default_engine() -> str | None:
 
     :return: the default database engine, or *None* if no engine has been configured
     """
-    return next(iter(_DB_CONN_DATA)) if _DB_CONN_DATA else None
+    return next(iter(DB_CONN_DATA)) if DB_CONN_DATA else None
 
 
 def db_get_engines() -> list[str]:
@@ -188,7 +187,7 @@ def db_get_engines() -> list[str]:
 
     :return: the *list* of configured database engines
     """
-    return list(_DB_CONN_DATA)
+    return list(DB_CONN_DATA)
 
 
 def db_get_param(_key: DbParam,
@@ -213,35 +212,43 @@ def db_get_param(_key: DbParam,
     engine_id, engine_type = _assert_engine(engine=engine)
 
     # retrieve the connection parameter
-    if engine_id in _DB_CONN_DATA and engine_type != DbEngine.SPANNER:
+    if engine_id in DB_CONN_DATA and engine_type != DbEngine.SPANNER:
         result = _get_param(engine_id=engine_id,
                             param=_key)
     return result
 
 
 def db_get_params(*,
-                  engine: DbEngine | str = None) -> dict[DbParam, Any] | None:
+                  engine: DbEngine | str = None) -> dict[DbParam | SpannerParam, Any] | None:
     """
-    Return the current connection parameters for *engine* as a *dict*.
+    Return the current connection parameters for *engine* as a serializeable *dict*.
 
-    The returned *dict* contains the keys *name*, *user*, *pwd*, *host*, and *port*.
-    For *oracle* engines, the returned *dict* contains the extra key *client*.
-    For *sqlserver* engines, the returned *dict* contains the extra key *driver*.
+    The returned *dict* contains the keys .
+    These are the keys returned, specific to the database type:
+        - *spanner*: *client-id*, *database-id*, *instance-id*, *project-id*,
+                      *session-default-timeout*, *session-ping-interval*, *session-pool-size*
+        - *non-spanner*: *name*, *user*, *pwd*, *host*, *port*
+        - *oracle*: the extra key *client*.
+        - *sqlserver*: the extra key *driver*
+
     The meaning of these parameters may vary between different database engines.
-    Not applicable to *spanner* engines.
 
     :param engine: the reference database engine (the default engine, if not provided)
     :return: the current connection parameters for *engine*, or *None* if not found
     """
     # initialize the return variable
-    result: dict[DbParam, Any] | None = None
+    result: dict[DbParam | SpannerParam, Any] | None = None
 
     # assert the database engine
     engine_id, engine_type = _assert_engine(engine=engine)
 
     # retrieve the connection parameters
     if engine_id and engine_type != DbEngine.SPANNER:
-        result = _DB_CONN_DATA[engine_id].copy()
+        result = DB_CONN_DATA[engine_id].copy()
+        result.pop(DbParam.LOGGER, None)
+        result.pop(SpannerParam.ENGINE, None)
+        if isinstance(result.get(DbParam.CLIENT), Path):
+            result[DbParam.CLIENT] = result.get(DbParam.CLIENT).as_posix()
 
     return result
 
@@ -499,6 +506,8 @@ def db_convert_default(_v: str | None,
                     pos_source = 2
                 case DbEngine.SQLSERVER:
                     pos_source = 3
+                case DbEngine.SPANNER:
+                    pos_source = 4
 
             pos_target: int | None = None
             _target_engine_id, target_engine_type = _assert_engine(engine=target_engine)
@@ -512,7 +521,7 @@ def db_convert_default(_v: str | None,
                 case DbEngine.SQLSERVER:
                     pos_target = 3
 
-            for func in _BUILTIN_FUNCTIONS:
+            for func in BUILTIN_FUNCTIONS:
                 if func[pos_source] == _v.upper():
                     result = func[pos_target]
                     break
@@ -591,13 +600,15 @@ def db_commit(connection: Any,
     if engine_id:
         try:
             connection.commit()
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].debug(f"Transaction committed on {id(connection)}")
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.debug(f"Transaction committed on {id(connection)}")
         except Exception as e:
             exc_err: str = exc_format(exc=e,
                                       exc_info=sys.exc_info())
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].error(msg=exc_err)
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=exc_err)
             if isinstance(errors, list):
                 errors.append(exc_err)
 
@@ -620,19 +631,21 @@ def db_commit_and_close(connection: Any,
     if engine_id:
         try:
             connection.commit()
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].debug(f"Transaction committed on {id(connection)}")
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.debug(f"Transaction committed on {id(connection)}")
             if not db_pool_release(connection=connection,
                                    engine=engine_id):
                 # connection was not reclaimed, so close it
                 connection.close()
-                if _DB_LOGGERS.get(engine_id):
-                    _DB_LOGGERS[engine_id].debug(f"Connection {id(connection)} closed")
+                if logger:
+                    logger.debug(f"Connection {id(connection)} closed")
         except Exception as e:
             exc_err: str = exc_format(exc=e,
                                       exc_info=sys.exc_info())
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].error(msg=exc_err)
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=exc_err)
             if isinstance(errors, list):
                 errors.append(exc_err)
 
@@ -653,13 +666,15 @@ def db_rollback(connection: Any,
     if engine_id:
         try:
             connection.rollback()
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].debug(f"Transaction rolled back on {id(connection)}")
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.debug(f"Transaction rolled back on {id(connection)}")
         except Exception as e:
-            if _DB_LOGGERS.get(engine_id):
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
                 exc_err: str = exc_format(exc=e,
                                           exc_info=sys.exc_info())
-                _DB_LOGGERS[engine_id].error(msg=exc_err)
+                logger.error(msg=exc_err)
 
 
 def db_rollback_and_close(connection: Any,
@@ -678,19 +693,21 @@ def db_rollback_and_close(connection: Any,
     if engine_id:
         try:
             connection.rollback()
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].debug(f"Transaction rolled back on {id(connection)}")
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.debug(f"Transaction rolled back on {id(connection)}")
             if not db_pool_release(connection=connection,
                                    engine=engine_id):
                 # connection was not reclaimed, so close it
                 connection.close()
-                if _DB_LOGGERS.get(engine_id):
-                    _DB_LOGGERS[engine_id].debug(f"Connection {id(connection)} closed")
+                if logger:
+                    logger.debug(f"Connection {id(connection)} closed")
         except Exception as e:
-            if _DB_LOGGERS.get(engine_id):
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
                 exc_err: str = exc_format(exc=e,
                                           exc_info=sys.exc_info())
-                _DB_LOGGERS[engine_id].error(msg=exc_err)
+                logger.error(msg=exc_err)
 
 
 def db_close(connection: Any,
@@ -714,13 +731,15 @@ def db_close(connection: Any,
         # connection was not reclaimed, so close it
         try:
             connection.close()
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].debug(f"Connection {id(connection)} closed")
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.debug(f"Connection {id(connection)} closed")
         except Exception as e:
-            if _DB_LOGGERS.get(engine_id):
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
                 exc_err: str = exc_format(exc=e,
                                           exc_info=sys.exc_info())
-                _DB_LOGGERS[engine_id].error(msg=exc_err)
+                logger.error(msg=exc_err)
 
 
 def db_add_query_limits(sel_stmt: str,
@@ -1487,8 +1506,10 @@ def db_bulk_insert(*,
                                                              identity_column=identity_column,
                                                              errors=curr_errors)
     # log the operation
-    if _DB_LOGGERS.get(engine_id) and isinstance(result, int):
-        _DB_LOGGERS[engine_id].debug(f"INSERTed {result} rows into table {engine}.{target_table}")
+    if isinstance(result, int):
+        logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+        if logger:
+            logger.debug(f"INSERTed {result} rows into table {engine}.{target_table}")
 
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)
@@ -1591,8 +1612,10 @@ def db_bulk_update(*,
                                                       committable=committable,
                                                       errors=curr_errors)
     # log the operation
-    if _DB_LOGGERS.get(engine_id) and isinstance(result, int):
-        _DB_LOGGERS[engine_id].debug(f"UPDATEd {result} rows on {engine}.{target_table}")
+    if isinstance(result, int):
+        logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+        if logger:
+            logger.debug(f"UPDATEd {result} rows on {engine}.{target_table}")
 
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)
@@ -1672,8 +1695,10 @@ def db_bulk_delete(*,
                                                       committable=committable,
                                                       errors=curr_errors)
     # log the operation
-    if _DB_LOGGERS.get(engine_id) and isinstance(result, int):
-        _DB_LOGGERS[engine_id].debug(f"DELETEd {result} rows from table {engine}.{target_table}")
+    if isinstance(result, int):
+        logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+        if logger:
+            logger.debug(f"DELETEd {result} rows from table {engine}.{target_table}")
 
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)

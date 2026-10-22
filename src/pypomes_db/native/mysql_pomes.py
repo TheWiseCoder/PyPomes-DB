@@ -1,11 +1,12 @@
 from datetime import date, datetime
+from logging import Logger
 from mysql import connector
 from mysql.connector.aio import MySQLConnectionAbstract
 from pypomes_core import DateFormat, DatetimeFormat
 from typing import Any, Final
 
 from ..db_common import (
-    _DB_LOGGERS, DbParam, _get_params, _except_msg
+    DB_CONN_DATA, DbParam, _get_params, _except_msg
 )
 
 RESERVED_WORDS: Final[list[str]] = [
@@ -72,15 +73,18 @@ def connect(engine_id: str,
         msg: str = _except_msg(exception=e,
                                engine_id=engine_id,
                                connection=result)
-        if _DB_LOGGERS.get(engine_id):
-            _DB_LOGGERS[engine_id].error(msg=msg)
+        logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+        if logger:
+            logger.error(msg=msg)
         if isinstance(errors, list):
             errors.append(msg)
 
     # log errors
-    if _DB_LOGGERS.get(engine_id) and errors:
-        _DB_LOGGERS[engine_id].error(msg=f"Error connecting to '{db_params.get(DbParam.NAME)} '"
-                                         f"at '{db_params.get(DbParam.NAME)}'")
+    if errors:
+        logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+        if logger:
+            logger.error(msg=f"Error connecting to '{db_params.get(DbParam.NAME)} '"
+                             f"at '{db_params.get(DbParam.NAME)}'")
     return result
 
 

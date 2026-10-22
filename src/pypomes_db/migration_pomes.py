@@ -5,7 +5,7 @@ from pypomes_core import timestamp_duration
 from typing import Any
 
 from .db_common import (
-    _DB_LOGGERS, DbEngine,
+    DB_CONN_DATA, DbEngine, DbParam,
     _assert_engine, _bind_columns, _bind_marks, _except_msg, _remove_ctrlchars
 )
 from .db_pomes import db_connect, db_close, db_count
@@ -122,8 +122,9 @@ def db_migrate_data(source_engine: DbEngine | str,
             offset_count = __normalize_value(offset_count)
 
     if not curr_errors:
-        # define the logger
-        logger: Logger = _DB_LOGGERS[source_engine_id] or _DB_LOGGERS[target_engine_id]
+        # retrieve the logger
+        logger: Logger = DB_CONN_DATA[source_engine_id].get(DbParam.LOGGER) or \
+                         DB_CONN_DATA[target_engine_id].get(DbParam.LOGGER)
 
         # normalize these parameters
         limit_count = __normalize_value(limit_count)
@@ -451,8 +452,9 @@ def db_migrate_lobs(source_engine: DbEngine | str,
     curr_target_conn: Any = target_conn or db_connect(engine=target_engine_id,
                                                       errors=curr_errors)
     if not curr_errors:
-        # define the logger
-        logger: Logger = _DB_LOGGERS[source_engine_id] or _DB_LOGGERS[target_engine_id]
+        # retrieve the logger
+        logger: Logger = DB_CONN_DATA[source_engine_id].get(DbParam.LOGGER) or \
+                         DB_CONN_DATA[target_engine_id].get(DbParam.LOGGER)
 
         # make sure to have a target column
         if not target_lob_column:

@@ -2,7 +2,6 @@ import json
 import sys
 import time
 from contextlib import suppress
-from enum import StrEnum, auto
 from google.cloud import spanner
 from google.cloud.spanner import Client
 from google.cloud.spanner import AbstractSessionPool, PingingPool
@@ -19,22 +18,7 @@ from pypomes_core import file_get_data, exc_format
 from threading import Thread
 from typing import Any
 
-from ..db_common import _DB_CONN_DATA, _DB_LOGGERS
-
-
-class SpannerParam(StrEnum):
-    """
-    Parameters for *GoogleSpanner*, an encapsulation of the Google Cloud Spanner access lifecycle.
-    """
-    ENGINE: auto()                      # holds an instance of GoogleSpanner
-    CLIENT_ID: auto()
-    DATABASE_ID: auto()
-    INSTANCE_ID: auto()
-    PROJECT_ID: auto()
-    SESSION_DEFAULT_TIMEOUT: auto()
-    SESSION_PING_INTERVAL: auto()
-    SESSION_POOL_SIZE = auto()
-    VERSION = auto()
+from ..db_common import DB_CONN_DATA, DbParam, SpannerParam
 
 
 class GoogleSpanner:
@@ -105,9 +89,9 @@ class GoogleSpanner:
 
         err_msg: str | None = None
         client_id: str | None = None
-        if engine_id not in _DB_CONN_DATA:
+        if engine_id not in DB_CONN_DATA:
             err_msg = "Google Cloud Spanner not yet configured"
-        elif _DB_CONN_DATA[engine_id].get(SpannerParam.ENGINE):
+        elif DB_CONN_DATA[engine_id].get(SpannerParam.ENGINE):
             err_msg = "Instance of Google Cloud Spanner already exists"
         elif project_id or credentials:
             # initilize the Cloud Spanner objects
@@ -121,13 +105,14 @@ class GoogleSpanner:
             err_msg = "Either 'credentials' or 'project_id' must be provided"
 
         if err_msg:
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].error(msg=err_msg)
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=err_msg)
             if isinstance(errors, list):
                 errors.append(err_msg)
         else:
             self.engine_id = engine_id
-            _DB_CONN_DATA[self.engine_id].update({
+            DB_CONN_DATA[self.engine_id].update({
                 SpannerParam.ENGINE: self,
                 SpannerParam.CLIENT_ID: client_id,
                 SpannerParam.PROJECT_ID: project_id
@@ -146,7 +131,7 @@ class GoogleSpanner:
         result: bool = True
 
         # obtain the Cloud Spanner configuration data
-        conn_data: dict[str, Any] = _DB_CONN_DATA.get(self.engine_id)
+        conn_data: dict[str, Any] = DB_CONN_DATA.get(self.engine_id)
 
         if not conn_data.get(SpannerParam.VERSION):
             err_msg: str | None = None
@@ -189,8 +174,9 @@ class GoogleSpanner:
                                          exc_info=sys.exc_info())
             if err_msg:
                 result = False
-                if _DB_LOGGERS.get(self.engine_id):
-                    _DB_LOGGERS[self.engine_id].error(msg=err_msg)
+                logger: Logger = DB_CONN_DATA[self.engine_id].get(DbParam.LOGGER)
+                if logger:
+                    logger.error(msg=err_msg)
                 if isinstance(errors, list):
                     errors.append(err_msg)
 
@@ -204,7 +190,7 @@ class GoogleSpanner:
         # noinspection PyProtectedMember
         if isinstance(self.database._pool, PingingPool):  # noqa: SLF001 - private member accessed
             # noinspection PyTypeChecker
-            params: dict[SpannerParam, Any] = _DB_CONN_DATA.get(self.engine_id)
+            params: dict[SpannerParam, Any] = DB_CONN_DATA.get(self.engine_id)
             name: str = f"spanner-ping-{params[SpannerParam.INSTANCE_ID]}/{params[SpannerParam.DATABASE_ID]}"
 
             # build and launch the pinging daemon
@@ -219,7 +205,7 @@ class GoogleSpanner:
         """
         # retrieve the pinging interval
         # noinspection PyTypeChecker
-        params: dict[SpannerParam, Any] = _DB_CONN_DATA.get(self.engine_id)
+        params: dict[SpannerParam, Any] = DB_CONN_DATA.get(self.engine_id)
         interval: int = params[SpannerParam.SESSION_PING_INTERVAL]
 
         # retrieve the database pool
@@ -261,15 +247,17 @@ class SpannerConnection:
         :param errors: incidental error messages (might be a non-empty list)
         """
         # instance variables
+        self.engine_id: str | None = None
         self.google_spanner: GoogleSpanner | None = None
         self.db_pool: AbstractSessionPool | None = None
         self.pool_session: Session | None = None
         self.session_txn: Transaction | None = None
         self.autocommit: bool | None = None
 
-        spanner_data: dict[str, Any] = _DB_CONN_DATA.get(engine_id) or {}
+        spanner_data: dict[str, Any] = DB_CONN_DATA.get(engine_id) or {}
         google_spanner: GoogleSpanner = spanner_data.get(SpannerParam.ENGINE)
         if google_spanner:
+            self.engine_id = engine_id
             self.google_spanner = google_spanner
 
             self.autocommit = autocommit
@@ -287,8 +275,9 @@ class SpannerConnection:
                 except Exception as e:
                     exc_err: str = exc_format(exc=e,
                                               exc_info=sys.exc_info())
-                    if _DB_LOGGERS.get(engine_id):
-                        _DB_LOGGERS[engine_id].error(msg=exc_err)
+                    logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+                    if logger:
+                        logger.error(msg=exc_err)
                     if isinstance(errors, list):
                         errors.append(exc_err)
 
@@ -346,7 +335,7 @@ class SpannerConnection:
             except Exception as e:
                 exc_err: str = exc_format(exc=e,
                                           exc_info=sys.exc_info())
-                logger: Logger = _DB_LOGGERS.get(self.google_spanner.engine_id)
+                logger: Logger = DB_CONN_DATA[self.google_spanner.engine_id].get(DbParam.LOGGER)
                 if logger:
                     logger.error(msg=exc_err)
                 if isinstance(errors, list):
@@ -410,7 +399,7 @@ class SpannerConnection:
             except Exception as e:
                 exc_err: str = exc_format(exc=e,
                                           exc_info=sys.exc_info())
-                logger: Logger = _DB_LOGGERS.get(self.google_spanner.engine_id)
+                logger: Logger = DB_CONN_DATA[self.google_spanner.engine_id].get(DbParam.LOGGER)
                 if logger:
                     logger.error(msg=exc_err)
                 if isinstance(errors, list):
@@ -433,7 +422,7 @@ class SpannerConnection:
             except Exception as e:
                 exc_err: str = exc_format(exc=e,
                                           exc_info=sys.exc_info())
-                logger: Logger = _DB_LOGGERS.get(self.google_spanner.engine_id)
+                logger: Logger = DB_CONN_DATA[self.google_spanner.engine_id].get(DbParam.LOGGER)
                 if logger:
                     logger.error(msg=exc_err)
                 if isinstance(errors, list):

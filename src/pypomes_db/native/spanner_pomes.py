@@ -5,11 +5,12 @@ from decimal import Decimal
 from google.cloud.spanner_v1.param_types import (
     Type, BOOL, BYTES, DATE, FLOAT32, FLOAT64, INT64, STRING, TIMESTAMP
 )
+from logging import Logger
 from pypomes_core import APP_PREFIX, env_get_str, exc_format, str_splice
 from typing import Any
 
 from ..db_common import (
-    _DB_CONN_DATA, _DB_LOGGERS, DbEngine, _assert_query_quota
+    DB_CONN_DATA, DbEngine, DbParam, _assert_query_quota
 )
 from ..db_pomes import db_add_query_limits
 from .spanner_frame import SpannerConnection, SpannerParam
@@ -34,7 +35,8 @@ def spanner_setup(engine_id: str,
                   database_id: str,
                   session_pool_size: int = 10,
                   session_ping_interval: int = 3000,
-                  session_default_timeout: int = 10) -> bool:
+                  session_default_timeout: int = 10,
+                  logger: Logger = None) -> bool:
     """
     Establish the configuration parameters for access to the Google Cloud Spanner engine.
 
@@ -48,6 +50,7 @@ def spanner_setup(engine_id: str,
     :param session_pool_size: size of the session pool (defaults to 10 for cloud operation)
     :param session_ping_interval: interval at which to ping sessions in the background (defaults to 3000 seconds)
     :param session_default_timeout: time to wait for a returned session (defaults to 10 seconds)
+    :param logger: the logger for the database engine
     :return: *True* if the data was accepted, *False* otherwise
     """
     # initialize the return variable
@@ -58,9 +61,9 @@ def spanner_setup(engine_id: str,
         session_ping_interval = 0
         session_default_timeout = 0
 
-    # accept data only if GoogleSpanner has not been instantiated
-    if not _DB_CONN_DATA.get(engine_id):
-        _DB_CONN_DATA[engine_id] = {
+    if engine_id and instance_id and database_id:
+        DB_CONN_DATA[engine_id] = {
+            DbParam.TYPE: DbEngine.SPANNER,
             SpannerParam.ENGINE: None,                  # instance of GoogleSpanner
             SpannerParam.DATABASE_ID: database_id,
             SpannerParam.INSTANCE_ID: instance_id,
@@ -68,6 +71,7 @@ def spanner_setup(engine_id: str,
             SpannerParam.SESSION_PING_INTERVAL: session_ping_interval,
             SpannerParam.SESSION_DEFAULT_TIMEOUT: session_default_timeout
         }
+        DB_CONN_DATA[engine_id][DbParam.LOGGER] = logger
         result = True
 
     return result
@@ -96,8 +100,9 @@ def connect(engine_id: str,
     except Exception as e:
         exc_err: str = exc_format(exc=e,
                                   exc_info=sys.exc_info())
-        if _DB_LOGGERS.get(engine_id):
-            _DB_LOGGERS[engine_id].error(msg=exc_err)
+        logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+        if logger:
+            logger.error(msg=exc_err)
         if isinstance(errors, list):
             errors.append(exc_err)
 
@@ -171,12 +176,13 @@ def select(engine_id: str,
         if not errors:
             # log the retrieval operation
             count: int = len(rows)
-            if _DB_LOGGERS.get(engine_id):
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
                 from_table: str = str_splice(sel_stmt + " ",
                                              seps=(" FROM ", " "))[1]
-                _DB_LOGGERS[engine_id].debug(msg=f"Read {count} tuples from "
-                                                 f"{DbEngine.SPANNER}.{from_table}, offset "
-                                                 f"{offset_count}, connection {id(curr_conn)}")
+                logger.debug(msg=f"Read {count} tuples from "
+                                 f"{DbEngine.SPANNER}.{from_table}, offset "
+                                 f"{offset_count}, connection {id(curr_conn)}")
             if _assert_query_quota(query=sel_stmt,
                                    engine_type=DbEngine.SPANNER,
                                    where_vals=where_vals,
@@ -312,8 +318,9 @@ def __build_param_maps(engine_id: str,
 
         else:
             msg: str = f"Unable to handle type '{val.__class__}"
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].error(msg=msg)
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=msg)
             errors.append(msg)
 
     return param_values, param_types

@@ -1,5 +1,4 @@
 from enum import IntEnum, StrEnum, auto
-from logging import Logger
 from pypomes_core import (
     APP_PREFIX, str_sanitize,
     env_get_int, env_get_str, env_get_strs, env_get_enum, env_get_path
@@ -34,6 +33,7 @@ class DbParam(StrEnum):
     """
     Parameters for connecting to database engines. Class does not apply to Google Cloud Spanner.
     """
+    TYPE = auto()
     NAME = auto()
     USER = auto()
     PWD = auto()
@@ -42,43 +42,74 @@ class DbParam(StrEnum):
     CLIENT = auto()
     DRIVER = auto()
     VERSION = auto()
-    TYPE = auto()
+    LOGGER = auto()
+
+
+class SpannerParam(StrEnum):
+    """
+    Parameters for *GoogleSpanner*, an encapsulation of the Google Cloud Spanner access lifecycle.
+    """
+    ENGINE = auto()                      # holds an instance of GoogleSpanner
+    CLIENT_ID = "client-id"
+    DATABASE_ID = "database-id"
+    INSTANCE_ID = "instance-id"
+    PROJECT_ID = "project-id"
+    SESSION_DEFAULT_TIMEOUT = "session-default-timeout"
+    SESSION_PING_INTERVAL = "session-ping-size"
+    SESSION_POOL_SIZE = "session-pool-size"
+    VERSION = auto()
 
 
 # the bind placeholder meta-tag to use in DML statements
 # (guarantees cross-engine compatilitiy, as this is replaced by the engine's actual bind placeholder)
 DB_BIND_META_TAG: Final[str] = env_get_str(key=f"{APP_PREFIX}_DB_BIND_META_TAG",
                                            def_value="%?")
-_BUILTIN_FUNCTIONS: Final[list[tuple[str, str, str, str]]] = [
-    # current date only
-    ("CURRENT_DATE()",              # MySQL: yyyy-mm-dd
+BUILTIN_FUNCTIONS: Final[list[tuple[str, str, str, str, str]]] = [
+
+    (  # current date only
+     "CURRENT_DATE()",              # MySQL: yyyy-mm-dd
      "CURRENT_DATE",                # Oracle: yyyy-mm-dd
      "CURRENT_DATE",                # PostgreSQL: yyyy-mm-dd
-     "CONVERT(DATE, GETDATE())"),   # SQLServer: yyyy-mm-dd
-    # current time only (trailing -/+ indicates the timezone difference from GMT)
-    ("CURTIME()",                   # MySQL: hh:mm:ss
+     "CONVERT(DATE, GETDATE())",    # SQLServer: yyyy-mm-dd
+     "FORMAT_DATE("
+     "'%Y-%m-%d', CURRENT_DATE())"  # GoogleSpanner: yyyy-mm-dd
+    ),
+    (  # current time only (trailing -/+ indicates the timezone difference from GMT)
+     "CURTIME()",                   # MySQL: hh:mm:ss
      "CURRENT_TIME",                # Oracle: hh:mm:ss.123456 - 00:00
      "CURRENT_TIME",                # PostgreSQL: hh:mm:ss.123456 + 00
-     "CONVERT(TIME, GETDATE())"),   # SQLServer: hh:mm:ss.123
+     "CONVERT(TIME, GETDATE())",    # SQLServer: hh:mm:ss.123
+     "FORMAT_TIMESTAMP('%H:%M:%S', "
+     "CURRENT_TIMESTAMP(), 'UTC')"  # GoogleSpanner: hh:mm:ss
+    ),
     # current date and time
-    ("NOW()",                       # MySQL: yyyy-mm-dd hh:mm:ss
+    (
+     "NOW()",                       # MySQL: yyyy-mm-dd hh:mm:ss
      "SYSDATE",                     # Oracle: yyyy-mm-dd hh:mm:ss
      "NOW()",                       # PostgreSQL: yyyy-mm-dd hh:mm:ss.123456 + 00
-     "GETDATE()"),                  # SQLServer: yyyy-mm-dd hh:mm:ss.123
+     "GETDATE()",                   # SQLServer: yyyy-mm-dd hh:mm:ss.123
+     "FORMAT_TIMESTAMP("
+     "'%Y-%m-%d %H:%M:%S', "
+     "CURRENT_TIMESTAMP(), 'UTC')"  # GoogleSpanner: yyyy-mm-dd hh:mm:ss
+    ),
     # current timestamp
     ("CURRENT_TIMESTAMP()",         # MySQL: yyyy-mm-dd hh:mm:ss
      "SYSTIMESTAMP",                # Oracle: yyyy-mm-dd hh:mm:ss.123456 - 00:00
      "CURRENT_TIMESTAMP",           # PostgreSQL: yyyy-mm-dd hh:mm:ss.123456 + 00
-     "SYSDATETIME()"),              # SQLServer: yyyy-mm-dd hh:mm:ss.1234567
+     "SYSDATETIME()"                # SQLServer: yyyy-mm-dd hh:mm:ss.1234567
+     "CURRENT_TIMESTAMP()",
+     "FORMAT_TIMESTAMP("
+     "'%Y-%m-%m %H:%M:%E3S %Z', "
+     "CURRENT_TIMESTAMP())"         # GoogleSpanner: yyyy-mm-dd -hh:mm:ss.123 UTC
+     ),
     # logged-in used
     ("USER()",                      # MySQL (or CURRENT_USER())
      "USER",                        # Oracle
      "CURRENT_USER",                # PostgreSQL (session_user: user name in initial connection)
-     "USER_NAME()")                 # SQLServer
+     "USER_NAME()",                 # SQLServer
+     "CAST(@curr_user AS STRING)"   # GoogleSpanner (inject '@curr_user' as a query parameter)
+     )
 ]
-
-# database engine loggers
-_DB_LOGGERS: dict[str, Logger | None] = {}
 
 
 def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
@@ -142,21 +173,20 @@ def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
             DbParam.HOST: env_get_str(key=f"{APP_PREFIX}_{prefix}_HOST"),
             DbParam.PORT: env_get_int(key=f"{APP_PREFIX}_{prefix}_PORT"),
             DbParam.TYPE: db_type,
-            DbParam.VERSION: ""
+            DbParam.VERSION: "",
+            DbParam.LOGGER: None
         }
         if db_type == DbEngine.ORACLE:
             result[engine][DbParam.CLIENT] = env_get_path(key=f"{APP_PREFIX}_{prefix}_CLIENT")
         elif db_type == DbEngine.SQLSERVER:
             result[engine][DbParam.DRIVER] = env_get_str(key=f"{APP_PREFIX}_{prefix}_DRIVER")
-        if engine not in _DB_LOGGERS:
-            _DB_LOGGERS[engine] = None
 
     return result
 
 
 # connection data for the configured database engines
 # (key for Google Spanner is 'DbEngine.SPANNER' - only one instance may exist)
-_DB_CONN_DATA: Final[dict[str, dict[DbParam, Any]]] = __get_conn_data()
+DB_CONN_DATA: Final[dict[str, dict[DbParam | SpannerParam, Any]]] = __get_conn_data()
 
 
 def _assert_engine(engine: DbEngine | str,
@@ -174,12 +204,12 @@ def _assert_engine(engine: DbEngine | str,
     # initialize the return valiable
     result: tuple[str | None, DbEngine | None] | None = None
 
-    for key, value in _DB_CONN_DATA.items():
+    for key, value in DB_CONN_DATA.items():
         if not engine or engine == key:
             result = (key, value[DbParam.TYPE])
             break
     if not result:
-        for key, value in _DB_CONN_DATA.items():
+        for key, value in DB_CONN_DATA.items():
             if engine == value[DbParam.TYPE]:
                 result = (key, value[DbParam.TYPE])
                 break
@@ -201,7 +231,7 @@ def _get_param(engine_id: str,
     :param param: the reference parameter
     :return: the parameter's current value
     """
-    return (_DB_CONN_DATA.get(engine_id) or {}).get(param)
+    return (DB_CONN_DATA.get(engine_id) or {}).get(param)
 
 
 def _get_params(engine_id: str) -> dict[DbParam, Any]:
@@ -211,7 +241,7 @@ def _get_params(engine_id: str) -> dict[DbParam, Any]:
     :param engine_id: the reference database engine
     :return: the current connection parameters for the engine
     """
-    return _DB_CONN_DATA.get(engine_id)
+    return DB_CONN_DATA.get(engine_id)
 
 
 def _assert_query_quota(engine_type: DbEngine,
@@ -280,7 +310,7 @@ def _except_msg(exception: Exception,
     :param connection: the database connection
     :return: the formatted error message
     """
-    db_data: dict[DbParam, Any] = _DB_CONN_DATA.get(engine_id) or {}
+    db_data: dict[DbParam, Any] = DB_CONN_DATA.get(engine_id) or {}
     conn_data: str = f", connection {id(connection)}," if connection else ""
     return (f"Error accessing '{db_data.get(DbParam.NAME)}'{conn_data} "
             f"at '{db_data.get(DbParam.HOST)}': {str_sanitize(f'{exception}')}")

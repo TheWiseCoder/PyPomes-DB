@@ -1,10 +1,13 @@
 import time
 from collections.abc import Generator
 from contextlib import suppress
+from logging import Logger
 from pypomes_core import timestamp_duration
 from typing import Any
 
-from .db_common import _DB_LOGGERS, DbEngine, _assert_engine, _except_msg
+from .db_common import (
+    DB_CONN_DATA, DbEngine, DbParam, _assert_engine, _except_msg
+)
 from .db_pomes import db_connect, db_close
 
 
@@ -65,12 +68,14 @@ def db_stream_data(table: str,
         batch_size_out = __normalize_value(batch_size_out)
         if 0 < limit_count < batch_size_in:
             batch_size_in = limit_count
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].debug(msg=f"Value of input batch size set to {batch_size_in}")
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.debug(msg=f"Value of input batch size set to {batch_size_in}")
         if 0 < batch_size_in < batch_size_out:
             batch_size_out = batch_size_in
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].debug(msg=f"Value of output batch size set to {batch_size_out}")
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.debug(msg=f"Value of output batch size set to {batch_size_out}")
 
         # buid the SELECT query
         sel_stmt: str = f"SELECT {', '.join(columns)} FROM {table}"
@@ -78,9 +83,11 @@ def db_stream_data(table: str,
             sel_stmt += f" WHERE {where_clause}"
         if orderby_clause:
             sel_stmt += f" ORDER BY {orderby_clause}"
-        elif _DB_LOGGERS.get(engine_id) and (offset_count or batch_size_in):
-            _DB_LOGGERS[engine_id].warning(msg="Attempting partial data migration without "
-                                               "providing an ORDER BY clause is not recommended")
+        elif offset_count or batch_size_in:
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.warning(msg="Attempting partial data migration without "
+                                   "providing an ORDER BY clause is not recommended")
         sel_stmt += " OFFSET @offset ROWS"
 
         if limit_count or batch_size_in:
@@ -90,10 +97,11 @@ def db_stream_data(table: str,
                 sel_stmt += " FETCH @limit ROWS ONLY"
 
         # log the streaming start
-        if _DB_LOGGERS.get(engine_id):
-            _DB_LOGGERS[engine_id].debug(msg=f"Started streaming data from {engine}.{table}, limit "
-                                             f"{limit_count}, offset {offset_count}, batch size in {batch_size_in}, "
-                                             f"batch size out {batch_size_out}, connection {id(curr_conn)}")
+        logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+        if logger:
+            logger.debug(msg=f"Started streaming data from {engine}.{table}, limit "
+                             f"{limit_count}, offset {offset_count}, batch size in {batch_size_in}, "
+                             f"batch size out {batch_size_out}, connection {id(curr_conn)}")
         # stream the tuples
         row_count: int = 0
         stream_count: int = 0  # number of tuples effectively streamed
@@ -123,10 +131,11 @@ def db_stream_data(table: str,
             # traverse the result set
             while rows_in:
                 # log the retrieval operation
-                if _DB_LOGGERS.get(engine_id):
-                    _DB_LOGGERS[engine_id].debug(msg=f"Read {len(rows_in)} tuples from {engine}.{table}, "
-                                                     f"offset {offset_count + stream_count}, "
-                                                     f"connection {id(curr_conn)}")
+                logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+                if logger:
+                    logger.debug(msg=f"Read {len(rows_in)} tuples from {engine}.{table}, "
+                                     f"offset {offset_count + stream_count}, "
+                                     f"connection {id(curr_conn)}")
                 pos_from: int = 0
 
                 # migrate the tuples
@@ -139,9 +148,10 @@ def db_stream_data(table: str,
 
                     # increment the tuple streaming counter and log the partial streaming
                     stream_count += len(rows_out)
-                    if _DB_LOGGERS.get(engine_id):
-                        _DB_LOGGERS[engine_id].debug(msg=f"Streamed {stream_count} tuples "
-                                                         f"from {engine}.{table}, connection {id(curr_conn)}")
+                    logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+                    if logger:
+                        logger.debug(msg=f"Streamed {stream_count} tuples "
+                                         f"from {engine}.{table}, connection {id(curr_conn)}")
                 # read the next batch
                 if limit_count > stream_count or (batch_size_in and not limit_count):
                     curr_limit = min(batch_size_in, limit_count - stream_count)
@@ -178,11 +188,14 @@ def db_stream_data(table: str,
         # log the streaming finish
         if err_msg:
             curr_errors.append(err_msg)
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].error(msg=err_msg)
-        elif not curr_errors and _DB_LOGGERS[engine_id]:
-            _DB_LOGGERS[engine_id].debug(msg=f"Finished streaming {row_count} tuples "
-                                             f"from {engine}.{table}, connection {id(curr_conn)}")
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=err_msg)
+        elif not curr_errors:
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.debug(msg=f"Finished streaming {row_count} tuples "
+                                 f"from {engine}.{table}, connection {id(curr_conn)}")
 
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)
@@ -258,8 +271,9 @@ def db_stream_lobs(table: str,
         log_trigger = __normalize_value(log_trigger)
         if 0 < limit_count < batch_size:
             batch_size = limit_count
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].debug(msg=f"Value of batch size set to {batch_size}")
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.debug(msg=f"Value of batch size set to {batch_size}")
 
         # buid the SELECT query
         ref_columns: list[str] = pk_columns.copy() if pk_columns else []
@@ -276,9 +290,11 @@ def db_stream_lobs(table: str,
             orderby_clause = ", ".join(pk_columns)
         if orderby_clause:
             sel_stmt += f" ORDER BY {orderby_clause}"
-        elif _DB_LOGGERS.get(engine_id) and (offset_count or batch_size):
-            _DB_LOGGERS[engine_id].warning(msg="Attempting partial LOB migration without providing "
-                                               "PK columns or an ORDER BY clause is not recommended")
+        elif offset_count or batch_size:
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.warning(msg="Attempting partial LOB migration without providing "
+                                   "PK columns or an ORDER BY clause is not recommended")
         sel_stmt += " OFFSET @offset ROWS"
 
         if limit_count or batch_size:
@@ -288,11 +304,12 @@ def db_stream_lobs(table: str,
                 sel_stmt += " FETCH @limit ROWS ONLY"
 
         # log the migration start
-        if _DB_LOGGERS.get(engine_id):
-            _DB_LOGGERS[engine_id].debug(msg="Started streaming LOBs "
-                                             f"from {engine}.{table}.{lob_column}, limit {limit_count}, "
-                                             f"offset {offset_count}, batch size {batch_size}, "
-                                             f"chunk size {chunk_size}, connection {id(curr_conn)}")
+        logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+        if logger:
+            logger.debug(msg="Started streaming LOBs "
+                             f"from {engine}.{table}.{lob_column}, limit {limit_count}, "
+                             f"offset {offset_count}, batch size {batch_size}, "
+                             f"chunk size {chunk_size}, connection {id(curr_conn)}")
         # stream the LOBs
         byte_count: int = 0
         byte_step: int = 0
@@ -376,17 +393,19 @@ def db_stream_lobs(table: str,
                     yield None
 
                     # log partial result at each 'log_trigger' LOBs migrated
-                    if _DB_LOGGERS.get(engine_id) and row_step >= log_trigger:
+                    if row_step >= log_trigger:
                         finish_step: float = time.time()
-                        mins: float = (finish_step - start_step) / 60
-                        duration: str = timestamp_duration(start=start_step,
-                                                           finish=finish_step)
-                        _DB_LOGGERS[engine_id].debug(msg=f"Streamed {row_step} LOBs, {byte_step} bytes, in "
-                                                         f"{duration} ({row_step/mins:.2f} LOBs/min, "
-                                                         f"{byte_step/(mins * 1024 ** 2):.2f} MBytes/min),  "
-                                                         f"from {engine}.{table}.{lob_column}, "
-                                                         f"connection {id(curr_conn)} "
-                                                         f"offset {offset_count + row_count - row_step}")
+                        logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+                        if logger:
+                            mins: float = (finish_step - start_step) / 60
+                            duration: str = timestamp_duration(start=start_step,
+                                                               finish=finish_step)
+                            logger.debug(msg=f"Streamed {row_step} LOBs, {byte_step} bytes, in "
+                                             f"{duration} ({row_step/mins:.2f} LOBs/min, "
+                                             f"{byte_step/(mins * 1024 ** 2):.2f} MBytes/min),  "
+                                             f"from {engine}.{table}.{lob_column}, "
+                                             f"connection {id(curr_conn)} "
+                                             f"offset {offset_count + row_count - row_step}")
                         byte_step = 0
                         row_step = 0
                         start_step = finish_step
@@ -427,18 +446,21 @@ def db_stream_lobs(table: str,
         # log the finish
         if err_msg:
             curr_errors.append(err_msg)
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].error(msg=err_msg)
-        elif not curr_errors and _DB_LOGGERS[engine_id]:
-            finish_count: float = time.time()
-            mins = (finish_count - start_count) / 60
-            duration: str = timestamp_duration(start=start_count,
-                                               finish=finish_count)
-            _DB_LOGGERS[engine_id].debug(msg=f"Finished streaming {row_count} LOBs, {byte_count} bytes, "
-                                             f"in {duration} ({row_count/mins:.2f} LOBs/min, "
-                                             f"{byte_count/(mins * 1024 ** 2):.2f} MBytes/min), "
-                                             f"from {engine}.{table}.{lob_column}, "
-                                             f"offset {offset_count}, connection {id(curr_conn)}")
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=err_msg)
+        elif not curr_errors:
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                finish_count: float = time.time()
+                mins: float = (finish_count - start_count) / 60
+                duration: str = timestamp_duration(start=start_count,
+                                                   finish=finish_count)
+                logger.debug(msg=f"Finished streaming {row_count} LOBs, {byte_count} bytes, "
+                                 f"in {duration} ({row_count/mins:.2f} LOBs/min, "
+                                 f"{byte_count/(mins * 1024 ** 2):.2f} MBytes/min), "
+                                 f"from {engine}.{table}.{lob_column}, "
+                                 f"offset {offset_count}, connection {id(curr_conn)}")
 
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)

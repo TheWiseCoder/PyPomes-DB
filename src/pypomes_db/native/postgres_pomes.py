@@ -1,6 +1,7 @@
 import psycopg2
 from contextlib import suppress
 from datetime import date, datetime
+from logging import Logger
 from pathlib import Path
 from psycopg2 import Binary
 from psycopg2.extras import execute_values
@@ -14,7 +15,7 @@ from pypomes_core import (
 from typing import Any, BinaryIO, Final
 
 from ..db_common import (
-    _DB_LOGGERS, DbEngine, DbParam,
+    DB_CONN_DATA, DbEngine, DbParam,
     _assert_query_quota, _build_query_msg, _get_params, _except_msg
 )
 
@@ -81,15 +82,18 @@ def connect(engine_id: str,
         msg: str = _except_msg(exception=e,
                                engine_id=engine_id,
                                connection=None)
-        if _DB_LOGGERS.get(engine_id):
-            _DB_LOGGERS[engine_id].error(msg=msg)
+        logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+        if logger:
+            logger.error(msg=msg)
         if isinstance(errors, list):
             errors.append(msg)
 
     # log errors
-    if _DB_LOGGERS.get(engine_id) and errors:
-        _DB_LOGGERS[engine_id].error(msg="Error connecting to "
-                                         f"'{db_params.get(DbParam.NAME)}' at '{db_params.get(DbParam.HOST)}'")
+    if errors:
+        logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+        if logger:
+            logger.error(msg="Error connecting to "
+                             f"'{db_params.get(DbParam.NAME)}' at '{db_params.get(DbParam.HOST)}'")
     return result
 
 
@@ -193,12 +197,13 @@ def select(engine_id: str,
                 count: int = len(rows)
 
                 # log the retrieval operation
-                if _DB_LOGGERS.get(engine_id):
+                logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+                if logger:
                     from_table: str = str_splice(sel_stmt + " ",
                                                  seps=(" FROM ", " "))[1]
-                    _DB_LOGGERS[engine_id].debug(msg=f"Read {count} tuples from "
-                                                     f"{engine_id}.{from_table}, offset "
-                                                     f"{offset_count}, connection {id(curr_conn)}")
+                    logger.debug(msg=f"Read {count} tuples from "
+                                     f"{engine_id}.{from_table}, offset "
+                                     f"{offset_count}, connection {id(curr_conn)}")
 
                 if _assert_query_quota(engine_type=DbEngine.POSTGRES,
                                        query=sel_stmt,
@@ -220,8 +225,9 @@ def select(engine_id: str,
             msg: str = _except_msg(exception=e,
                                    engine_id=engine_id,
                                    connection=curr_conn)
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].error(msg=msg)
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
@@ -229,10 +235,12 @@ def select(engine_id: str,
             if curr_conn and not connection:
                 curr_conn.close()
         # log errors
-        if _DB_LOGGERS.get(engine_id) and errors:
-            _DB_LOGGERS[engine_id].error(msg=_build_query_msg(engine_type=DbEngine.POSTGRES,
-                                                              query_stmt=sel_stmt,
-                                                              bind_vals=where_vals))
+        if errors:
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=_build_query_msg(engine_type=DbEngine.POSTGRES,
+                                                  query_stmt=sel_stmt,
+                                                  bind_vals=where_vals))
     return result
 
 
@@ -318,8 +326,9 @@ def execute(engine_id: str,
             msg: str = _except_msg(exception=e,
                                    engine_id=engine_id,
                                    connection=curr_conn)
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].error(msg=msg)
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
@@ -327,10 +336,12 @@ def execute(engine_id: str,
             if curr_conn and not connection:
                 curr_conn.close()
         # log errors
-        if _DB_LOGGERS.get(engine_id) and errors:
-            _DB_LOGGERS[engine_id].error(msg=_build_query_msg(engine_type=DbEngine.POSTGRES,
-                                                              query_stmt=exc_stmt,
-                                                              bind_vals=bind_vals))
+        if errors:
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=_build_query_msg(engine_type=DbEngine.POSTGRES,
+                                                  query_stmt=exc_stmt,
+                                                  bind_vals=bind_vals))
     return result
 
 
@@ -412,8 +423,9 @@ def bulk_execute(engine_id: str,
             msg: str = _except_msg(exception=e,
                                    engine_id=engine_id,
                                    connection=curr_conn)
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].error(msg=msg)
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
@@ -421,10 +433,12 @@ def bulk_execute(engine_id: str,
             if curr_conn and not connection:
                 curr_conn.close()
         # log errors
-        if _DB_LOGGERS.get(engine_id) and errors:
-            _DB_LOGGERS[engine_id].error(msg=_build_query_msg(engine_type=DbEngine.POSTGRES,
-                                                              query_stmt=exc_stmt,
-                                                              bind_vals=exc_vals[0]))
+        if errors:
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=_build_query_msg(engine_type=DbEngine.POSTGRES,
+                                                  query_stmt=exc_stmt,
+                                                  bind_vals=exc_vals[0]))
     return result
 
 
@@ -512,8 +526,9 @@ def update_lob(engine_id: str,
             msg: str = _except_msg(exception=e,
                                    engine_id=engine_id,
                                    connection=curr_conn)
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].error(msg=msg)
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
@@ -521,10 +536,12 @@ def update_lob(engine_id: str,
             if curr_conn and not connection:
                 curr_conn.close()
         # log errors
-        if _DB_LOGGERS.get(engine_id) and errors:
-            _DB_LOGGERS[engine_id].error(msg=_build_query_msg(engine_type=DbEngine.POSTGRES,
-                                                              query_stmt=update_stmt,
-                                                              bind_vals=pk_vals))
+        if errors:
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=_build_query_msg(engine_type=DbEngine.POSTGRES,
+                                                  query_stmt=update_stmt,
+                                                  bind_vals=pk_vals))
 
 
 def call_procedure(engine_id: str,
@@ -580,8 +597,9 @@ def call_procedure(engine_id: str,
             msg: str = _except_msg(exception=e,
                                    engine_id=engine_id,
                                    connection=curr_conn)
-            if _DB_LOGGERS.get(engine_id):
-                _DB_LOGGERS[engine_id].error(msg=msg)
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=msg)
             if isinstance(errors, list):
                 errors.append(msg)
         finally:
@@ -589,10 +607,12 @@ def call_procedure(engine_id: str,
             if curr_conn and not connection:
                 curr_conn.close()
         # log errors
-        if _DB_LOGGERS.get(engine_id) and errors:
-            _DB_LOGGERS[engine_id].error(msg=_build_query_msg(engine_type=DbEngine.POSTGRES,
-                                                              query_stmt=proc_stmt,
-                                                              bind_vals=proc_vals))
+        if errors:
+            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=_build_query_msg(engine_type=DbEngine.POSTGRES,
+                                                  query_stmt=proc_stmt,
+                                                  bind_vals=proc_vals))
     return result
 
 
