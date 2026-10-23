@@ -29,7 +29,7 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
     result: list[str] | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # build the query
@@ -106,7 +106,7 @@ def db_view_exists(view_name: str,
     result: bool | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # extract the schema, if possible
@@ -176,7 +176,7 @@ def db_drop_view(view_name: str,
     :param errors: incidental error messages (might be a non-empty list)
     """
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # build the DROP statement
@@ -236,7 +236,7 @@ def db_get_view_ddl(view_name: str,
     result: str | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # determine the view schema
@@ -310,7 +310,7 @@ def db_get_view_dependencies(view_name: str,
     result: list[str] | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # determine the view schema

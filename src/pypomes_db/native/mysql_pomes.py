@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from logging import Logger
 from mysql import connector
 from mysql.connector.aio import MySQLConnectionAbstract
@@ -112,9 +112,12 @@ def bind_arguments(stmt: str,
         elif isinstance(bind_val, int | float):
             val = f"{bind_val}"
         elif isinstance(bind_val, date):
-            val = f"STR_TO_DATE('{bind_val.strftime(format=DateFormat.INV)}', '%Y-%m-%d')"
+            val = f"STR_TO_DATE('{bind_val.strftime(format=DateFormat.INV)}', '{DateFormat.INV}')"
         elif isinstance(bind_val, datetime):
-            val = f"STR_TO_DATE('{bind_val.strftime(format=DatetimeFormat.INV)}', '%Y-%m-%d %H:%i:%s')"
+            val = f"STR_TO_DATE('{bind_val.strftime(format=DatetimeFormat.INV)}', '{DatetimeFormat.INV}')"
+        elif isinstance(bind_val, time):
+            fmt: str = "%H:%M:%S"
+            val = f"STR_TO_DATE('{bind_val.strftime(format=fmt)}', '{fmt}')"
         else:
             val = f"'{bind_val}'"
         result = result.replace("?", val, 1)

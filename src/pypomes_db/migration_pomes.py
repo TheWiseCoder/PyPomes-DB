@@ -99,9 +99,9 @@ def db_migrate_data(source_engine: DbEngine | str,
     curr_errors: list[str] = []
 
     # assert the database engines
-    source_engine_id, source_engine_type = _assert_engine(engine=source_engine,
+    source_engine_id, source_engine_type = _assert_engine(source_engine,
                                                           errors=curr_errors)
-    target_engine_id, target_engine_type = _assert_engine(engine=target_engine,
+    target_engine_id, target_engine_type = _assert_engine(target_engine,
                                                           errors=curr_errors)
 
     # make sure to have connections to the source and destination databases
@@ -441,9 +441,9 @@ def db_migrate_lobs(source_engine: DbEngine | str,
     curr_errors: list[str] = []
 
     # assert the database engines
-    source_engine_id, source_engine_type = _assert_engine(engine=source_engine,
+    source_engine_id, source_engine_type = _assert_engine(source_engine,
                                                           errors=curr_errors)
-    target_engine_id, target_engine_type = _assert_engine(engine=target_engine,
+    target_engine_id, target_engine_type = _assert_engine(target_engine,
                                                           errors=curr_errors)
 
     # make sure to have connections to the source and destination databases

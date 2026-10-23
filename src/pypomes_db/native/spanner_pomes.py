@@ -1,19 +1,23 @@
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 # unused scalar elements: INTERVAL, JSON, NUMERIC, PG_JSONB, PG_NUMERIC, PG_OID
 from google.cloud.spanner_v1.param_types import (
     Type, BOOL, BYTES, DATE, FLOAT32, FLOAT64, INT64, STRING, TIMESTAMP
 )
+from io import BytesIO
 from logging import Logger
-from pypomes_core import APP_PREFIX, env_get_str, exc_format, str_splice
+from pathlib import Path
+from pypomes_core import (
+    APP_PREFIX, TZ_LOCAL, DateFormat, DatetimeFormat,
+    env_get_str, exc_format, str_splice
+)
 from typing import Any
 
 from ..db_common import (
     DB_CONN_DATA, DbEngine, DbParam, _assert_query_quota
 )
-from ..db_pomes import db_add_query_limits
-from .spanner_frame import SpannerConnection, SpannerParam
+from .spanner_frame import GoogleSpanner, SpannerConnection, SpannerParam
 
 
 RESERVED_WORDS: list[str] = [
@@ -33,10 +37,13 @@ RESERVED_WORDS: list[str] = [
 def spanner_setup(engine_id: str,
                   instance_id: str,
                   database_id: str,
+                  credentials: dict[str, str] | BytesIO | Path | str | bytes = None,
+                  project_id: str = None,
                   session_pool_size: int = 10,
                   session_ping_interval: int = 3000,
                   session_default_timeout: int = 10,
-                  logger: Logger = None) -> bool:
+                  logger: Logger = None,
+                  errors: list[str] = None) -> bool:
     """
     Establish the configuration parameters for access to the Google Cloud Spanner engine.
 
@@ -47,10 +54,13 @@ def spanner_setup(engine_id: str,
     :param engine_id: the engine identification
     :param instance_id: the instance identification
     :param database_id: the databae identification
+    :param project_id: optional project identification
+    :param credentials: optional access credentials
     :param session_pool_size: size of the session pool (defaults to 10 for cloud operation)
     :param session_ping_interval: interval at which to ping sessions in the background (defaults to 3000 seconds)
     :param session_default_timeout: time to wait for a returned session (defaults to 10 seconds)
     :param logger: the logger for the database engine
+    :param errors: incidental error messages (may be a non-empty list)
     :return: *True* if the data was accepted, *False* otherwise
     """
     # initialize the return variable
@@ -61,18 +71,28 @@ def spanner_setup(engine_id: str,
         session_ping_interval = 0
         session_default_timeout = 0
 
-    if engine_id and instance_id and database_id:
+    if engine_id and instance_id and database_id and (credentials or project_id):
         DB_CONN_DATA[engine_id] = {
             DbParam.TYPE: DbEngine.SPANNER,
             SpannerParam.ENGINE: None,                  # instance of GoogleSpanner
             SpannerParam.DATABASE_ID: database_id,
             SpannerParam.INSTANCE_ID: instance_id,
+            SpannerParam.PROJECT_ID: project_id,
             SpannerParam.SESSION_POOL_SIZE: session_pool_size,
             SpannerParam.SESSION_PING_INTERVAL: session_ping_interval,
-            SpannerParam.SESSION_DEFAULT_TIMEOUT: session_default_timeout
+            SpannerParam.SESSION_DEFAULT_TIMEOUT: session_default_timeout,
+            DbParam.LOGGER: logger
         }
-        DB_CONN_DATA[engine_id][DbParam.LOGGER] = logger
+        GoogleSpanner(engine_id=engine_id,
+                      credentials=credentials,
+                      project_id=project_id)
         result = True
+    else:
+        err_msg = f"GoogleSpanner '{engine_id}' has missing setup data"
+        if logger:
+            logger.error(msg=err_msg)
+        if isinstance(errors, list):
+            errors.append(err_msg)
 
     return result
 
@@ -164,9 +184,9 @@ def select(engine_id: str,
     if not errors:
         # establish offset and limit
         if offset_count or limit_count:
-            sel_stmt = db_add_query_limits(sel_stmt=sel_stmt,
-                                           offset_count=offset_count,
-                                           limit_count=limit_count)
+            sel_stmt = add_query_limits(sel_stmt=sel_stmt,
+                                        offset_count=offset_count,
+                                        limit_count=limit_count)
         # retrieve the tuples
         rows: list[tuple] = curr_conn.select(sel_stmt=sel_stmt,
                                              param_values=param_values,
@@ -273,6 +293,78 @@ def execute(engine_id: str,
                                                                 errors=errors):
                 # the query quota was satisfied
                 result = reply
+
+    return result
+
+
+def add_query_limits(sel_stmt: str,
+                     *,
+                     offset_count: int | None,
+                     limit_count: int | None) -> str:
+    """
+    Add offset and limit to *sel_stmt*.
+
+    If not positive integers, *offset_count*, and *limit_count* are ignored. The parameter *offset_count*
+    is used to offset the retrieval of tuples, whereas *limit_count* establishes a ceiling on the number
+    of tuples returned.
+
+    :param sel_stmt: the query statement to modify
+    :param offset_count: number of tuples to skip
+    :param limit_count: limit to the number of tuples returned
+    :return: the modified query statement
+    """
+    # initialize the return variable
+    result: str = sel_stmt
+
+    # establish a limit to the number of tuples returned
+    if isinstance(limit_count, int) and limit_count > 0:
+        result += f" LIMIT {limit_count}"
+
+    # establish an offset into the result set
+    if isinstance(offset_count, int) and offset_count > 0:
+        result += f" OFFSET {offset_count}"
+
+    return result
+
+
+def bind_arguments(stmt: str,
+                   bind_vals: list[Any]) -> str:
+    """
+    Replace the placeholders in *stmt* with the values in *bind_vals*, and return the modified query statement.
+
+    Note that using a statement in a situation where values for types other than *bool*, *str*, *int*, *float*,
+    *date*, or *datetime* were replaced, may bring about undesirable consequences, as the standard string
+    representations for these other types would be used.
+
+    The third parameter in the *CONVERT()* function is the style code to be used. Refer to SQLServer's
+    documentation for details about this function.
+
+    :param stmt: the query statement
+    :param bind_vals: the values to replace the placeholders with
+    :return: the query statement with the placeholders replaced with their corresponding values
+    """
+    # initialize the return variable
+    result: str = stmt
+
+    # bind the arguments
+    for bind_val in bind_vals:
+        val: str
+        if isinstance(bind_val, bool):
+            val = "TRUE" if bind_val else "FALSE"
+        elif isinstance(bind_val, int | float):
+            val = f"{bind_val}"
+        elif isinstance(bind_val, date):
+            fmt: str = DateFormat.INV
+            val = f"PARSE_DATE('{fmt}', '{bind_val.strftime(format=fmt)}')"
+        elif isinstance(bind_val, datetime):
+            fmt: str = DatetimeFormat.INV
+            val = f"PARSE_TIMESTAMP('{fmt}', '{bind_val.strftime(format=fmt)}', '{TZ_LOCAL}')"
+        elif isinstance(bind_val, time):
+            fmt: str = "%H:%M:%S"
+            val = f"PARSE_TIMESTAMP('{fmt}', '{bind_val.strftime(format=fmt)}', '{TZ_LOCAL}')"
+        else:
+            val = f"'{bind_val}'"
+        result = result.replace("?", val, 1)
 
     return result
 

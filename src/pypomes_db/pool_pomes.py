@@ -197,7 +197,7 @@ class DbConnectionPool:
         self.conn_data: list[dict[_ConnStage, Any]]
 
         # make sure a configured database engine has been specified
-        engine_id, engine_type = _assert_engine(engine=engine,
+        engine_id, engine_type = _assert_engine(engine,
                                                 errors=errors)
 
         # obtain the default values for the pool parameters
@@ -579,7 +579,7 @@ def db_get_pool(engine: DbEngine | str = None) -> DbConnectionPool | None:
     result: DbConnectionPool | None = None
 
     # assert the database engine
-    engine_id, _engine_type = _assert_engine(engine=engine)
+    engine_id, _engine_type = _assert_engine(engine)
     if engine_id:
         with _instances_lock:
             result = _POOL_INSTANCES.get(engine_id)
@@ -598,7 +598,7 @@ def db_pool_acquire(engine: DbEngine | str = None) -> Any | None:
     result: Any = None
 
     # assert the database engine
-    engine_id, _engine_type = _assert_engine(engine=engine)
+    engine_id, _engine_type = _assert_engine(engine)
     if engine_id:
         pool: DbConnectionPool = db_get_pool(engine=engine_id)
         # obtain the pooled connection
@@ -621,7 +621,7 @@ def db_pool_release(connection: Any,
     result: bool = False
 
     # assert the database engine
-    engine_id, _engine_type = _assert_engine(engine=engine)
+    engine_id, _engine_type = _assert_engine(engine)
     if engine_id:
         # reclaim the connection
         pool: DbConnectionPool = db_get_pool(engine=engine_id)

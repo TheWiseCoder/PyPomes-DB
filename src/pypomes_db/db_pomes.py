@@ -23,7 +23,8 @@ def db_setup(*,
              db_type: DbEngine = None,
              db_client: str | Path = None,
              db_driver: str = None,
-             logger: Logger = None) -> bool:
+             logger: Logger = None,
+             errors: list[str] = None) -> bool:
     """
     Establish the parameters for access to *engine*, (supported types are MySQL, Oracle, Postgres, and SQLServer).
 
@@ -43,6 +44,7 @@ def db_setup(*,
     :param db_driver: the database driver (SQLServer only)
     :param db_client: the path to the client software (Oracle only)
     :param logger: the logger for the database engine
+    :param errors: incidental error messages (may be a non-empty list)
     :return: *True* if the data was accepted, *False* otherwise
     """
     # initialize the return variable
@@ -57,7 +59,6 @@ def db_setup(*,
        db_name and db_user and db_pwd and db_host and \
        not (db_client and db_type != DbEngine.ORACLE) and \
        not (db_driver and db_type != DbEngine.SQLSERVER) and \
-       not (not db_driver and db_type == DbEngine.SQLSERVER) and \
        isinstance(db_port, int) and db_port > 0:
         DB_CONN_DATA[engine] = {
             DbParam.NAME: db_name,
@@ -74,6 +75,12 @@ def db_setup(*,
         elif db_type == DbEngine.SQLSERVER:
             DB_CONN_DATA[engine][DbParam.DRIVER] = db_driver
         result = True
+    else:
+        err_msg = f"Database '{engine}' has missing or invalid setup data"
+        if logger:
+            logger.error(msg=err_msg)
+        if isinstance(errors, list):
+            errors.append(err_msg)
 
     return result
 
@@ -86,7 +93,7 @@ def db_remove(*,
     :param engine: the database engine identification
     """
     # assert and remove the database engine
-    engine_id, _engine_type = _assert_engine(engine=engine)
+    engine_id, _engine_type = _assert_engine(engine)
     if engine_id:
         DB_CONN_DATA.pop(engine_id)
 
@@ -108,7 +115,7 @@ def db_set_logger(*,
     result: bool = False
 
     # assert the database engine
-    engine_id, _engine_type = _assert_engine(engine=engine)
+    engine_id, _engine_type = _assert_engine(engine)
     if engine_id:
         DB_CONN_DATA[engine_id][DbParam.LOGGER] = logger
         result = True
@@ -135,16 +142,17 @@ def db_startup(*,
     result: bool = False
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # determine if access to 'engine' has been asserted
-        version: str = DB_CONN_DATA[engine_id][DbParam.VERSION]
+        conn_data: dict[str, Any] = DB_CONN_DATA.get(engine_id)
+        version: str = conn_data.get(DbParam.VERSION)
         if version:
             result = True
         elif engine_type == DbEngine.SPANNER:
-            from .native.spanner_frame import SpannerParam, GoogleSpanner
-            spanner: GoogleSpanner = DB_CONN_DATA[engine][SpannerParam.ENGINE]
+            from .native.spanner_frame import GoogleSpanner, SpannerParam
+            spanner: GoogleSpanner = conn_data.get(SpannerParam.ENGINE)
             result = spanner.startup(errors=errors)
         else:
             # assert access to 'engine'
@@ -156,8 +164,8 @@ def db_startup(*,
                                    errors=errors)
             if conn:
                 # noinspection PyTypeChecker
-                DB_CONN_DATA[engine_id][DbParam.VERSION] = __get_version(engine=engine_id,
-                                                                         connection=conn)
+                conn_data[DbParam.VERSION] = __get_version(engine=engine_id,
+                                                           connection=conn)
                 db_close(connection=conn,
                          engine=engine_id)
                 result = True
@@ -209,7 +217,7 @@ def db_get_param(_key: DbParam,
     result: Any = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine)
+    engine_id, engine_type = _assert_engine(engine)
 
     # retrieve the connection parameter
     if engine_id in DB_CONN_DATA and engine_type != DbEngine.SPANNER:
@@ -240,7 +248,7 @@ def db_get_params(*,
     result: dict[DbParam | SpannerParam, Any] | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine)
+    engine_id, engine_type = _assert_engine(engine)
 
     # retrieve the connection parameters
     if engine_id and engine_type != DbEngine.SPANNER:
@@ -261,7 +269,7 @@ def db_get_type(*,
     :param engine: the reference database engine (the default engine, if not provided)
     :return: the engine type for instance *engine*, or *None* if not found
     """
-    return _assert_engine(engine=engine)[1]
+    return _assert_engine(engine)[1]
 
 
 def db_get_connection_string(*,
@@ -278,7 +286,7 @@ def db_get_connection_string(*,
     result: str | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine)
+    engine_id, engine_type = _assert_engine(engine)
 
     match engine_type:
         case DbEngine.MYSQL:
@@ -310,7 +318,7 @@ def db_get_reserved_words(*,
     result: list[str] | None = None
 
     # assert the database engine
-    _engine_id, engine_type = _assert_engine(engine=engine)
+    _engine_id, engine_type = _assert_engine(engine)
 
     match engine_type:
         case DbEngine.MYSQL:
@@ -349,7 +357,7 @@ def db_is_reserved_word(_word: str,
     result: bool | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine)
+    engine_id, engine_type = _assert_engine(engine)
 
     if isinstance(_word, str):
         _word = _word.upper()
@@ -395,7 +403,7 @@ def db_adjust_placeholders(stmt: str,
     result: str | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine)
+    engine_id, engine_type = _assert_engine(engine)
 
     # adjust the placeholders
     match engine_type:
@@ -424,7 +432,7 @@ def db_bind_arguments(stmt: str,
                       bind_vals: list[Any],
                       engine: DbEngine | str = None) -> str:
     """
-    Replace the placeholders in *query_stmt* with the values in *bind_vals*, and return the modified query statement.
+    Replace the placeholders in *stmt* with the values in *bind_vals*, and return the modified query statement.
 
     The placeholders in *query_stmt* can be either specific to *engine*, or the generic value set in
     DB_BIND_META_TAG (default value is '%?').
@@ -447,7 +455,7 @@ def db_bind_arguments(stmt: str,
     result: str | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine)
+    engine_id, engine_type = _assert_engine(engine)
 
     # establish the correct bind tags
     stmt = db_adjust_placeholders(stmt=stmt,
@@ -470,6 +478,10 @@ def db_bind_arguments(stmt: str,
             from .native import sqlserver_pomes
             result = sqlserver_pomes.bind_arguments(stmt=stmt,
                                                     bind_vals=bind_vals)
+        case DbEngine.SPANNER:
+            from .native import spanner_pomes
+            result = spanner_pomes.bind_arguments(stmt=stmt,
+                                                  bind_vals=bind_vals)
     return result
 
 
@@ -495,7 +507,7 @@ def db_convert_default(_v: str | None,
             # 'value' is a literal (numeric or string)
             result = _v
         else:
-            _source_engine_id, source_engine_type = _assert_engine(engine=source_engine)
+            _source_engine_id, source_engine_type = _assert_engine(source_engine)
             pos_source: int | None = None
             match source_engine_type:
                 case DbEngine.MYSQL:
@@ -510,7 +522,7 @@ def db_convert_default(_v: str | None,
                     pos_source = 4
 
             pos_target: int | None = None
-            _target_engine_id, target_engine_type = _assert_engine(engine=target_engine)
+            _target_engine_id, target_engine_type = _assert_engine(target_engine)
             match target_engine_type:
                 case DbEngine.MYSQL:
                     pos_target = 0
@@ -520,6 +532,8 @@ def db_convert_default(_v: str | None,
                     pos_target = 2
                 case DbEngine.SQLSERVER:
                     pos_target = 3
+                case DbEngine.SPANNER:
+                    pos_target = 4
 
             for func in BUILTIN_FUNCTIONS:
                 if func[pos_source] == _v.upper():
@@ -551,7 +565,7 @@ def db_connect(*,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=curr_errors)
     if engine_id:
         # attempt to obtain a connection from the pool
@@ -576,6 +590,11 @@ def db_connect(*,
                     result = sqlserver_pomes.connect(engine_id=engine_id,
                                                      autocommit=autocommit,
                                                      errors=curr_errors)
+                case DbEngine.SPANNER:
+                    from .native import spanner_pomes
+                    result = spanner_pomes.connect(engine_id=engine_id,
+                                                   autocommit=autocommit,
+                                                   errors=curr_errors)
     if curr_errors and isinstance(errors, list):
         errors.extend(curr_errors)
 
@@ -594,7 +613,7 @@ def db_commit(connection: Any,
     :param errors: incidental error messages (might be a non-empty list)
     """
     # assert the database engine
-    engine_id, _engine_type = _assert_engine(engine=engine,
+    engine_id, _engine_type = _assert_engine(engine,
                                              errors=errors)
     # commit the transaction
     if engine_id:
@@ -625,8 +644,8 @@ def db_commit_and_close(connection: Any,
     :param errors: incidental error messages (might be a non-empty list)
     """
     # assert the database engine
-    engine_id, _engine_type = _assert_engine(engine=engine,
-                                             errors=errors)
+    engine_id, engine_type = _assert_engine(engine,
+                                            errors=errors)
     # commit the transaction
     if engine_id:
         try:
@@ -634,9 +653,10 @@ def db_commit_and_close(connection: Any,
             logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
             if logger:
                 logger.debug(f"Transaction committed on {id(connection)}")
-            if not db_pool_release(connection=connection,
-                                   engine=engine_id):
-                # connection was not reclaimed, so close it
+            if engine_type == DbEngine.SPANNER or not \
+                    db_pool_release(connection=connection,
+                                    engine=engine_id):
+                # connection to GoogleSpanner or not reclaimed, so close it
                 connection.close()
                 if logger:
                     logger.debug(f"Connection {id(connection)} closed")
@@ -660,7 +680,7 @@ def db_rollback(connection: Any,
     :param engine: the database engine to use (uses the default engine, if not provided)
     """
     # assert the database engine
-    engine_id, _engine_type = _assert_engine(engine=engine)
+    engine_id, _engine_type = _assert_engine(engine)
 
     # rollback the transaction
     if engine_id:
@@ -687,7 +707,7 @@ def db_rollback_and_close(connection: Any,
     :param engine: the database engine to use (uses the default engine, if not provided)
     """
     # assert the database engine
-    engine_id, _engine_type = _assert_engine(engine=engine)
+    engine_id, engine_type = _assert_engine(engine)
 
     # rollback the transaction
     if engine_id:
@@ -696,9 +716,10 @@ def db_rollback_and_close(connection: Any,
             logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
             if logger:
                 logger.debug(f"Transaction rolled back on {id(connection)}")
-            if not db_pool_release(connection=connection,
-                                   engine=engine_id):
-                # connection was not reclaimed, so close it
+            if engine_type == DbEngine.SPANNER or not \
+                    db_pool_release(connection=connection,
+                                    engine=engine_id):
+                # connection to GoogleSpanner or not reclaimed, so close it
                 connection.close()
                 if logger:
                     logger.debug(f"Connection {id(connection)} closed")
@@ -723,12 +744,14 @@ def db_close(connection: Any,
     :param engine: the database engine to use (uses the default engine, if not provided)
     """
     # assert the database engine
-    engine_id, _engine_type = _assert_engine(engine=engine)
+    engine_id, engine_type = _assert_engine(engine)
 
     # attempt to return the connection to the pool
-    if engine_id and not db_pool_release(connection=connection,
-                                         engine=engine_id):
-        # connection was not reclaimed, so close it
+    if (engine_id and
+        (engine_type == DbEngine.SPANNER or not
+         db_pool_release(connection=connection,
+                         engine=engine_id))):
+        # connection to GoogleSpanner or not reclaimed, so close it
         try:
             connection.close()
             logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
@@ -745,7 +768,8 @@ def db_close(connection: Any,
 def db_add_query_limits(sel_stmt: str,
                         *,
                         offset_count: int | None,
-                        limit_count: int | None) -> str:
+                        limit_count: int | None,
+                        engine: DbEngine | str = None) -> str:
     """
     Add offset and limit to *sel_stmt* according to the *SQL* standard..
 
@@ -756,19 +780,41 @@ def db_add_query_limits(sel_stmt: str,
     :param sel_stmt: the query statement to modify
     :param offset_count: number of tuples to skip
     :param limit_count: limit to the number of tuples returned
+    :param engine: the database engine to use (uses the default engine, if not provided)
     :return: the modified query statement
     """
     # initialize the return variable
     result: str = sel_stmt
 
-    # establish a limit to the number of tuples returned
-    if isinstance(limit_count, int) and limit_count > 0:
-        result += f" LIMIT {limit_count}"
+    if ((isinstance(limit_count, int) and limit_count > 0) or
+        (isinstance(offset_count, int) and offset_count > 0)):  # noqa
 
-    # establish an offset into the result set
-    if isinstance(offset_count, int) and offset_count > 0:
-        result += f" OFFSET {offset_count}"
-
+        # assert the database engine
+        engine_id, engine_type = _assert_engine(engine)
+        if engine_id:
+            match engine_type:
+                case DbEngine.MYSQL:
+                    pass
+                case DbEngine.ORACLE:
+                    from .native import oracle_pomes
+                    result = oracle_pomes.add_query_limits(sel_stmt=result,
+                                                           offset_count=offset_count,
+                                                           limit_count=limit_count)
+                case DbEngine.POSTGRES:
+                    from .native import postgres_pomes
+                    result = postgres_pomes.add_query_limits(sel_stmt=result,
+                                                             offset_count=offset_count,
+                                                             limit_count=limit_count)
+                case DbEngine.SQLSERVER:
+                    from .native import sqlserver_pomes
+                    result = sqlserver_pomes.add_query_limits(sel_stmt=result,
+                                                              offset_count=offset_count,
+                                                              limit_count=limit_count)
+                case DbEngine.SPANNER:
+                    from .native import spanner_pomes
+                    result = spanner_pomes.add_query_limits(sel_stmt=result,
+                                                            offset_count=offset_count,
+                                                            limit_count=limit_count)
     return result
 
 
@@ -838,7 +884,7 @@ def db_build_stmt(base_stmt: str,
        not ((is_select or is_delete) and (modify_vals or modify_data)):
 
         # assert the database engine
-        engine_id, engine_type = _assert_engine(engine=engine,
+        engine_id, engine_type = _assert_engine(engine,
                                                 errors=errors)
         if engine_id:
             result = base_stmt
@@ -868,28 +914,15 @@ def db_build_stmt(base_stmt: str,
             if where_vals:
                 bind_vals.extend(list(where_vals))
             if bind_vals:
-                result = db_bind_arguments(stmt=result,
+                result = db_bind_arguments(result,
                                            bind_vals=bind_vals,
                                            engine=engine_id)
             # add limits
-            if offset_count or limit_count:
-                match engine_type:
-                    case DbEngine.MYSQL:
-                        pass
-                    case DbEngine.ORACLE:
-                        from .native import oracle_pomes
-                        result = oracle_pomes.add_query_limits(sel_stmt=result,
-                                                               offset_count=offset_count,
-                                                               limit_count=limit_count)
-                    case DbEngine.POSTGRES:
-                        result = db_add_query_limits(sel_stmt=result,
-                                                     offset_count=offset_count,
-                                                     limit_count=limit_count)
-                    case DbEngine.SQLSERVER:
-                        from .native import sqlserver_pomes
-                        result = sqlserver_pomes.add_query_limits(sel_stmt=result,
-                                                                  offset_count=offset_count,
-                                                                  limit_count=limit_count)
+            if ((isinstance(limit_count, int) and limit_count > 0) or
+                (isinstance(offset_count, int) and offset_count > 0)):  # noqa
+                result = db_add_query_limits(result,
+                                             offset_count=offset_count,
+                                             limit_count=limit_count)
     elif isinstance(errors, list):
         errors.append("Inconsistent parameters")
 
@@ -951,7 +984,7 @@ def db_count(*,
         errors = []
 
     # execute the query
-    recs: list[tuple[int]] = db_select(sel_stmt=f"SELECT COUNT({count_clause or '*'}) FROM {table}",
+    recs: list[tuple[int]] = db_select(f"SELECT COUNT({count_clause or '*'}) FROM {table}",
                                        where_clause=where_clause,
                                        where_vals=where_vals,
                                        where_data=where_data,
@@ -1110,7 +1143,7 @@ def db_select(sel_stmt: str,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=curr_errors)
     if engine_id:
         # process search data provided as key-value pairs
@@ -1285,7 +1318,7 @@ def db_update(update_stmt: str,
     result:  tuple | int | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # process update data provided as key-value pairs
@@ -1377,7 +1410,7 @@ def db_delete(delete_stmt: str,
     """
     # process search data provided as key-value pairs
     if where_clause or where_data:
-        engine_id, engine_type = _assert_engine(engine=engine)
+        engine_id, engine_type = _assert_engine(engine)
         if engine_id:
             delete_stmt, where_vals = _combine_search_data(engine_type=engine_type,
                                                            query_stmt=delete_stmt,
@@ -1416,6 +1449,8 @@ def db_bulk_insert(*,
     The target database engine, specified or default, must have been previously configured.
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
+    *NOTICE*: not yet inmplemented for *GoogleSpanner*.
+
     :param target_table: the possibly schema-qualified table to insert into
     :param insert_attrs: the list of table attributes to insert values into
     :param insert_vals: the list of values to be inserted
@@ -1433,7 +1468,7 @@ def db_bulk_insert(*,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=curr_errors)
     if engine_id:
         if engine_type == DbEngine.MYSQL:
@@ -1537,6 +1572,8 @@ def db_bulk_update(*,
     The target database engine, specified or default, must have been previously configured.
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
+    *NOTICE*: not yet inmplemented for *GoogleSpanner*.
+
     :param target_table: the possibly schema-qualified table to update
     :param set_attrs: the list of table attributes to update
     :param where_attrs: the list of table attributes identifying the tuples
@@ -1554,7 +1591,7 @@ def db_bulk_update(*,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=curr_errors)
     if engine_id:
         if engine_type == DbEngine.MYSQL:
@@ -1640,6 +1677,8 @@ def db_bulk_delete(*,
     The target database engine, specified or default, must have been previously configured.
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
+    *NOTICE*: not yet inmplemented for *GoogleSpanner*.
+
     :param target_table: the possibly schema-qualified table to delete from
     :param where_attrs: the list of attributes for identifying the tuples to be deleted
     :param where_vals: the list of values to bind to the attributes
@@ -1656,7 +1695,7 @@ def db_bulk_delete(*,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=curr_errors)
     if engine_id:
         if engine_type == DbEngine.MYSQL:
@@ -1726,6 +1765,8 @@ def db_update_lob(*,
     The target database engine, specified or default, must have been previously configured.
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
+    *NOTICE*: not yet inmplemented for *GoogleSpanner*.
+
     :param lob_table: the table to be update with the new LOB
     :param lob_column: the column to be updated with the new LOB
     :param pk_columns: columns making up a primary key, or a unique identifier for the tuple
@@ -1742,7 +1783,7 @@ def db_update_lob(*,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=curr_errors)
     if engine_id:
         if engine_type == DbEngine.MYSQL:
@@ -1834,7 +1875,7 @@ def db_execute(exc_stmt: str,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=curr_errors)
     if engine_id:
         # establish the correct bind tags
@@ -1906,6 +1947,8 @@ def db_call_function(func_name: str,
     The target database engine, specified or default, must have been previously configured.
     The parameter *committable* defines whether a commit or rollback is performed on the provided *connection*.
 
+    *NOTICE*: not yet inmplemented for *GoogleSpanner*.
+
     :param func_name: name of the stored function
     :param func_vals: parameters for the stored function
     :param engine: the database engine to use (uses the default engine, if not provided)
@@ -1921,7 +1964,7 @@ def db_call_function(func_name: str,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=curr_errors)
     if engine_id:
         if engine_type == DbEngine.MYSQL:
@@ -1984,7 +2027,7 @@ def db_call_procedure(proc_name: str,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=curr_errors)
     if engine_id:
         if engine_type == DbEngine.MYSQL:
@@ -2032,7 +2075,7 @@ def __get_version(*,
     result: str = ""
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine)
+    engine_id, engine_type = _assert_engine(engine)
 
     stmt: str | None = None
     match engine_type:

@@ -35,21 +35,25 @@ class GoogleSpanner:
     https://docs.cloud.google.com/python/docs/reference/spanner/latest.
 
     These are the instance variables:
-        - *_client*: *google.cloud.spanner.Client* - the Cloud Spanner Client
-        - *_credentials*: *dict[str, str]* - the access credentials
-        - *_database*: *google.cloud.spanner_v1.database.Database* - database to use
-        - *_instance*: *google.cloud.spanner_v1.instance.Instance* - instance to use
-        - *_pinger*: *threading.Thread* - thread for background pinging
+        - *engine_id*: the identification for the GoogleSpanner database instance
+        - *client*: *google.cloud.spanner.Client* - the Cloud Spanner Client
+        - *credentials*: *dict[str, str]* - the access credentials
+        - *database*: *google.cloud.spanner_v1.database.Database* - database to use
+        - *instance*: *google.cloud.spanner_v1.instance.Instance* - instance to use
+        - *pinger*: *threading.Thread* - thread for background pinging
     """
 
     def __init__(self,
                  *,
                  engine_id: str,
-                 project_id: str = None,
                  credentials: dict[str, str] | BytesIO | Path | str | bytes = None,
+                 project_id: str = None,
                  errors: list[str] = None) -> None:
         r"""
         Encapsulate the Google Cloud Spanner lifecycle.
+
+        If *credentials* is provided, the project identification it contains supercedes *project_id*,
+        otherwise the latter is required.
 
         The nature of access *credentials* depends on its data type:
             - type *dict*: *credentials* is a Python dictionary
@@ -77,7 +81,7 @@ class GoogleSpanner:
         :param engine_id: the reference database engine
         :param project_id: optional project identification
         :param credentials: optional access credentials
-        :param errors: incidental error messages (might be a non-empty list)
+        :param errors: incidental error messages (may be a non-empty list)
         """
         # instance objects
         self.engine_id: str | None = None
@@ -88,35 +92,32 @@ class GoogleSpanner:
         self.pinger: Thread | None = None               # thread for background pinging
 
         err_msg: str | None = None
-        client_id: str | None = None
-        if engine_id not in DB_CONN_DATA:
-            err_msg = "Google Cloud Spanner not yet configured"
-        elif DB_CONN_DATA[engine_id].get(SpannerParam.ENGINE):
-            err_msg = "Instance of Google Cloud Spanner already exists"
-        elif project_id or credentials:
+        conn_data: dict[str, Any] = DB_CONN_DATA.get(engine_id)
+        if not conn_data:
+            err_msg = f"GoogleSpanner '{engine_id}' not yet configured"
+        elif conn_data.get(SpannerParam.ENGINE):
+            err_msg = f"Instance '{engine_id}' of GoogleSpanner already exists"
+        elif credentials:
             # initilize the Cloud Spanner objects
-            if credentials:
-                if not isinstance(credentials, dict):
-                    credentials_bytes: bytes = file_get_data(credentials)
-                    self.credentials = json.loads(s=credentials_bytes)
-                client_id = self.credentials.get("client_id")
-                project_id = self.credentials["project_id"]
+            if not isinstance(credentials, dict):
+                credentials_bytes: bytes = file_get_data(credentials)
+                credentials = json.loads(s=credentials_bytes)
+            conn_data[SpannerParam.PROJECT_ID] = credentials["project_id"]
+        elif project_id:
+            conn_data[SpannerParam.PROJECT_ID] = project_id
         else:
-            err_msg = "Either 'credentials' or 'project_id' must be provided"
+            err_msg = f"Either 'credentials' or 'project_id' mus be provided for GoogleSpanner '{engine_id}'"
 
         if err_msg:
-            logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
+            logger: Logger = conn_data.get(DbParam.LOGGER)
             if logger:
                 logger.error(msg=err_msg)
             if isinstance(errors, list):
                 errors.append(err_msg)
         else:
             self.engine_id = engine_id
-            DB_CONN_DATA[self.engine_id].update({
-                SpannerParam.ENGINE: self,
-                SpannerParam.CLIENT_ID: client_id,
-                SpannerParam.PROJECT_ID: project_id
-            })
+            self.credentials = credentials
+            conn_data[SpannerParam.ENGINE] = self
 
     def startup(self,
                 errors: list[str] = None) -> bool:
@@ -131,54 +132,79 @@ class GoogleSpanner:
         result: bool = True
 
         # obtain the Cloud Spanner configuration data
+        err_msg: str | None = None
         conn_data: dict[str, Any] = DB_CONN_DATA.get(self.engine_id)
 
-        if not conn_data.get(SpannerParam.VERSION):
-            err_msg: str | None = None
-            if not conn_data or \
-               not conn_data.get(SpannerParam.DATABASE_ID) or \
-               not conn_data.get(SpannerParam.INSTANCE_ID):
-                err_msg = "Unable to obtain session configuratiom parameters"
-            elif not conn_data.get(SpannerParam.VERSION):
+        if not conn_data:
+            err_msg = f"Database engine '{self.engine_id}' not properly initialized"
+        elif not conn_data.get(SpannerParam.VERSION):
+            if conn_data.get(SpannerParam.DATABASE_ID) and \
+               conn_data.get(SpannerParam.INSTANCE_ID):
                 try:
                     # obtain a Cloud Spanner Client
                     if self.credentials:
                         # use specific service account data
                         credentials: Any = Credentials.from_service_account_info(info=self.credentials)
-                        self.client = spanner.Client(project=conn_data[SpannerParam.PROJECT_ID],
+                        self.client = spanner.Client(project=conn_data.get(SpannerParam.PROJECT_ID),
                                                      credentials=credentials)
                     else:
                         # fallback to Application Default Credentials (ADC)
-                        self.client = spanner.Client(project=conn_data[SpannerParam.PROJECT_ID])
+                        self.client = spanner.Client(project=conn_data.get(SpannerParam.PROJECT_ID))
 
                     # establish the instance
-                    self.instance = self.client.instance(instance_id=conn_data[SpannerParam.INSTANCE_ID])
+                    self.instance = self.client.instance(instance_id=conn_data.get(SpannerParam.INSTANCE_ID))
 
-                    if conn_data[SpannerParam.SESSION_POOL_SIZE] > 0:
+                    if conn_data.get(SpannerParam.SESSION_POOL_SIZE) > 0:
                         # use PingingPool for mixed read/write workloads
                         session_pool: PingingPool = PingingPool(
-                            size=conn_data[SpannerParam.SESSION_POOL_SIZE],
-                            default_timeout=conn_data[SpannerParam.SESSION_DEFAULT_TIMEOUT],
-                            ping_interval=conn_data[SpannerParam.SESSION_PING_INTERVAL],
+                            size=conn_data.get(SpannerParam.SESSION_POOL_SIZE),
+                            default_timeout=conn_data.get(SpannerParam.SESSION_DEFAULT_TIMEOUT),
+                            ping_interval=conn_data.get(SpannerParam.SESSION_PING_INTERVAL),
                         )
-                        self.database = self.instance.database(database_id=conn_data[SpannerParam.DATABASE_ID],
+                        self.database = self.instance.database(database_id=conn_data.get(SpannerParam.DATABASE_ID),
                                                                pool=session_pool)
                     else:
                         # no pools available (local emulation is being used)
                         self.database = self.instance.database(database_id=conn_data[SpannerParam.DATABASE_ID])
 
-                    from google.cloud.spanner_v1 import __version__
-                    conn_data[SpannerParam.VERSION] = __version__
+                    # obtain the server version and release date
+                    stmt: str = ("SELECT OPTION_VALUE "
+                                 "FROM INFORMATION_SCHEMA.DATABASE_OPTIONS "
+                                 "WHERE OPTION_NAME = 'optimizer_version'")
+                    with self.database.snapshot() as snapshot:
+                        rows: StreamedResultSet = snapshot.execute_sql(sql=stmt)
+                        if rows is not None and len(list(rows)) > 0:
+                            version: str | None = None
+                            if list(rows)[0][0] == 'LATEST':
+                                stmt = ("SELECT MAX(VERSION) "
+                                        "FROM FROM SPANNER_SYS.SUPPORTED_OPTIMIZER_VERSIONS")
+                                rows = snapshot.execute_sql(sql=stmt)
+                                if rows is not None and len(list(rows)) > 0:
+                                    version = list(rows)[0][0]
+                            else:
+                                version = list(rows)[0][0]
+                            if version:
+                                # HAZARD: 'OPTION_VALUE' is string, whereas 'VERSION' is int
+                                stmt = ("SELECT RELEASE_DATE "
+                                        "FROM SPANNER_SYS.SUPPORTED_OPTIMIZER_VERSIONS "
+                                        f"WHERE VERSION = {version}")
+                                rows = snapshot.execute_sql(sql=stmt)
+                                if rows is not None and len(list(rows)) > 0:
+                                    conn_data[SpannerParam.VERSION] = f"Release {version}, {list(rows)[0][0]}"
                 except Exception as e:
-                    err_msg = exc_format(exc=e,
-                                         exc_info=sys.exc_info())
-            if err_msg:
-                result = False
-                logger: Logger = DB_CONN_DATA[self.engine_id].get(DbParam.LOGGER)
-                if logger:
-                    logger.error(msg=err_msg)
-                if isinstance(errors, list):
-                    errors.append(err_msg)
+                    exc_err: str = exc_format(exc=e,
+                                              exc_info=sys.exc_info())
+                    err_msg = f"Unable to startup GoogleSpanner '{self.engine_id}': {exc_err}"
+            else:
+                err_msg = f"GoogleSpanner '{self.engine_id}' missing session configuration parameter"
+
+        if err_msg:
+            result = False
+            logger: Logger = DB_CONN_DATA[self.engine_id].get(DbParam.LOGGER)
+            if logger:
+                logger.error(msg=err_msg)
+            if isinstance(errors, list):
+                errors.append(err_msg)
 
         return result
 
@@ -283,6 +309,7 @@ class SpannerConnection:
 
     def select(self,
                sel_stmt: str,
+               *,
                param_values: dict[str, Any] = None,
                param_types: dict[str, Type] = None,
                committable: bool = None,
@@ -348,6 +375,7 @@ class SpannerConnection:
 
     def execute(self,
                 exc_stmt: str,
+                *,
                 param_values: dict[str, Any] = None,
                 param_types: dict[str, Type] = None,
                 committable: bool = None,

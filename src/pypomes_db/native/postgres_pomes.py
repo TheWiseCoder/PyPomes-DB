@@ -1,6 +1,6 @@
 import psycopg2
 from contextlib import suppress
-from datetime import date, datetime
+from datetime import date, datetime, time
 from logging import Logger
 from pathlib import Path
 from psycopg2 import Binary
@@ -124,6 +124,9 @@ def bind_arguments(stmt: str,
             val = f"TO_TIMESTAMP('{bind_val.strftime(format=DateFormat.INV)}', 'YYYY-MM-DD')"
         elif isinstance(bind_val, datetime):
             val = f"TO_TIMESTAMP('{bind_val.strftime(format=DatetimeFormat.INV)}', 'YYYY-MM-DD H24:MI:SS')"
+        elif isinstance(bind_val, time):
+            fmt: str = "%H:%M:%S"
+            val = f"TO_TIMESTAMP('{bind_val.strftime(format=fmt)}', 'H24:MI:SS')"
         else:
             val = f"'{bind_val}'"
         result = result.replace("%s", val, 1)
@@ -667,6 +670,36 @@ def identity_post_insert(engine_id: str,
                 connection=connection,
                 committable=committable,
                 errors=errors)
+
+
+def add_query_limits(sel_stmt: str,
+                     *,
+                     offset_count: int | None,
+                     limit_count: int | None) -> str:
+    """
+    Add offset and limit to *sel_stmt*.
+
+    If not positive integers, *offset_count*, and *limit_count* are ignored. The parameter *offset_count*
+    is used to offset the retrieval of tuples, whereas *limit_count* establishes a ceiling on the number
+    of tuples returned.
+
+    :param sel_stmt: the query statement to modify
+    :param offset_count: number of tuples to skip
+    :param limit_count: limit to the number of tuples returned
+    :return: the modified query statement
+    """
+    # initialize the return variable
+    result: str = sel_stmt
+
+    # establish a limit to the number of tuples returned
+    if isinstance(limit_count, int) and limit_count > 0:
+        result += f" LIMIT {limit_count}"
+
+    # establish an offset into the result set
+    if isinstance(offset_count, int) and offset_count > 0:
+        result += f" OFFSET {offset_count}"
+
+    return result
 
 
 def build_typified_template(engine_id: str,

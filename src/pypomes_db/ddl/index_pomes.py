@@ -31,7 +31,7 @@ def db_get_indexes(schema: str = None,
     result: list[str] | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # process table names
@@ -143,7 +143,7 @@ def db_get_index_ddl(index_name: str,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=curr_errors)
 
     # is 'index_name' schema-qualified ?

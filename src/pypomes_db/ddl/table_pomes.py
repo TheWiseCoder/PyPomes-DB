@@ -81,7 +81,7 @@ def db_create_session_table(table_name: str,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=curr_errors)
     if engine_id:
         stmt: str | None = None
@@ -139,7 +139,7 @@ def db_get_session_table_prefix(engine: DbEngine | str) -> str:
     result: str = ""
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine)
+    engine_id, engine_type = _assert_engine(engine)
 
     if engine_type == DbEngine.ORACLE:
         version: str = _get_param(engine_id=engine_id,
@@ -169,7 +169,7 @@ def db_get_tables(schema: str = None,
     result: list[str] | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # build the query
@@ -215,7 +215,7 @@ def db_table_exists(table_name: str,
     result: bool | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # determine the table schema
@@ -265,7 +265,7 @@ def db_drop_table(table_name: str,
     :param errors: incidental error messages (might be a non-empty list)
     """
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # build the DROP statement
@@ -323,7 +323,7 @@ def db_get_table_ddl(table_name: str,
     result: str | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # determine the table schema
@@ -397,7 +397,7 @@ def db_get_table_constraints(table_name: str,
     result: list[tuple[str, str, str]] | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # determine the table schema
@@ -502,7 +502,7 @@ def db_get_table_pk(table_name: str,
     result: tuple[str, str] | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # determine the table schema
@@ -660,7 +660,7 @@ def db_get_column_metadata(table_name: str,
     result: tuple[str, int, int, int, bool, str] | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # determine the table schema
@@ -741,7 +741,7 @@ def db_get_columns_metadata(table_name: str,
     result: list[tuple[str, str, int, int, int, bool, str]] | None = None
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
     if engine_id:
         # determine the table schema

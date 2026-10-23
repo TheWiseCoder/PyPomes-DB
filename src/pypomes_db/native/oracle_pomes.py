@@ -1,7 +1,7 @@
 import oracledb
 import re
 from contextlib import suppress
-from datetime import date, datetime
+from datetime import date, datetime, time
 from logging import Logger
 from oracledb import Connection, init_oracle_client, makedsn
 from pathlib import Path
@@ -121,6 +121,9 @@ def bind_arguments(stmt: str,
             val = f"TO_DATE('{bind_val.strftime(format=DateFormat.INV)}', 'YYYY-MM-DD')"
         elif isinstance(bind_val, datetime):
             val = f"TO_DATE('{bind_val.strftime(format=DatetimeFormat.INV)}', 'YYYY-MM-DD H24:MI:SS')"
+        elif isinstance(bind_val, time):
+            fmt: str = "%H:%M:%S"
+            val = f"TO_DATE('{bind_val.strftime(format=fmt)}', '{fmt}')"
         else:
             val = f"'{bind_val}'"
 

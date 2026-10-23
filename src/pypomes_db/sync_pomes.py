@@ -90,9 +90,9 @@ def db_sync_data(source_engine: DbEngine | str,
     # necessary, lest the state of 'errors' be tested
     curr_errors: list[str] = []
     # assert the database engines
-    source_engine_id, source_engine_type = _assert_engine(engine=source_engine,
+    source_engine_id, source_engine_type = _assert_engine(source_engine,
                                                           errors=curr_errors)
-    target_engine_id, target_engine_type = _assert_engine(engine=target_engine,
+    target_engine_id, target_engine_type = _assert_engine(target_engine,
                                                           errors=curr_errors)
     # obtain the logger
     logger: Logger = DB_CONN_DATA[source_engine_id].get(DbParam.LOGGER) or \

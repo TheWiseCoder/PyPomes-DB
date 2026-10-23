@@ -50,7 +50,6 @@ class SpannerParam(StrEnum):
     Parameters for *GoogleSpanner*, an encapsulation of the Google Cloud Spanner access lifecycle.
     """
     ENGINE = auto()                      # holds an instance of GoogleSpanner
-    CLIENT_ID = "client-id"
     DATABASE_ID = "database-id"
     INSTANCE_ID = "instance-id"
     PROJECT_ID = "project-id"
@@ -190,6 +189,8 @@ DB_CONN_DATA: Final[dict[str, dict[DbParam | SpannerParam, Any]]] = __get_conn_d
 
 
 def _assert_engine(engine: DbEngine | str,
+                   /,
+                   *,
                    errors: list[str] = None) -> tuple[str, DbEngine]:
     """
     Verify if *engine* is in the list of configured engines.

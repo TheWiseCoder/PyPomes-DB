@@ -54,7 +54,7 @@ def db_stream_data(table: str,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
 
     # make sure to have a connection to the source database
@@ -256,7 +256,7 @@ def db_stream_lobs(table: str,
     curr_errors: list[str] = []
 
     # assert the database engine
-    engine_id, engine_type = _assert_engine(engine=engine,
+    engine_id, engine_type = _assert_engine(engine,
                                             errors=errors)
 
     # make sure to have a connection to the source database

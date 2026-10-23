@@ -1,6 +1,6 @@
 import pyodbc
 from contextlib import suppress
-from datetime import date, datetime
+from datetime import date, datetime, time
 from logging import Logger
 from pathlib import Path
 from pyodbc import Connection, Row
@@ -108,7 +108,7 @@ def connect(engine_id: str,
 def bind_arguments(stmt: str,
                    bind_vals: list[Any]) -> str:
     """
-    Replace the placeholders in *query_stmt* with the values in *bind_vals*, and return the modified query statement.
+    Replace the placeholders in *stmt* with the values in *bind_vals*, and return the modified query statement.
 
     Note that using a statement in a situation where values for types other than *bool*, *str*, *int*, *float*,
     *date*, or *datetime* were replaced, may bring about undesirable consequences, as the standard string
@@ -135,6 +135,9 @@ def bind_arguments(stmt: str,
             val = f"CONVERT(DATE, '{bind_val.strftime(format=DateFormat.INV)}', 23)"
         elif isinstance(bind_val, datetime):
             val = f"CONVERT(DATETIME, '{bind_val.strftime(format=DatetimeFormat.INV)}', 120)"
+        elif isinstance(bind_val, time):
+            fmt: str = "%H:%M:%S"
+            val = f"CONVERT(DATETIME, '{bind_val.strftime(format=fmt)}', 108)"
         else:
             val = f"'{bind_val}'"
         result = result.replace("?", val, 1)
