@@ -37,11 +37,11 @@ RESERVED_WORDS: list[str] = [
 def spanner_setup(engine_id: str,
                   instance_id: str,
                   database_id: str,
-                  credentials: dict[str, str] | BytesIO | Path | str | bytes = None,
                   project_id: str = None,
+                  credentials: dict[str, str] | BytesIO | Path | str | bytes = None,
+                  session_default_timeout: int = 10,
                   session_pool_size: int = 10,
                   session_ping_interval: int = 3000,
-                  session_default_timeout: int = 10,
                   logger: Logger = None,
                   errors: list[str] = None) -> bool:
     """
@@ -56,15 +56,16 @@ def spanner_setup(engine_id: str,
     :param database_id: the databae identification
     :param project_id: optional project identification
     :param credentials: optional access credentials
+    :param session_default_timeout: time to wait for a returned session (defaults to 10 seconds)
     :param session_pool_size: size of the session pool (defaults to 10 for cloud operation)
     :param session_ping_interval: interval at which to ping sessions in the background (defaults to 3000 seconds)
-    :param session_default_timeout: time to wait for a returned session (defaults to 10 seconds)
     :param logger: the logger for the database engine
     :param errors: incidental error messages (may be a non-empty list)
     :return: *True* if the data was accepted, *False* otherwise
     """
     # initialize the return variable
     result: bool = False
+    op_errors: list[str] = []
 
     if env_get_str(key=f"{APP_PREFIX}_SPANNER_EMULATOR_HOST"):
         session_pool_size = 0
@@ -78,21 +79,22 @@ def spanner_setup(engine_id: str,
             SpannerParam.DATABASE_ID: database_id,
             SpannerParam.INSTANCE_ID: instance_id,
             SpannerParam.PROJECT_ID: project_id,
+            SpannerParam.CREDENTIALS: credentials,
             SpannerParam.SESSION_POOL_SIZE: session_pool_size,
             SpannerParam.SESSION_PING_INTERVAL: session_ping_interval,
             SpannerParam.SESSION_DEFAULT_TIMEOUT: session_default_timeout,
             DbParam.LOGGER: logger
         }
         GoogleSpanner(engine_id=engine_id,
-                      credentials=credentials,
-                      project_id=project_id)
-        result = True
+                      errors=op_errors)
     else:
-        err_msg = f"GoogleSpanner '{engine_id}' has missing setup data"
+        op_errors.append(f"GoogleSpanner '{engine_id}' has missing setup data")
+
+    for op_error in op_errors:
         if logger:
-            logger.error(msg=err_msg)
+            logger.error(msg=op_error)
         if isinstance(errors, list):
-            errors.append(err_msg)
+            errors.append(op_error)
 
     return result
 

@@ -33,7 +33,6 @@ class DbParam(StrEnum):
     """
     Parameters for connecting to database engines. Class does not apply to Google Cloud Spanner.
     """
-    TYPE = auto()
     NAME = auto()
     USER = auto()
     PWD = auto()
@@ -41,6 +40,8 @@ class DbParam(StrEnum):
     PORT = auto()
     CLIENT = auto()
     DRIVER = auto()
+    # common to SpannerParam
+    TYPE = auto()
     VERSION = auto()
     LOGGER = auto()
 
@@ -53,10 +54,10 @@ class SpannerParam(StrEnum):
     DATABASE_ID = "database-id"
     INSTANCE_ID = "instance-id"
     PROJECT_ID = "project-id"
+    CREDENTIALS = auto()
     SESSION_DEFAULT_TIMEOUT = "session-default-timeout"
     SESSION_PING_INTERVAL = "session-ping-size"
     SESSION_POOL_SIZE = "session-pool-size"
-    VERSION = auto()
 
 
 # the bind placeholder meta-tag to use in DML statements
@@ -115,77 +116,93 @@ def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
     """
     Establish the connection data for select database engines, from environment variables.
 
-    The preferred way to specify database connection parameters is dynamically with *db_setup()*.
-    Specifying database connection parameters with environment variables cannot be done for
-    Google Cloud Spanner (*spanner_setup()* in module *spanner_pomes* must be used, instead).
-    For the other database engines, it can be done in two ways:
+    The preferred way to specify database connection parameters is dynamically with *db_setup()*
+    in module *db_pomes* or, for *GoogleSpanner* engines, *spanner_setup()* in module *spanner_pomes*.
+    It can be done in two ways:
 
-    1. for a single database engine, specify the data set
-          - *<APP_PREFIX>_DB_ENGINE*
-          - *<APP_PREFIX>_DB_TYPE* (one of *mysql*, *oracle*, *postgres*, *sqlserver*)
-          - *<APP_PREFIX>_DB_NAME*
-          - *<APP_PREFIX>_DB_USER*
-          - *<APP_PREFIX>_DB_PWD*
-          - *<APP_PREFIX>_DB_HOST*
-          - *<APP_PREFIX>_DB_PORT*
-          - *<APP_PREFIX>_DB_CLIENT*  (for Oracle)
-          - *<APP_PREFIX>_DB_DRIVER*  (for SQLServer)
+    1. for a single database engine, specify the data set:
+        - for a *GoogleSpanner* database engine
+          (all non-defaulted parameters are required, except for *<APP_PREFIX>_DB_PROJECT_ID*):
+            - *<APP_PREFIX>_DB_ENGINE_TYPE* (*spanner*)
+            - *<APP_PREFIX>_DB_DATABASE_ID*
+            - *<APP_PREFIX>_DB_INSTANCE_ID*
+            - *<APP_PREFIX>_DB_PROJECT_ID*
+            - *<APP_PREFIX>_DB_SESSION_DEFAULT_TIMEOUT* (defaults to 10 seconds)
+            - *<APP_PREFIX>_DB_SESSION_PING_INTERVAL*  (defaults to 3000 seconds)
+            - *<APP_PREFIX>_DB_SESSION_POOL_SIZE* (defaults to 10 for cloud operation)
+        - for other engines
+          (all parameters must be provided, except for *<APP_PREFIX>_DB_TYPE*):
+            - *<APP_PREFIX>_DB_ENGINE*
+            - *<APP_PREFIX>_DB_TYPE* (one of *mysql*, *oracle*, *postgres*, *sqlserver*)
+            - *<APP_PREFIX>_DB_NAME*
+            - *<APP_PREFIX>_DB_USER*
+            - *<APP_PREFIX>_DB_PWD*
+            - *<APP_PREFIX>_DB_HOST*
+            - *<APP_PREFIX>_DB_PORT*
+            - *<APP_PREFIX>_DB_CLIENT*  (for Oracle)
+            - *<APP_PREFIX>_DB_DRIVER*  (for SQLServer)
 
     2. for multiple database engines, specify a comma-separated list of engines in
        *<APP_PREFIX>_DB_ENGINES*, and for each engine, specify the data set above,
-       respectively replacing *_DB_* with a unique identification
-
-    All required parameters must be provided for the selected database engines, except for
-    *<APP_PREFIX>_DB_TYPE*, which may be inferred.
+       respectively replacing *_DB_* with that unique identification.
 
     :return: the connection data for the select database engines
     """
     # initialize the return variable
-    result: dict[str, dict[DbParam, Any]] = {}
+    result: dict[str, dict[DbParam | SpannerParam, Any]] = {}
 
-    engines: list[str] = []
+    prefixes: list[str] = []
     single_engine: str = env_get_str(key=f"{APP_PREFIX}_DB_ENGINE")
     if single_engine:
-        default_setup: bool = True
-        if single_engine != DbEngine.SPANNER:
-            engines.append(single_engine)
+        prefixes.append("DB")
     else:
-        default_setup: bool = False
         multi_engines: list[str] = env_get_strs(key=f"{APP_PREFIX}_DB_ENGINES")
         if multi_engines:
-            engines.extend(multi_engines)
+            prefixes.extend(multi_engines)
 
-    for engine in engines:
-        if default_setup:
-            prefix: str = "DB"
-            default_setup = False
-        else:
-            prefix: str = engine
-        db_type: DbEngine = env_get_enum(key=f"{APP_PREFIX}_{prefix}_TYPE",
+    for prefix in prefixes:
+        db_prefix: str = f"{APP_PREFIX}_{prefix}"
+        db_type: DbEngine = env_get_enum(key=f"{db_prefix}_TYPE",
                                          enum_class=DbEngine)
         if not db_type:
-            raise ValueError(f"Unable to establish type for database engine '{engine}'")
-        result[engine] = {
-            DbParam.NAME: env_get_str(key=f"{APP_PREFIX}_{prefix}_NAME"),
-            DbParam.USER: env_get_str(key=f"{APP_PREFIX}_{prefix}_USER"),
-            DbParam.PWD: env_get_str(key=f"{APP_PREFIX}_{prefix}_PWD"),
-            DbParam.HOST: env_get_str(key=f"{APP_PREFIX}_{prefix}_HOST"),
-            DbParam.PORT: env_get_int(key=f"{APP_PREFIX}_{prefix}_PORT"),
-            DbParam.TYPE: db_type,
-            DbParam.VERSION: "",
-            DbParam.LOGGER: None
-        }
-        if db_type == DbEngine.ORACLE:
-            result[engine][DbParam.CLIENT] = env_get_path(key=f"{APP_PREFIX}_{prefix}_CLIENT")
-        elif db_type == DbEngine.SQLSERVER:
-            result[engine][DbParam.DRIVER] = env_get_str(key=f"{APP_PREFIX}_{prefix}_DRIVER")
+            err_msg: str = f"Unable to establish type for database engine '{db_prefix}'"
+            raise ValueError(err_msg)
+        elif db_type == DbEngine.SPANNER:
+            result[single_engine or prefix] = {
+                SpannerParam.INSTANCE_ID: env_get_str(key=f"{db_prefix}_INSTANCE_ID"),
+                SpannerParam.DATABASE_ID: env_get_str(key=f"{db_prefix}_DATABASE_ID"),
+                SpannerParam.PROJECT_ID: env_get_str(key=f"{db_prefix}_PROJECT_ID"),
+                SpannerParam.CREDENTIALS:  env_get_path(key=f"{db_prefix}_PROJECT_ID"),
+                SpannerParam.SESSION_DEFAULT_TIMEOUT: env_get_str(key=f"{db_prefix}_SESSION_DEFAULT_TIMEOUT"),
+                SpannerParam.SESSION_PING_INTERVAL: env_get_int(key=f"{db_prefix}_SESSION_PING_INTERVAL"),
+                SpannerParam.SESSION_POOL_SIZE: env_get_int(key=f"{db_prefix}_SESSION_POOL_SIZE"),
+                DbParam.TYPE: db_type,
+                DbParam.VERSION: "",
+                DbParam.LOGGER: None
+            }
+            from .native.spanner_frame import GoogleSpanner
+            op_errors: list[str] = []
+            GoogleSpanner(engine_id=db_prefix,
+                          errors=op_errors)
+            if op_errors:
+                raise ValueError(op_errors[-1])
+        else:
+            result[single_engine or db_prefix] = {
+                DbParam.NAME: env_get_str(key=f"{db_prefix}_NAME"),
+                DbParam.USER: env_get_str(key=f"{db_prefix}_USER"),
+                DbParam.PWD: env_get_str(key=f"{db_prefix}_PWD"),
+                DbParam.HOST: env_get_str(key=f"{db_prefix}_HOST"),
+                DbParam.PORT: env_get_int(key=f"{db_prefix}_PORT"),
+                DbParam.TYPE: db_type,
+                DbParam.VERSION: "",
+                DbParam.LOGGER: None
+            }
+            if db_type == DbEngine.ORACLE:
+                result[db_prefix][DbParam.CLIENT] = env_get_path(key=f"{db_prefix}_CLIENT")
+            elif db_type == DbEngine.SQLSERVER:
+                result[db_prefix][DbParam.DRIVER] = env_get_str(key=f"{db_prefix}_DRIVER")
 
     return result
-
-
-# connection data for the configured database engines
-# (key for Google Spanner is 'DbEngine.SPANNER' - only one instance may exist)
-DB_CONN_DATA: Final[dict[str, dict[DbParam | SpannerParam, Any]]] = __get_conn_data()
 
 
 def _assert_engine(engine: DbEngine | str,
@@ -652,3 +669,7 @@ def _remove_ctrlchars(rows: list[tuple]) -> None:
                 new_row.append(val)
         if cleaned:
             rows[last - inx] = tuple(new_row)
+
+
+# connection data for the configured database engines
+DB_CONN_DATA: Final[dict[str, dict[DbParam | SpannerParam, Any]]] = __get_conn_data()

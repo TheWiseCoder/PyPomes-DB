@@ -46,8 +46,6 @@ class GoogleSpanner:
     def __init__(self,
                  *,
                  engine_id: str,
-                 credentials: dict[str, str] | BytesIO | Path | str | bytes = None,
-                 project_id: str = None,
                  errors: list[str] = None) -> None:
         r"""
         Encapsulate the Google Cloud Spanner lifecycle.
@@ -79,8 +77,6 @@ class GoogleSpanner:
         otherwise it is ignored.
 
         :param engine_id: the reference database engine
-        :param project_id: optional project identification
-        :param credentials: optional access credentials
         :param errors: incidental error messages (may be a non-empty list)
         """
         # instance objects
@@ -97,16 +93,16 @@ class GoogleSpanner:
             err_msg = f"GoogleSpanner '{engine_id}' not yet configured"
         elif conn_data.get(SpannerParam.ENGINE):
             err_msg = f"Instance '{engine_id}' of GoogleSpanner already exists"
-        elif credentials:
-            # initilize the Cloud Spanner objects
-            if not isinstance(credentials, dict):
-                credentials_bytes: bytes = file_get_data(credentials)
-                credentials = json.loads(s=credentials_bytes)
-            conn_data[SpannerParam.PROJECT_ID] = credentials["project_id"]
-        elif project_id:
-            conn_data[SpannerParam.PROJECT_ID] = project_id
         else:
-            err_msg = f"Either 'credentials' or 'project_id' mus be provided for GoogleSpanner '{engine_id}'"
+            credentials: dict[str, str] | BytesIO | Path | str | bytes = conn_data.get(SpannerParam.CREDENTIALS)
+            if credentials:
+                if not isinstance(credentials, dict):
+                    credentials_bytes: bytes = file_get_data(credentials)
+                    credentials = json.loads(s=credentials_bytes)
+                self.credentials = credentials
+                conn_data[SpannerParam.PROJECT_ID] = credentials["project_id"]
+            elif not conn_data.get(SpannerParam.PROJECT_ID):
+                err_msg = f"Either 'credentials' or 'project_id' mus be provided for GoogleSpanner '{engine_id}'"
 
         if err_msg:
             logger: Logger = conn_data.get(DbParam.LOGGER)
@@ -116,7 +112,6 @@ class GoogleSpanner:
                 errors.append(err_msg)
         else:
             self.engine_id = engine_id
-            self.credentials = credentials
             conn_data[SpannerParam.ENGINE] = self
 
     def startup(self,
@@ -136,8 +131,8 @@ class GoogleSpanner:
         conn_data: dict[str, Any] = DB_CONN_DATA.get(self.engine_id)
 
         if not conn_data:
-            err_msg = f"Database engine '{self.engine_id}' not properly initialized"
-        elif not conn_data.get(SpannerParam.VERSION):
+            err_msg = f"GoogleSpanner '{self.engine_id}' not properly initialized"
+        elif not conn_data.get(DbParam.VERSION):
             if conn_data.get(SpannerParam.DATABASE_ID) and \
                conn_data.get(SpannerParam.INSTANCE_ID):
                 try:
@@ -190,7 +185,7 @@ class GoogleSpanner:
                                         f"WHERE VERSION = {version}")
                                 rows = snapshot.execute_sql(sql=stmt)
                                 if rows is not None and len(list(rows)) > 0:
-                                    conn_data[SpannerParam.VERSION] = f"Release {version}, {list(rows)[0][0]}"
+                                    conn_data[DbParam.VERSION] = f"Release {version}, {list(rows)[0][0]}"
                 except Exception as e:
                     exc_err: str = exc_format(exc=e,
                                               exc_info=sys.exc_info())

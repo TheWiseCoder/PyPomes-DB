@@ -255,6 +255,7 @@ def db_get_params(*,
         result = DB_CONN_DATA[engine_id].copy()
         result.pop(DbParam.LOGGER, None)
         result.pop(SpannerParam.ENGINE, None)
+        result.pop(SpannerParam.CREDENTIALS, None)
         if isinstance(result.get(DbParam.CLIENT), Path):
             result[DbParam.CLIENT] = result.get(DbParam.CLIENT).as_posix()
 
