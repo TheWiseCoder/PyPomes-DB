@@ -40,8 +40,8 @@ def spanner_setup(engine_id: str,
                   project_id: str = None,
                   credentials: dict[str, str] | BytesIO | Path | str | bytes = None,
                   session_default_timeout: int = 10,
-                  session_pool_size: int = 10,
                   session_ping_interval: int = 3000,
+                  session_pool_size: int = 10,
                   logger: Logger = None,
                   errors: list[str] = None) -> bool:
     """
@@ -57,8 +57,8 @@ def spanner_setup(engine_id: str,
     :param project_id: optional project identification
     :param credentials: optional access credentials
     :param session_default_timeout: time to wait for a returned session (defaults to 10 seconds)
-    :param session_pool_size: size of the session pool (defaults to 10 for cloud operation)
     :param session_ping_interval: interval at which to ping sessions in the background (defaults to 3000 seconds)
+    :param session_pool_size: size of the session pool (defaults to 10 for cloud operation)
     :param logger: the logger for the database engine
     :param errors: incidental error messages (may be a non-empty list)
     :return: *True* if the data was accepted, *False* otherwise

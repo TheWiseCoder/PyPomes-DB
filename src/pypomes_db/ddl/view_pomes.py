@@ -22,7 +22,7 @@ def db_get_views(view_type: Literal["M", "P"] = "P",
     :param tables: optional list of, possibly schema-qualified, table names containing all views' dependencies
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the schema-qualified views found, or *None* if error
     """
     # initialize the return variable
@@ -99,7 +99,7 @@ def db_view_exists(view_name: str,
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: *True* if the view was found, *False* otherwise, or *None* if error
     """
     # initialize the return variable
@@ -173,7 +173,7 @@ def db_drop_view(view_name: str,
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     """
     # assert the database engine
     engine_id, engine_type = _assert_engine(engine,
@@ -229,7 +229,7 @@ def db_get_view_ddl(view_name: str,
     :param view_type: the type of the view ("M": materialized, "P": plain, defaults to "P")
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the DDL script used to create the view, or *None* if error or view does not exist
     """
     # initialize the return variable
@@ -303,7 +303,7 @@ def db_get_view_dependencies(view_name: str,
     :param view_type: the type of the view ('M': materialized, 'P': plain, defaults to 'P')
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the schema-qualified tables the view depends on, or *None* if error or view not found
     """
     # initialize the return variable

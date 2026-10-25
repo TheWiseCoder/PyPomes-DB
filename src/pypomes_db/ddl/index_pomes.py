@@ -24,7 +24,7 @@ def db_get_indexes(schema: str = None,
     :param tables: optional list of possibly schema-qualified tables whose columns the indexes were created on
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the list of schema-qualified indexes in the database
     """
     # initialize the return variable
@@ -133,7 +133,7 @@ def db_get_index_ddl(index_name: str,
     :param index_name: the schema-qualified name of the index
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the DDL script used to create the index, or *None* if error or if the index does not exist
     """
     # initialize the return variable

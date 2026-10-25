@@ -72,7 +72,7 @@ def db_sync_data(source_engine: DbEngine | str,
     :param source_committable: whether to commit or rollback on *source_conn*, upon completion
     :param target_conn: the connection to the destination database (obtains a new one, if not provided)
     :param target_committable: whether to commit or rollback on *target_conn*, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :param log_trigger: number of LOBs to trigger logging info on migration (defaults to 10000 LOBs)
     :return: the number of tuples effectively deleted, inserted, and updated in the target table, or *None* if error
     """

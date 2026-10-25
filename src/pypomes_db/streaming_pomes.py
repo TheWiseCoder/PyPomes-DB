@@ -48,7 +48,7 @@ def db_stream_data(table: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit upon errorless completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     """
     # initialize a local errors list
     curr_errors: list[str] = []

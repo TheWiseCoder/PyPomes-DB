@@ -100,7 +100,7 @@ class GoogleSpanner:
                     credentials_bytes: bytes = file_get_data(credentials)
                     credentials = json.loads(s=credentials_bytes)
                 self.credentials = credentials
-                conn_data[SpannerParam.PROJECT_ID] = credentials["project_id"]
+                conn_data[SpannerParam.PROJECT_ID] = credentials.get("project_id")
             elif not conn_data.get(SpannerParam.PROJECT_ID):
                 err_msg = f"Either 'credentials' or 'project_id' mus be provided for GoogleSpanner '{engine_id}'"
 
@@ -121,7 +121,7 @@ class GoogleSpanner:
 
         This method should be invoked immediately after object instantiation time.
 
-        :param errors: incidental error messages (might be a non-empty list)
+        :param errors: incidental error messages (may be a non-empty list)
         """
         # initialize the return variable
         result: bool = True
@@ -133,21 +133,23 @@ class GoogleSpanner:
         if not conn_data:
             err_msg = f"GoogleSpanner '{self.engine_id}' not properly initialized"
         elif not conn_data.get(DbParam.VERSION):
-            if conn_data.get(SpannerParam.DATABASE_ID) and \
-               conn_data.get(SpannerParam.INSTANCE_ID):
+            database_id: str = conn_data.get(SpannerParam.DATABASE_ID)
+            instance_id: str = conn_data.get(SpannerParam.INSTANCE_ID)
+            project_id: str = conn_data.get(SpannerParam.PROJECT_ID)
+            if database_id and instance_id and project_id:
                 try:
                     # obtain a Cloud Spanner Client
                     if self.credentials:
                         # use specific service account data
-                        credentials: Any = Credentials.from_service_account_info(info=self.credentials)
-                        self.client = spanner.Client(project=conn_data.get(SpannerParam.PROJECT_ID),
+                        credentials: Credentials = Credentials.from_service_account_info(info=self.credentials)
+                        self.client = spanner.Client(project=project_id,
                                                      credentials=credentials)
                     else:
                         # fallback to Application Default Credentials (ADC)
-                        self.client = spanner.Client(project=conn_data.get(SpannerParam.PROJECT_ID))
+                        self.client = spanner.Client(project=project_id)
 
                     # establish the instance
-                    self.instance = self.client.instance(instance_id=conn_data.get(SpannerParam.INSTANCE_ID))
+                    self.instance = self.client.instance(instance_id=instance_id)
 
                     if conn_data.get(SpannerParam.SESSION_POOL_SIZE) > 0:
                         # use PingingPool for mixed read/write workloads
@@ -156,11 +158,11 @@ class GoogleSpanner:
                             default_timeout=conn_data.get(SpannerParam.SESSION_DEFAULT_TIMEOUT),
                             ping_interval=conn_data.get(SpannerParam.SESSION_PING_INTERVAL),
                         )
-                        self.database = self.instance.database(database_id=conn_data.get(SpannerParam.DATABASE_ID),
+                        self.database = self.instance.database(database_id=database_id,
                                                                pool=session_pool)
                     else:
                         # no pools available (local emulation is being used)
-                        self.database = self.instance.database(database_id=conn_data[SpannerParam.DATABASE_ID])
+                        self.database = self.instance.database(database_id=database_id)
 
                     # obtain the server version and release date
                     stmt: str = ("SELECT OPTION_VALUE "
@@ -265,7 +267,7 @@ class SpannerConnection:
 
         :param engine_id: the reference database engine
         :param autocommit: whether the connection is to operate in autocommit mode (defaults to *False*)
-        :param errors: incidental error messages (might be a non-empty list)
+        :param errors: incidental error messages (may be a non-empty list)
         """
         # instance variables
         self.engine_id: str | None = None
@@ -322,7 +324,7 @@ class SpannerConnection:
         :param param_values: the selection criteria, specified as key-value pairs
         :param param_types: the types involved in the selection criteria, specified as key-value pairs
         :param committable: whether to commit or rollback the operation, upon completion
-        :param errors: incidental error messages (might be a non-empty list)
+        :param errors: incidental error messages (may be a non-empty list)
         :return: list of tuples containing the search result, *[]* on empty search, or *None* if error
         """
         # initialize the return variable

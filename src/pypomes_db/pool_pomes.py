@@ -182,7 +182,7 @@ class DbConnectionPool:
         :param pool_timeout: number of seconds to wait for an available connection before failing
         :param pool_recycle: number of seconds after which connections in the pool are closed and reopened
         :param pool_verify: whether to ensure that the connection is still healthy before it is checked out
-        :param errors: incidental error messages (might be a non-empty list)
+        :param errors: incidental error messages (may be a non-empty list)
         """
         # declare the instance variables
         self.engine_id: str
@@ -270,7 +270,7 @@ class DbConnectionPool:
         Obtain a pooled connection.
 
         :param start: start of operation
-        :param errors: incidental error messages (might be a non-empty list)
+        :param errors: incidental error messages (may be a non-empty list)
         :return: a connection from the pool, or *None* if error
         """
         # initialize the return variable

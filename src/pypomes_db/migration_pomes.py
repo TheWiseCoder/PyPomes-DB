@@ -89,7 +89,7 @@ def db_migrate_data(source_engine: DbEngine | str,
     :param source_committable: whether to commit or rollback on *source_conn*, upon completion
     :param target_conn: the connection to the destination database (obtains a new one, if not provided)
     :param target_committable: whether to commit or rollback on *target_conn*, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the number of tuples effectively migrated, or *None* if error
     """
     # initialize the return variable
@@ -431,7 +431,7 @@ def db_migrate_lobs(source_engine: DbEngine | str,
     :param target_conn: the connection to the destination database (obtains a new one, if not provided)
     :param target_committable: whether to commit or rollback on *target_conn*, upon completion
     :param log_trigger: number of LOBs to trigger logging info on migration (defaults to 10000 LOBs)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the number of LOBs effectively migrated and their total size, or *None* if error
     """
     # initialize the return variable

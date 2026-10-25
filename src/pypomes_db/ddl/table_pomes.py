@@ -26,7 +26,7 @@ def db_create_table(table_name: str,
     :param constraints: optional list of constraints
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     """
     # build the table creation statement
     stmt: str = f"CREATE TABLE {table_name} ("
@@ -75,7 +75,7 @@ def db_create_session_table(table_name: str,
     :param column_data: this list of column information for the table creation
     :param engine: the reference database engine (uses the default engine, if not provided)
     :param connection: the connection defining the session
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     """
     # necessary, lest the state of 'errors' be tested
     curr_errors: list[str] = []
@@ -162,7 +162,7 @@ def db_get_tables(schema: str = None,
     :param schema: optional name of the schema to restrict the search to
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the schema-qualified table names found, or *None* if error
     """
     # initialize the return variable
@@ -208,7 +208,7 @@ def db_table_exists(table_name: str,
     :param table_name: the, possibly schema-qualified, name of the table to look for
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: *True* if the table was found, *False* otherwise, or *None* if error
     """
     # initialize the return variable
@@ -262,7 +262,7 @@ def db_drop_table(table_name: str,
     :param table_name: the, possibly schema-qualified, name of the table to drop
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     """
     # assert the database engine
     engine_id, engine_type = _assert_engine(engine,
@@ -316,7 +316,7 @@ def db_get_table_ddl(table_name: str,
     :param table_name: the schema-qualified name of the table
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the DDL script used to create the index, or *None* if error or the table does not exist
     """
     # initialize the return variable
@@ -390,7 +390,7 @@ def db_get_table_constraints(table_name: str,
     :param table_name: the, possibly qualified, table name
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the constraint data, *[]* if no constraints were fouund, or *None* if error
     """
     # initialize the return variable
@@ -495,7 +495,7 @@ def db_get_table_pk(table_name: str,
     :param table_name: the, possibly qualified, table name
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the PK constraint name and the ordered columns, *()* if PK was not found, or *None* if error
     """
     # initialize the return variable
@@ -653,7 +653,7 @@ def db_get_column_metadata(table_name: str,
     :param column_name: the name of the column to retrieve
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the metadata on column *column_name* in *table_name*, or *None* if error or metadata not found
     """
     # initialize the return variable
@@ -734,7 +734,7 @@ def db_get_columns_metadata(table_name: str,
     :param table_name: the, possibly schema-qualified, name of the table
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: a list of tuples with the metadata on all columns in *table_name*, or *None* if error
     """
     # initialize the return variable

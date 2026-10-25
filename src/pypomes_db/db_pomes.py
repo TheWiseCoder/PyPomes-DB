@@ -135,7 +135,7 @@ def db_startup(*,
     to its client library.
 
     :param engine: the database engine to use (uses the default engine, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: *True* if the access attempt succeeded, *False* otherwise
     """
     # initialize the return variable
@@ -153,6 +153,10 @@ def db_startup(*,
         elif engine_type == DbEngine.SPANNER:
             from .native.spanner_frame import GoogleSpanner, SpannerParam
             spanner: GoogleSpanner = conn_data.get(SpannerParam.ENGINE)
+            if not spanner:
+                # no 'errors' testing afterwards
+                spanner = GoogleSpanner(engine_id=engine_id,
+                                        errors=errors)
             result = spanner.startup(errors=errors)
         else:
             # assert access to 'engine'
@@ -556,7 +560,7 @@ def db_connect(*,
 
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param autocommit: whether the connection is to be in autocommit mode (defaults to False)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the connection to the database
     """
     # initialize the return variable
@@ -611,7 +615,7 @@ def db_commit(connection: Any,
 
     :param connection: the reference database connection
     :param engine: the database engine to use (uses the default engine, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     """
     # assert the database engine
     engine_id, _engine_type = _assert_engine(engine,
@@ -642,7 +646,7 @@ def db_commit_and_close(connection: Any,
 
     :param connection: the reference database connection
     :param engine: the database engine to use (uses the default engine, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     """
     # assert the database engine
     engine_id, engine_type = _assert_engine(engine,
@@ -866,7 +870,7 @@ def db_build_stmt(base_stmt: str,
     :param offset_count: number of tuples to skip (defaults to none)
     :param limit_count: limit to the number of tuples returned, to be specified in the query statement itself
     :param engine: the database engine to use (uses the default engine, if not provided)
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the *SQL* query statement built as per the given parameters , or *None* if error
     """
     # initialize the return variable
@@ -974,7 +978,7 @@ def db_count(*,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the number of tuples counted, or *None* if error
     """
     # initialize the return variable
@@ -1049,7 +1053,7 @@ def db_exists(*,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: *True* if the criteria for tuple existence were met, *False* otherwise, or *None* if error
     """
     # initialize the return variable
@@ -1134,7 +1138,7 @@ def db_select(sel_stmt: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: list of tuples containing the search result, *[]* on empty search, or *None* if error
     """
     # initialize the return variable
@@ -1242,7 +1246,7 @@ def db_insert(insert_stmt: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the values of *return_cols*, the number of inserted tuples (0 ou 1), or *None* if error
     """
     # process insert data provided as key-value pairs
@@ -1312,7 +1316,7 @@ def db_update(update_stmt: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the values of *return_cols*, or the number of updated tuples, or *None* if error
     """
     # initialize the return variable
@@ -1406,7 +1410,7 @@ def db_delete(delete_stmt: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the number of deleted tuples, or *None* if error
     """
     # process search data provided as key-value pairs
@@ -1459,7 +1463,7 @@ def db_bulk_insert(*,
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
     :param identity_column: column whose values are generated by the database
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the number of inserted tuples (1 for postgres), or *None* if error
     """
     # initialize the return variable
@@ -1582,7 +1586,7 @@ def db_bulk_update(*,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the number of updated tuples, or *None* if error
     """
     # initialize the return variable
@@ -1686,7 +1690,7 @@ def db_bulk_delete(*,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the number of inserted tuples (1 for postgres), or *None* if error
     """
     # initialize the return variable
@@ -1777,7 +1781,7 @@ def db_update_lob(*,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: number of LOBs effectively copied, or *None* if error
     """
     # necessary, lest 'errors' be passed to function requiring it to be empty or null
@@ -1866,7 +1870,7 @@ def db_execute(exc_stmt: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the values of *return_cols*, the return value from the command execution, or *None* if error
     """
     # initialize the return variable
@@ -1955,7 +1959,7 @@ def db_call_function(func_name: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the data returned by the function, or *None* if error
     """
     # initialize the return variable
@@ -2018,7 +2022,7 @@ def db_call_procedure(proc_name: str,
     :param engine: the database engine to use (uses the default engine, if not provided)
     :param connection: optional connection to use (obtains a new one, if not provided)
     :param committable: whether to commit or rollback the operation, upon completion
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the data returned by the procedure, or *None* if error
     """
     # initialize the return variable

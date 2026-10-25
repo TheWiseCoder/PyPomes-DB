@@ -123,7 +123,7 @@ def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
     1. for a single database engine, specify the data set:
         - for a *GoogleSpanner* database engine
           (all non-defaulted parameters are required, except for *<APP_PREFIX>_DB_PROJECT_ID*):
-            - *<APP_PREFIX>_DB_ENGINE_TYPE* (*spanner*)
+            - *<APP_PREFIX>_DB_TYPE* (*spanner*)
             - *<APP_PREFIX>_DB_DATABASE_ID*
             - *<APP_PREFIX>_DB_INSTANCE_ID*
             - *<APP_PREFIX>_DB_PROJECT_ID*
@@ -161,46 +161,44 @@ def __get_conn_data() -> dict[str, dict[DbParam, Any]]:
             prefixes.extend(multi_engines)
 
     for prefix in prefixes:
-        db_prefix: str = f"{APP_PREFIX}_{prefix}"
-        db_type: DbEngine = env_get_enum(key=f"{db_prefix}_TYPE",
+        engine_id = single_engine or prefix
+        prefix = f"{APP_PREFIX}_{prefix}"
+        db_type: DbEngine = env_get_enum(key=f"{prefix}_TYPE",
                                          enum_class=DbEngine)
         if not db_type:
-            err_msg: str = f"Unable to establish type for database engine '{db_prefix}'"
+            err_msg: str = f"Unable to establish type for database engine '{engine_id}'"
             raise ValueError(err_msg)
-        elif db_type == DbEngine.SPANNER:
-            result[single_engine or prefix] = {
-                SpannerParam.INSTANCE_ID: env_get_str(key=f"{db_prefix}_INSTANCE_ID"),
-                SpannerParam.DATABASE_ID: env_get_str(key=f"{db_prefix}_DATABASE_ID"),
-                SpannerParam.PROJECT_ID: env_get_str(key=f"{db_prefix}_PROJECT_ID"),
-                SpannerParam.CREDENTIALS:  env_get_path(key=f"{db_prefix}_PROJECT_ID"),
-                SpannerParam.SESSION_DEFAULT_TIMEOUT: env_get_str(key=f"{db_prefix}_SESSION_DEFAULT_TIMEOUT"),
-                SpannerParam.SESSION_PING_INTERVAL: env_get_int(key=f"{db_prefix}_SESSION_PING_INTERVAL"),
-                SpannerParam.SESSION_POOL_SIZE: env_get_int(key=f"{db_prefix}_SESSION_POOL_SIZE"),
+
+        result[engine_id] = {
                 DbParam.TYPE: db_type,
                 DbParam.VERSION: "",
                 DbParam.LOGGER: None
-            }
-            from .native.spanner_frame import GoogleSpanner
-            op_errors: list[str] = []
-            GoogleSpanner(engine_id=db_prefix,
-                          errors=op_errors)
-            if op_errors:
-                raise ValueError(op_errors[-1])
+        }
+        if db_type == DbEngine.SPANNER:
+            result[engine_id].update({
+                SpannerParam.DATABASE_ID: env_get_str(key=f"{prefix}_DATABASE_ID"),
+                SpannerParam.INSTANCE_ID: env_get_str(key=f"{prefix}_INSTANCE_ID"),
+                SpannerParam.PROJECT_ID: env_get_str(key=f"{prefix}_PROJECT_ID"),
+                SpannerParam.CREDENTIALS:  env_get_path(key=f"{prefix}_CREDENTIALS_ID"),
+                SpannerParam.SESSION_DEFAULT_TIMEOUT: env_get_int(key=f"{prefix}_SESSION_DEFAULT_TIMEOUT",
+                                                                  def_value=10),
+                SpannerParam.SESSION_PING_INTERVAL: env_get_int(key=f"{prefix}_SESSION_PING_INTERVAL",
+                                                                def_value=3000),
+                SpannerParam.SESSION_POOL_SIZE: env_get_int(key=f"{prefix}_SESSION_POOL_SIZE",
+                                                            def_value=10)
+            })
         else:
-            result[single_engine or db_prefix] = {
-                DbParam.NAME: env_get_str(key=f"{db_prefix}_NAME"),
-                DbParam.USER: env_get_str(key=f"{db_prefix}_USER"),
-                DbParam.PWD: env_get_str(key=f"{db_prefix}_PWD"),
-                DbParam.HOST: env_get_str(key=f"{db_prefix}_HOST"),
-                DbParam.PORT: env_get_int(key=f"{db_prefix}_PORT"),
-                DbParam.TYPE: db_type,
-                DbParam.VERSION: "",
-                DbParam.LOGGER: None
-            }
+            result[engine_id].update({
+                DbParam.NAME: env_get_str(key=f"{prefix}_NAME"),
+                DbParam.USER: env_get_str(key=f"{prefix}_USER"),
+                DbParam.PWD: env_get_str(key=f"{prefix}_PWD"),
+                DbParam.HOST: env_get_str(key=f"{prefix}_HOST"),
+                DbParam.PORT: env_get_int(key=f"{prefix}_PORT")
+            })
             if db_type == DbEngine.ORACLE:
-                result[db_prefix][DbParam.CLIENT] = env_get_path(key=f"{db_prefix}_CLIENT")
+                result[engine_id][DbParam.CLIENT] = env_get_path(key=f"{prefix}_CLIENT")
             elif db_type == DbEngine.SQLSERVER:
-                result[db_prefix][DbParam.DRIVER] = env_get_str(key=f"{db_prefix}_DRIVER")
+                result[engine_id][DbParam.DRIVER] = env_get_str(key=f"{prefix}_DRIVER")
 
     return result
 
@@ -216,7 +214,7 @@ def _assert_engine(engine: DbEngine | str,
     the first engine in the list of configured engines (the default engine) is returned.
 
     :param engine: the reference database engine
-    :param errors: incidental error messages (might be a non-empty list)
+    :param errors: incidental error messages (may be a non-empty list)
     :return: the validated or the default engine, or *None* if error
     """
     # initialize the return valiable
