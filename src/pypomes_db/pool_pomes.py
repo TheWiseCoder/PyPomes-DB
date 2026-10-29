@@ -55,69 +55,6 @@ _POOL_INSTANCES: Final[dict[str, DbConnectionPool]] = {}
 _instances_lock: Final[Lock] = Lock()
 
 
-def __get_pool_params() -> dict[str, dict[_PoolParam, Any]]:
-    """
-    Establish the connection pool parameters for supported databases, from values in environment variables.
-
-    To specify database connection parameters with environment variables, use the set:
-      - *<APP_PREFIX>_DB_POOL_SIZE*: maximum number of connections in the pool (no pool, if not greater than 0)
-      - *<APP_PREFIX>_DB_POOL_TIMEOUT*: number of seconds to wait for a connection to become available,
-        before failing the request (defaults to 60 seconds)
-      - *<APP_PREFIX>_DB_POOL_RECYCLE*: number of seconds after which idle connections in the pool are closed
-        (defaults to 3600 seconds)
-      - *<APP_PREFIX>_DB_POOL_VERIFY*: ensures the connection is still active and healthy before it is
-        checked out from the pool, by executing a lightweight query - if the verification fails,
-        the connection is discarded (defaults to *True*)
-
-    These variables apply to any of the supported database engines. To specify values for a specific engine,
-    replace *DB* with values from *_DB_CONN_DATA*'s keys.
-
-    :return: the connection parameters for supported database engines
-    """
-    # initialize the return variable
-    result: dict[str, dict[_PoolParam, Any]] = {}
-
-    engines: list[str] = list(DB_CONN_DATA.keys())
-    for engine in engines:
-        # establish pool size
-        size: int = (env_get_int(key=f"{APP_PREFIX}_{engine.upper()}_POOL_SIZE") or
-                     env_get_int(key=f"{APP_PREFIX}_DB_POOL_SIZE"))
-        if isinstance(size, int) and size > 0:
-            # establish pool timeout
-            timeout: int = (env_get_int(key=f"{APP_PREFIX}_{engine.upper()}_POOL_TIMEOUT") or
-                            env_get_int(key=f"{APP_PREFIX}_DB_POOL_TIMEOUT",
-                                        def_value=60))
-            # establish pool recycle
-            recycle: int = (env_get_int(key=f"{APP_PREFIX}_{engine.upper()}_POOL_RECYCLE") or
-                            env_get_int(key=f"{APP_PREFIX}_DB_POOL_RECYCLE",
-                                        def_value=3600))
-            # establish connection verification
-            verify: bool = (env_get_bool(key=f"{APP_PREFIX}_{engine.upper()}_POOL_VERIFY") or
-                            env_get_bool(key=f"{APP_PREFIX}_DB_POOL_VERIFY",
-                                         def_value=True))
-            result[engine] = {
-                _PoolParam.SIZE: size,
-                _PoolParam.TIMEOUT: timeout,
-                _PoolParam.RECYCLE: recycle,
-                _PoolParam.VERIFY: verify
-            }
-
-    return result
-
-
-# DbConnectionPool instance params:
-# {
-#    <engine_id>: {
-#       <_PoolParam.RECYCLE>: <int>,
-#       <_PoolParam.SIZE>: <int>,
-#       <_PoolParam.TIMEOUT>: <int>,
-#       <_PoolParam.VERIFY>: <bool>
-#    },
-#    ...
-# }
-_POOL_PARAMS: Final[dict[str, dict[_PoolParam, Any]]] = __get_pool_params()
-
-
 class DbConnectionPool:
     """
     A robust, transparent, and efficient implementation of a database connection pool.
@@ -167,12 +104,13 @@ class DbConnectionPool:
         The database engine specified must have been previously configured. This pool implementation does not
         apply to Google's *spanner* database engine, as it handles a built-in connection pool under the hood.
 
-        If not provided, the values for pool configuration parameters specified in the environment variables
-        suffixed with their uppercase names (namely, *POOL_SIZE*, *POOL_TIMEOUT*, *POOL_RECYCLE*,
-        and *POOL_VERIFY*) are used. If still not specified, these are the default values used:
+        If not provided, the values for the pool configuration parameters specified in the environment variables
+        are used. These environment variables are prefixed by the uppercased database engine identification
+        (or *DB*, if not found), and suffixed with their uppercased names (namely, *POOL_SIZE*, *POOL_TIMEOUT*,
+        *POOL_RECYCLE*, and *POOL_VERIFY*). If still not found, these are the default values used:
           - *pool_size*: 40 connections
           - *pool_timeout*: 60 seconds
-          - *pool_recycle*: 3600 seconds (60 minutos)
+          - *pool_recycle*: 3600 seconds (60 minutes)
           - *pool_verify*: True
 
         All instance attributes are final and should not be directly changed, lest the pool malfunction.
@@ -202,43 +140,43 @@ class DbConnectionPool:
 
         # obtain the default values for the pool parameters
         msg: str | None = None
-        pool_params: dict[_PoolParam, Any] | None = None
         if engine_id:
             if engine_type == DbEngine.SPANNER:
                 msg = f"pool does not apply to {engine_id}"
             else:
                 with _instances_lock:
                     if engine_id in _POOL_INSTANCES:
-                        msg += f"{engine} pool already exists"
-                    else:
-                        pool_params = _POOL_PARAMS.get(engine_id) or {}
+                        msg += "pool already exists"
+                    elif not isinstance(pool_size, int):
+                        pool_size = env_get_int(key=f"{APP_PREFIX}_{engine.upper()}_POOL_SIZE",
+                                                def_value=env_get_int(key=f"{APP_PREFIX}_DB_POOL_SIZE",
+                                                                      def_value=40))
+                    if pool_size <= 0:
+                        msg += f"specified size was {pool_size}"
             if msg:
-                msg = "Attempt to create connection pool failed: " + msg
+                msg = f"Attempt to create connection pool for engine '{engine}' failed: " + msg
                 logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
                 if logger:
                     logger.error(msg)
                 if isinstance(errors, list):
                     errors.append(msg)
 
-        if pool_params is not None:
-            if not isinstance(pool_size, int):
-                pool_size = pool_params.get(_PoolParam.SIZE)
             if pool_size > 0:
                 self.engine_id = engine_id
                 self.engine_type = engine_type
                 self.pool_size = pool_size
-                self.pool_timeout = pool_timeout \
-                    if isinstance(pool_timeout, int) else (pool_params.get(_PoolParam.TIMEOUT) or 60)
-                self.pool_recycle = pool_recycle \
-                    if isinstance(pool_recycle, int) else (pool_params.get(_PoolParam.RECYCLE) or 3600)
-                self.pool_verify = pool_verify \
-                    if isinstance(pool_verify, bool) else (pool_params.get(_PoolParam.VERIFY) or True)
-                _POOL_PARAMS[engine_id] = {
-                    _PoolParam.SIZE: self.pool_size,
-                    _PoolParam.TIMEOUT: self.pool_timeout,
-                    _PoolParam.RECYCLE: self.pool_recycle,
-                    _PoolParam.VERIFY: self.pool_verify
-                }
+                self.pool_timeout = (pool_timeout if isinstance(pool_timeout, int) else
+                                     env_get_int(key=f"{APP_PREFIX}_{engine_id.upper()}_POOL_TIMEOUT",
+                                                 def_value=env_get_int(key=f"{APP_PREFIX}_DB_POOL_TIMEOUT",
+                                                                       def_value=60)))
+                self.pool_recycle = (pool_recycle if isinstance(pool_recycle, int) else
+                                     env_get_int(key=f"{APP_PREFIX}_{engine_id.upper()}_POOL_RECYCLE",
+                                                 def_value=env_get_int(key=f"{APP_PREFIX}_DB_POOL_RECYCLE",
+                                                                       def_value=3600)))
+                self.pool_verify = (pool_verify if isinstance(pool_verify, bool) else
+                                    env_get_bool(key=f"{APP_PREFIX}_{engine_id.upper()}_POOL_VERIFY",
+                                                 def_value=env_get_bool(key=f"{APP_PREFIX}_DB_POOL_VERIFY",
+                                                                        def_value=True)))
                 self.stage_lock = Lock()
                 self.event_lock = Lock()
 
@@ -255,13 +193,6 @@ class DbConnectionPool:
                     msg: str = (f"{self.engine_id} pool created: size {self.pool_size}, "
                                 f"timeout {self.pool_timeout}, recycle {self.pool_recycle}")
                     logger.info(msg=msg)
-            else:
-                msg: str = f"{engine} pool not created: specified size was {pool_size}"
-                logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
-                if logger:
-                    logger.error(msg=msg)
-                if isinstance(errors, list):
-                    errors.append(msg)
 
     def connect(self,
                 start: float = None,

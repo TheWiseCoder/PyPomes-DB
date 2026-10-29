@@ -403,7 +403,8 @@ def db_sync_data(source_engine: DbEngine | str,
                 log_count = 0
                 err_msg = _except_msg(exception=e,
                                       engine_id=source_engine_id,
-                                      connection=curr_source_conn)
+                                      connection=curr_source_conn,
+                                      info=f"table '{source_table}'")
             finally:
                 # close the connections, if locally acquired
                 if curr_source_conn and not source_conn:

@@ -337,7 +337,8 @@ def db_migrate_data(source_engine: DbEngine | str,
                     curr_target_conn.rollback()
                 err_msg = _except_msg(exception=e,
                                       connection=curr_source_conn,
-                                      engine_id=source_engine)
+                                      engine_id=source_engine,
+                                      info=f"table '{source_table}'")
             finally:
                 # close the connections, if locally acquired
                 if curr_source_conn and not source_conn:
@@ -688,7 +689,8 @@ def db_migrate_lobs(source_engine: DbEngine | str,
                     curr_target_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   connection=curr_source_conn,
-                                  engine_id=source_engine)
+                                  engine_id=source_engine,
+                                  info=f"table '{source_table}'")
         finally:
             # close the connections, if locally acquired
             if curr_source_conn and not source_conn:

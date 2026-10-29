@@ -178,7 +178,8 @@ def db_stream_data(table: str,
             row_count = 0
             err_msg = _except_msg(exception=e,
                                   engine_id=engine_id,
-                                  connection=curr_conn)
+                                  connection=curr_conn,
+                                  info=f"table '{table}'")
         finally:
             # close the connections, if locally acquired
             if curr_conn and not connection:
@@ -437,7 +438,8 @@ def db_stream_lobs(table: str,
                     curr_conn.rollback()
             err_msg = _except_msg(exception=e,
                                   engine_id=engine_id,
-                                  connection=curr_conn)
+                                  connection=curr_conn,
+                                  info=f"table '{table}'")
         finally:
             # close the connections, if locally acquired
             if curr_conn and not connection:

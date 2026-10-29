@@ -227,7 +227,8 @@ def select(engine_id: str,
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
                                    engine_id=engine_id,
-                                   connection=curr_conn)
+                                   connection=curr_conn,
+                                   info=f"'stmt {sel_stmt}'")
             logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
             if logger:
                 logger.error(msg=msg)
@@ -328,7 +329,8 @@ def execute(engine_id: str,
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
                                    engine_id=engine_id,
-                                   connection=curr_conn)
+                                   connection=curr_conn,
+                                   info=f"stmt '{exc_stmt}'")
             logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
             if logger:
                 logger.error(msg=msg)
@@ -425,7 +427,8 @@ def bulk_execute(engine_id: str,
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
                                    engine_id=engine_id,
-                                   connection=curr_conn)
+                                   connection=curr_conn,
+                                   info=f"stmt '{exc_stmt}'")
             logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
             if logger:
                 logger.error(msg=msg)
@@ -528,7 +531,8 @@ def update_lob(engine_id: str,
                     curr_conn.rollback()
             msg: str = _except_msg(exception=e,
                                    engine_id=engine_id,
-                                   connection=curr_conn)
+                                   connection=curr_conn,
+                                   info=f"table '{lob_table}'")
             logger: Logger = DB_CONN_DATA[engine_id].get(DbParam.LOGGER)
             if logger:
                 logger.error(msg=msg)

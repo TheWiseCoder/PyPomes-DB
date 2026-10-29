@@ -10,6 +10,7 @@ from .db_common import (
     _assert_engine, _get_param, _bind_columns, _bind_marks,
     _combine_insert_data, _combine_update_data, _combine_search_data
 )
+from .db_init import db_init_from_environment
 from .pool_pomes import db_pool_acquire, db_pool_release
 
 
@@ -2101,3 +2102,7 @@ def __get_version(*,
             result = reply[0][0]
 
     return result
+
+
+# process connection data in environment
+db_init_from_environment()
