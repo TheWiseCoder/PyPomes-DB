@@ -47,14 +47,13 @@ def db_init_from_environment() -> None:
         prefixes.append("DB")
     else:
         multi_engines: list[str] = env_get_strs(key=f"{APP_PREFIX}_DB_ENGINES")
-        for engine in multi_engines or []:
-            prefixes.append(engine.upper())
+        prefixes.extend(multi_engines or [])
 
     for prefix in prefixes:
         engine_id = single_engine or prefix
         # HAZARD: prevent re-establishing connection data for engine
         if engine_id not in DB_CONN_DATA:
-            prefix = f"{APP_PREFIX}_{prefix}"
+            prefix = f"{APP_PREFIX}_{prefix.upper()}"
             db_type: DbEngine = env_get_enum(key=f"{prefix}_TYPE",
                                              enum_class=DbEngine)
             if not db_type:

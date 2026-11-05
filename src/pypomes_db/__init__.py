@@ -38,7 +38,6 @@ from .ddl.view_pomes import (
     db_get_views, db_view_exists, db_drop_view,
     db_get_view_ddl, db_get_view_dependencies
 )
-from .native.spanner_pomes import spanner_setup
 
 __all__ = [
     # db_common
@@ -71,9 +70,7 @@ __all__ = [
     "db_get_column_metadata", "db_get_columns_metadata",
     # ddl.view_pomes
     "db_get_views", "db_view_exists", "db_drop_view",
-    "db_get_view_ddl", "db_get_view_dependencies",
-    # native.spanner_pomes
-    "spanner_setup"
+    "db_get_view_ddl", "db_get_view_dependencies"
 ]
 
 from importlib.metadata import version
