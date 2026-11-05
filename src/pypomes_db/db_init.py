@@ -47,8 +47,8 @@ def db_init_from_environment() -> None:
         prefixes.append("DB")
     else:
         multi_engines: list[str] = env_get_strs(key=f"{APP_PREFIX}_DB_ENGINES")
-        if multi_engines:
-            prefixes.extend(multi_engines)
+        for engine in multi_engines or []:
+            prefixes.append(engine.upper())
 
     for prefix in prefixes:
         engine_id = single_engine or prefix
